@@ -92,9 +92,9 @@ export function Layout() {
             {isDark ? "Light Mode" : "Dark Mode"}
           </button>
 
-          {authStatus?.is_authenticated && authStatus.user_info && (
+          {authStatus?.is_authenticated && (
             <div className="flex items-center gap-3 px-3 py-2">
-              {authStatus.user_info.picture ? (
+              {authStatus.user_info?.picture ? (
                 <img
                   src={authStatus.user_info.picture}
                   alt=""
@@ -107,10 +107,10 @@ export function Layout() {
               )}
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">
-                  {authStatus.user_info.name}
+                  {authStatus.user_info?.name || "Connected"}
                 </p>
                 <p className="text-xs text-gray-500 truncate">
-                  {authStatus.user_info.email}
+                  {authStatus.user_info?.email || "YouTube Account"}
                 </p>
               </div>
               <button

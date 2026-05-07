@@ -189,6 +189,7 @@ class YouTubeAuthManager:
             client_id=config["client_id"],
             client_secret=config["client_secret"],
             scopes=YOUTUBE_SCOPES,
+            expiry=datetime.fromtimestamp(expiry, tz=timezone.utc).replace(tzinfo=None)
         )
 
         return self._credentials
@@ -202,6 +203,12 @@ class YouTubeAuthManager:
         if not tokens:
             return None
 
+        from datetime import datetime, timezone
+        expiry_ts = tokens.get("expiry")
+        expiry_dt = None
+        if expiry_ts:
+            expiry_dt = datetime.fromtimestamp(expiry_ts, tz=timezone.utc).replace(tzinfo=None)
+
         creds = Credentials(
             token=tokens.get("access_token"),
             refresh_token=tokens.get("refresh_token"),
@@ -209,6 +216,7 @@ class YouTubeAuthManager:
             client_id=tokens.get("client_id"),
             client_secret=tokens.get("client_secret"),
             scopes=tokens.get("scopes", YOUTUBE_SCOPES),
+            expiry=expiry_dt,
         )
 
         if not creds.valid:
