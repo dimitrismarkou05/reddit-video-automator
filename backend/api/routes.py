@@ -306,15 +306,79 @@ def youtube_auth_callback_get(
         raise HTTPException(status_code=400, detail="Missing code or state")
     auth = YouTubeAuthManager(db)
     try:
-        auth.exchange_code(code=code, state=state, redirect_uri="http://localhost:8000/api/v1/youtube/auth/callback")
+        auth.exchange_code(
+            code=code, 
+            state=state, 
+            redirect_uri="http://localhost:8000/api/v1/youtube/auth/callback"
+        )
         user_info = auth.get_user_info()
         _create_notification(
             db, "upload", "success",
             f"YouTube account connected: {user_info.get('email', 'Unknown')}",
             {"email": user_info.get("email"), "name": user_info.get("name")},
         )
-        # Redirect to frontend with success
-        return RedirectResponse(url="http://localhost:3000/login?auth=success")
+        
+        # Return HTML that closes the popup and notifies the parent window
+        from fastapi.responses import HTMLResponse
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Authentication Complete</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background-color: #f3f4f6;
+                }
+                .container {
+                    text-align: center;
+                    padding: 2rem;
+                }
+                .checkmark {
+                    font-size: 48px;
+                    margin-bottom: 1rem;
+                }
+                .message {
+                    color: #374151;
+                    font-size: 16px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="checkmark">✅</div>
+                <p class="message">Authentication successful!</p>
+                <p class="message">This window will close automatically...</p>
+            </div>
+            <script>
+                if (window.opener) {
+                    try {
+                        window.opener.postMessage({ type: 'auth_complete' }, '*');
+                    } catch (e) {
+                        console.error('Failed to post message:', e);
+                    }
+                }
+                
+                setTimeout(function() {
+                    window.close();
+                    
+                    setTimeout(function() {
+                        if (!window.closed) {
+                            document.body.innerHTML = '<div class="container"><p class="message">Authentication complete! You can close this window now.</p></div>';
+                        }
+                    }, 500);
+                }, 1000);
+            </script>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html_content)
+        
     except YouTubeAuthError as exc:
         raise _handle_error(exc, 400)
 

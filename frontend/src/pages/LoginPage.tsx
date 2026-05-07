@@ -13,16 +13,32 @@ export function LoginPage() {
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
-    if (searchParams.get("auth") === "success") {
-      // Fetch the current auth status immediately
+    const hasAuthSuccess =
+      searchParams.get("auth") === "success" ||
+      window.location.search.includes("auth=success") ||
+      window.location.href.includes("auth=success");
+
+    if (hasAuthSuccess) {
+      const isPopup = window.opener && window.opener !== window;
+
+      if (isPopup) {
+        try {
+          window.opener.postMessage("auth_complete", window.location.origin);
+        } catch (e) {}
+        window.close();
+        return;
+      }
+
       youtubeApi.authStatus().then(({ data }) => {
         setAuthStatus(data);
-        navigate("/stories");
+        // Force a hard reset to the root path to clear the "dirty" /stories or /login
+        window.location.href = window.location.origin + "/#/stories";
       });
-      // Clean the URL
-      window.history.replaceState({}, document.title, "/login");
+
+      const cleanHash = window.location.hash.split("?")[0];
+      window.history.replaceState({}, document.title, "/" + cleanHash);
     }
-  }, [searchParams]);
+  }, [searchParams, navigate, setAuthStatus]);
 
   const handleLogin = async () => {
     setIsLoading(true);
@@ -45,9 +61,22 @@ export function LoginPage() {
 
       // Open auth URL in system browser
       if (window.electronAPI) {
+        // Note: Google blocks OAuth inside embedded Electron windows for security, so openExternal is required here.
         await window.electronAPI.openExternal(flow.auth_url);
       } else {
-        window.open(flow.auth_url, "_blank");
+        // In a standard web browser, specify dimensions to force a popup window instead of a tab
+        const width = 500;
+        const height = 700;
+
+        // Calculate coordinates to center the window on the user's screen
+        const left = window.screenX + (window.outerWidth - width) / 2;
+        const top = window.screenY + (window.outerHeight - height) / 2;
+
+        window.open(
+          flow.auth_url,
+          "GoogleLogin",
+          `width=${width},height=${height},left=${left},top=${top},popup=yes,scrollbars=yes`,
+        );
       }
 
       // Show instructions
@@ -110,7 +139,7 @@ export function LoginPage() {
 
           {error && (
             <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">
-              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             </div>
           )}
