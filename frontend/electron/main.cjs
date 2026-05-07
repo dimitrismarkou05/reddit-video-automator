@@ -15,7 +15,7 @@ function createWindow() {
     minHeight: 600,
     titleBarStyle: "hiddenInset",
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -41,9 +41,15 @@ function createWindow() {
 
 function startBackend() {
   const backendDir = path.join(__dirname, "../../backend");
-  const mainPyPath = path.join(backendDir, "main.py"); // Directly in /backend
+
+  // Use the virtual environment's Python interpreter
+  const python =
+    process.platform === "win32"
+      ? path.join(backendDir, ".venv", "Scripts", "python.exe")
+      : path.join(backendDir, ".venv", "bin", "python");
+
   backendProcess = spawn(
-    "python",
+    python,
     ["-m", "uvicorn", "main:app", "--port", "8000"],
     {
       cwd: backendDir,
@@ -65,6 +71,8 @@ function startBackend() {
 }
 
 app.whenReady().then(() => {
+  // Only auto‑start the backend if not in development mode.
+  // In development you likely start the backend manually with hot‑reload.
   if (!isDev) {
     startBackend();
   }

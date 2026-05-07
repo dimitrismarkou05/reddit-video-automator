@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Video, ArrowRight, AlertCircle } from "lucide-react";
+import { Video, AlertCircle } from "lucide-react";
 import { useAuthStore } from "@/store";
 import { youtubeApi } from "@/services/api";
 import toast from "react-hot-toast";

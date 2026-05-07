@@ -1,15 +1,23 @@
-import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { 
-  Plus, RefreshCw, Link2, Film, ChevronDown, ChevronRight, 
-  MessageCircle, ArrowUp, Calendar, ExternalLink, AlertCircle,
-  BookOpen
-} from 'lucide-react';
-import { storyApi, subredditApi } from '@/services/api';
-import { GenerateVideoModal } from '@/components/GenerateVideoModal';
-import type { Story } from '@/types';
-import { formatDistanceToNow } from 'date-fns';
-import toast from 'react-hot-toast';
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Plus,
+  RefreshCw,
+  Link2,
+  Film,
+  ChevronDown,
+  ChevronRight,
+  MessageCircle,
+  ArrowUp,
+  Calendar,
+  ExternalLink,
+  BookOpen,
+} from "lucide-react";
+import { storyApi, subredditApi } from "@/services/api";
+import { GenerateVideoModal } from "@/components/GenerateVideoModal";
+import type { Story } from "@/types";
+import { formatDistanceToNow } from "date-fns";
+import toast from "react-hot-toast";
 
 function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -18,7 +26,9 @@ function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
   const hasVideo = !!story.generated_video;
 
   return (
-    <div className={`${depth > 0 ? 'ml-8 border-l-2 border-primary/20 pl-4' : ''}`}>
+    <div
+      className={`${depth > 0 ? "ml-8 border-l-2 border-primary/20 pl-4" : ""}`}
+    >
       <div className="card p-4 mb-3 hover:shadow-md transition-shadow">
         <div className="flex items-start gap-4">
           {/* Expand button for updates */}
@@ -66,12 +76,15 @@ function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
               </span>
               <span className="flex items-center gap-1">
                 <Calendar className="w-3 h-3" />
-                {formatDistanceToNow(new Date(story.fetched_at), { addSuffix: true })}
+                {formatDistanceToNow(new Date(story.fetched_at), {
+                  addSuffix: true,
+                })}
               </span>
               {hasUpdates && (
                 <span className="flex items-center gap-1 text-primary">
                   <Link2 className="w-3 h-3" />
-                  {story.updates?.length} update{story.updates?.length !== 1 ? 's' : ''}
+                  {story.updates?.length} update
+                  {story.updates?.length !== 1 ? "s" : ""}
                 </span>
               )}
             </div>
@@ -79,7 +92,7 @@ function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
             {story.body && (
               <p className="mt-2 text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
                 {story.body.substring(0, 200)}
-                {story.body.length > 200 ? '...' : ''}
+                {story.body.length > 200 ? "..." : ""}
               </p>
             )}
           </div>
@@ -90,10 +103,10 @@ function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
               disabled={hasVideo}
               className={`p-2 rounded-lg transition-colors ${
                 hasVideo
-                  ? 'bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default'
-                  : 'bg-primary/10 text-primary hover:bg-primary/20'
+                  ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
+                  : "bg-primary/10 text-primary hover:bg-primary/20"
               }`}
-              title={hasVideo ? 'Video already generated' : 'Generate video'}
+              title={hasVideo ? "Video already generated" : "Generate video"}
             >
               <Film className="w-5 h-5" />
             </button>
@@ -130,11 +143,15 @@ function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
 }
 
 export function StoriesPage() {
-  const [newSubreddit, setNewSubreddit] = useState('');
+  const [newSubreddit, setNewSubreddit] = useState("");
   const [isAdding, setIsAdding] = useState(false);
 
-  const { data: stories, isLoading, refetch } = useQuery({
-    queryKey: ['stories'],
+  const {
+    data: stories,
+    isLoading,
+    refetch,
+  } = useQuery({
+    queryKey: ["stories"],
     queryFn: async () => {
       const { data } = await storyApi.list();
       return data.filter((s: Story) => !s.is_update);
@@ -142,7 +159,7 @@ export function StoriesPage() {
   });
 
   const { data: subreddits } = useQuery({
-    queryKey: ['subreddits'],
+    queryKey: ["subreddits"],
     queryFn: async () => {
       const { data } = await subredditApi.list();
       return data;
@@ -155,10 +172,10 @@ export function StoriesPage() {
     try {
       await subredditApi.add(newSubreddit.trim());
       toast.success(`Added r/${newSubreddit.trim()}`);
-      setNewSubreddit('');
+      setNewSubreddit("");
       refetch();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail || 'Failed to add subreddit');
+      toast.error(e.response?.data?.detail || "Failed to add subreddit");
     } finally {
       setIsAdding(false);
     }
@@ -166,23 +183,23 @@ export function StoriesPage() {
 
   const handleFetchAll = async () => {
     try {
-      toast.loading('Fetching stories...', { id: 'fetch' });
+      toast.loading("Fetching stories...", { id: "fetch" });
       await subredditApi.fetchAll();
-      toast.success('Fetch complete!', { id: 'fetch' });
+      toast.success("Fetch complete!", { id: "fetch" });
       refetch();
     } catch (e) {
-      toast.error('Fetch failed', { id: 'fetch' });
+      toast.error("Fetch failed", { id: "fetch" });
     }
   };
 
   const handleLinkUpdates = async () => {
     try {
-      toast.loading('Linking updates...', { id: 'link' });
+      toast.loading("Linking updates...", { id: "link" });
       await storyApi.linkUpdates();
-      toast.success('Updates linked!', { id: 'link' });
+      toast.success("Updates linked!", { id: "link" });
       refetch();
     } catch (e) {
-      toast.error('Linking failed', { id: 'link' });
+      toast.error("Linking failed", { id: "link" });
     }
   };
 
@@ -195,7 +212,7 @@ export function StoriesPage() {
             type="text"
             value={newSubreddit}
             onChange={(e) => setNewSubreddit(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddSubreddit()}
+            onKeyDown={(e) => e.key === "Enter" && handleAddSubreddit()}
             placeholder="Add subreddit (e.g., AskReddit)"
             className="input max-w-xs"
           />
@@ -255,7 +272,9 @@ export function StoriesPage() {
       ) : (
         <div className="card p-12 text-center">
           <BookOpen className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-          <h3 className="text-lg font-semibold text-gray-500">No stories yet</h3>
+          <h3 className="text-lg font-semibold text-gray-500">
+            No stories yet
+          </h3>
           <p className="text-sm text-gray-400 mt-1">
             Add a subreddit and click "Fetch All" to get started
           </p>

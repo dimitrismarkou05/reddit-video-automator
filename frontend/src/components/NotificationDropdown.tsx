@@ -1,14 +1,22 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Bell, Check, Trash2, ExternalLink } from 'lucide-react';
-import { useNotificationStore } from '@/store';
-import { notificationApi, sse } from '@/services/api';
-import { formatDistanceToNow } from 'date-fns';
-import type { Notification } from '@/types';
+import React, { useState, useEffect, useRef } from "react";
+import { Bell, Check, Trash2 } from "lucide-react";
+import { useNotificationStore } from "@/store";
+import { notificationApi, sse } from "@/services/api";
+import { formatDistanceToNow } from "date-fns";
+import type { Notification } from "@/types";
 
 export function NotificationDropdown() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const { notifications, unreadCount, setNotifications, addNotification, markAsRead, markAllAsRead, removeNotification } = useNotificationStore();
+  const {
+    notifications,
+    unreadCount,
+    setNotifications,
+    addNotification,
+    markAsRead,
+    markAllAsRead,
+    removeNotification,
+  } = useNotificationStore();
 
   useEffect(() => {
     const fetchNotifications = async () => {
@@ -16,15 +24,15 @@ export function NotificationDropdown() {
         const { data } = await notificationApi.list(false, 20);
         setNotifications(data);
       } catch (e) {
-        console.error('Failed to fetch notifications:', e);
+        console.error("Failed to fetch notifications:", e);
       }
     };
     fetchNotifications();
   }, [setNotifications]);
 
   useEffect(() => {
-    sse.connect('/api/v1/sse/notifications');
-    sse.on('notification', (data) => {
+    sse.connect("/api/v1/sse/notifications");
+    sse.on("notification", (data) => {
       addNotification(data as Notification);
     });
     return () => sse.disconnect();
@@ -32,12 +40,15 @@ export function NotificationDropdown() {
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setIsOpen(false);
       }
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleMarkRead = async (id: number, e: React.MouseEvent) => {
@@ -46,7 +57,7 @@ export function NotificationDropdown() {
       await notificationApi.markRead(id);
       markAsRead(id);
     } catch (e) {
-      console.error('Failed to mark notification as read:', e);
+      console.error("Failed to mark notification as read:", e);
     }
   };
 
@@ -55,7 +66,7 @@ export function NotificationDropdown() {
       await notificationApi.markAllRead();
       markAllAsRead();
     } catch (e) {
-      console.error('Failed to mark all as read:', e);
+      console.error("Failed to mark all as read:", e);
     }
   };
 
@@ -65,16 +76,20 @@ export function NotificationDropdown() {
       await notificationApi.delete(id);
       removeNotification(id);
     } catch (e) {
-      console.error('Failed to delete notification:', e);
+      console.error("Failed to delete notification:", e);
     }
   };
 
   const getLevelColor = (level: string) => {
     switch (level) {
-      case 'error': return 'bg-red-500';
-      case 'warning': return 'bg-yellow-500';
-      case 'success': return 'bg-green-500';
-      default: return 'bg-blue-500';
+      case "error":
+        return "bg-red-500";
+      case "warning":
+        return "bg-yellow-500";
+      case "success":
+        return "bg-green-500";
+      default:
+        return "bg-blue-500";
     }
   };
 
@@ -87,7 +102,7 @@ export function NotificationDropdown() {
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
           <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-            {unreadCount > 9 ? '9+' : unreadCount}
+            {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
       </button>
@@ -118,16 +133,29 @@ export function NotificationDropdown() {
                 <div
                   key={notification.id}
                   className={`p-3 border-b border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer ${
-                    !notification.is_read ? 'bg-primary/5 dark:bg-primary/10' : ''
+                    !notification.is_read
+                      ? "bg-primary/5 dark:bg-primary/10"
+                      : ""
                   }`}
-                  onClick={() => handleMarkRead(notification.id, { stopPropagation: () => {} } as any)}
+                  onClick={() =>
+                    handleMarkRead(notification.id, {
+                      stopPropagation: () => {},
+                    } as any)
+                  }
                 >
                   <div className="flex items-start gap-3">
-                    <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${getLevelColor(notification.level)}`} />
+                    <div
+                      className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${getLevelColor(notification.level)}`}
+                    />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{notification.message}</p>
+                      <p className="text-sm font-medium">
+                        {notification.message}
+                      </p>
                       <p className="text-xs text-gray-500 mt-1">
-                        {formatDistanceToNow(new Date(notification.created_at), { addSuffix: true })}
+                        {formatDistanceToNow(
+                          new Date(notification.created_at),
+                          { addSuffix: true },
+                        )}
                       </p>
                     </div>
                     <div className="flex items-center gap-1">

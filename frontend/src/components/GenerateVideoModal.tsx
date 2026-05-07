@@ -1,16 +1,16 @@
-import React, { useState } from 'react';
-import { X, Film, Mic, Type, Image, Settings, AlertCircle } from 'lucide-react';
-import { videoApi } from '@/services/api';
-import type { Story, SubtitleStyle } from '@/types';
-import toast from 'react-hot-toast';
+import { useState } from "react";
+import { X, Film, Mic, Type, Image, Settings } from "lucide-react";
+import { videoApi } from "@/services/api";
+import type { Story, SubtitleStyle } from "@/types";
+import toast from "react-hot-toast";
 
 const TTS_VOICES = [
-  { id: 'alloy', name: 'Alloy', provider: 'openai' },
-  { id: 'echo', name: 'Echo', provider: 'openai' },
-  { id: 'fable', name: 'Fable', provider: 'openai' },
-  { id: 'onyx', name: 'Onyx', provider: 'openai' },
-  { id: 'nova', name: 'Nova', provider: 'openai' },
-  { id: 'shimmer', name: 'Shimmer', provider: 'openai' },
+  { id: "alloy", name: "Alloy", provider: "openai" },
+  { id: "echo", name: "Echo", provider: "openai" },
+  { id: "fable", name: "Fable", provider: "openai" },
+  { id: "onyx", name: "Onyx", provider: "openai" },
+  { id: "nova", name: "Nova", provider: "openai" },
+  { id: "shimmer", name: "Shimmer", provider: "openai" },
 ];
 
 interface GenerateVideoModalProps {
@@ -18,14 +18,17 @@ interface GenerateVideoModalProps {
   onClose: () => void;
 }
 
-export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) {
+export function GenerateVideoModal({
+  story,
+  onClose,
+}: GenerateVideoModalProps) {
   const [settings, setSettings] = useState({
-    tts_provider: 'openai',
-    tts_voice: 'alloy',
-    background_source: '',
-    video_format: 'shorts' as 'shorts' | 'normal',
+    tts_provider: "openai",
+    tts_voice: "alloy",
+    background_source: "",
+    video_format: "shorts" as "shorts" | "normal",
     include_updates: true,
-    subtitle_position: 'center' as 'center' | 'bottom' | 'top',
+    subtitle_position: "center" as "center" | "bottom" | "top",
     subtitle_size: 48,
     generate_hashtags: true,
   });
@@ -38,8 +41,8 @@ export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) 
         setSettings((s) => ({ ...s, background_source: path }));
       }
     } else {
-      const input = document.createElement('input');
-      input.type = 'file';
+      const input = document.createElement("input");
+      input.type = "file";
       (input as any).webkitdirectory = true;
       input.onchange = (e: any) => {
         const files = e.target.files;
@@ -53,7 +56,7 @@ export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) 
 
   const handleGenerate = async () => {
     if (!settings.background_source) {
-      toast.error('Please select a background video or folder');
+      toast.error("Please select a background video or folder");
       return;
     }
 
@@ -63,8 +66,8 @@ export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) 
       const subtitleStyle: SubtitleStyle = {
         position: settings.subtitle_position,
         font_size: settings.subtitle_size,
-        font_color: '#FFFFFF',
-        outline_color: '#000000',
+        font_color: "#FFFFFF",
+        outline_color: "#000000",
         outline_width: 2,
         max_width_percent: 90,
       };
@@ -80,10 +83,14 @@ export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) 
         generate_hashtags: settings.generate_hashtags,
       });
 
-      toast.success('Video generation started! Check the Videos tab for progress.');
+      toast.success(
+        "Video generation started! Check the Videos tab for progress.",
+      );
       onClose();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail || 'Failed to start video generation');
+      toast.error(
+        e.response?.data?.detail || "Failed to start video generation",
+      );
       setIsGenerating(false);
     }
   };
@@ -122,9 +129,12 @@ export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) 
                 <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin" />
                 <Film className="absolute inset-0 m-auto w-8 h-8 text-primary" />
               </div>
-              <h3 className="text-lg font-semibold mb-2">Generating Video...</h3>
+              <h3 className="text-lg font-semibold mb-2">
+                Generating Video...
+              </h3>
               <p className="text-sm text-gray-500">
-                This may take a few minutes. You can close this modal and check progress in the Videos tab.
+                This may take a few minutes. You can close this modal and check
+                progress in the Videos tab.
               </p>
             </div>
           ) : (
@@ -137,10 +147,17 @@ export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) 
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Provider</label>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Provider
+                    </label>
                     <select
                       value={settings.tts_provider}
-                      onChange={(e) => setSettings((s) => ({ ...s, tts_provider: e.target.value }))}
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          tts_provider: e.target.value,
+                        }))
+                      }
                       className="input"
                     >
                       <option value="openai">OpenAI</option>
@@ -148,14 +165,23 @@ export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) 
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Voice</label>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Voice
+                    </label>
                     <select
                       value={settings.tts_voice}
-                      onChange={(e) => setSettings((s) => ({ ...s, tts_voice: e.target.value }))}
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          tts_voice: e.target.value,
+                        }))
+                      }
                       className="input"
                     >
                       {TTS_VOICES.map((v) => (
-                        <option key={v.id} value={v.id}>{v.name}</option>
+                        <option key={v.id} value={v.id}>
+                          {v.name}
+                        </option>
                       ))}
                     </select>
                   </div>
@@ -183,7 +209,8 @@ export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) 
                   )}
                 </div>
                 <p className="text-xs text-gray-500">
-                  Select a folder with video files. One will be picked randomly for each generation.
+                  Select a folder with video files. One will be picked randomly
+                  for each generation.
                 </p>
               </div>
 
@@ -195,22 +222,26 @@ export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) 
                 </div>
                 <div className="flex gap-3">
                   <button
-                    onClick={() => setSettings((s) => ({ ...s, video_format: 'shorts' }))}
+                    onClick={() =>
+                      setSettings((s) => ({ ...s, video_format: "shorts" }))
+                    }
                     className={`flex-1 p-3 rounded-lg border-2 transition-colors ${
-                      settings.video_format === 'shorts'
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700'
+                      settings.video_format === "shorts"
+                        ? "border-primary bg-primary/5"
+                        : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700"
                     }`}
                   >
                     <div className="text-sm font-medium">Shorts</div>
                     <div className="text-xs text-gray-500">9:16 Vertical</div>
                   </button>
                   <button
-                    onClick={() => setSettings((s) => ({ ...s, video_format: 'normal' }))}
+                    onClick={() =>
+                      setSettings((s) => ({ ...s, video_format: "normal" }))
+                    }
                     className={`flex-1 p-3 rounded-lg border-2 transition-colors ${
-                      settings.video_format === 'normal'
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700'
+                      settings.video_format === "normal"
+                        ? "border-primary bg-primary/5"
+                        : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700"
                     }`}
                   >
                     <div className="text-sm font-medium">Normal</div>
@@ -227,10 +258,17 @@ export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) 
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Position</label>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Position
+                    </label>
                     <select
                       value={settings.subtitle_position}
-                      onChange={(e) => setSettings((s) => ({ ...s, subtitle_position: e.target.value as any }))}
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          subtitle_position: e.target.value as any,
+                        }))
+                      }
                       className="input"
                     >
                       <option value="center">Center</option>
@@ -239,11 +277,18 @@ export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) 
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Font Size</label>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Font Size
+                    </label>
                     <input
                       type="number"
                       value={settings.subtitle_size}
-                      onChange={(e) => setSettings((s) => ({ ...s, subtitle_size: parseInt(e.target.value) }))}
+                      onChange={(e) =>
+                        setSettings((s) => ({
+                          ...s,
+                          subtitle_size: parseInt(e.target.value),
+                        }))
+                      }
                       className="input"
                       min={20}
                       max={80}
@@ -258,19 +303,33 @@ export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) 
                   <input
                     type="checkbox"
                     checked={settings.include_updates}
-                    onChange={(e) => setSettings((s) => ({ ...s, include_updates: e.target.checked }))}
+                    onChange={(e) =>
+                      setSettings((s) => ({
+                        ...s,
+                        include_updates: e.target.checked,
+                      }))
+                    }
                     className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
                   />
-                  <span className="text-sm">Include linked updates in video</span>
+                  <span className="text-sm">
+                    Include linked updates in video
+                  </span>
                 </label>
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={settings.generate_hashtags}
-                    onChange={(e) => setSettings((s) => ({ ...s, generate_hashtags: e.target.checked }))}
+                    onChange={(e) =>
+                      setSettings((s) => ({
+                        ...s,
+                        generate_hashtags: e.target.checked,
+                      }))
+                    }
                     className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
                   />
-                  <span className="text-sm">Auto-generate YouTube hashtags</span>
+                  <span className="text-sm">
+                    Auto-generate YouTube hashtags
+                  </span>
                 </label>
               </div>
             </>
@@ -280,10 +339,7 @@ export function GenerateVideoModal({ story, onClose }: GenerateVideoModalProps) 
         {/* Footer */}
         {!isGenerating && (
           <div className="flex items-center justify-end gap-3 p-6 border-t border-border-light dark:border-border-dark">
-            <button
-              onClick={onClose}
-              className="btn-secondary"
-            >
+            <button onClick={onClose} className="btn-secondary">
               Cancel
             </button>
             <button

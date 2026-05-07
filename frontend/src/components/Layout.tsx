@@ -1,24 +1,29 @@
-import React from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { 
-  BookOpen, Video, Settings, Bot, Bell, Sun, Moon, LogOut, 
-  ChevronLeft, User 
-} from 'lucide-react';
-import { useThemeStore, useAuthStore, useNotificationStore } from '@/store';
-import { NotificationDropdown } from '@/components/NotificationDropdown';
-import { youtubeApi } from '@/services/api';
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import {
+  BookOpen,
+  Video,
+  Settings,
+  Bot,
+  Sun,
+  Moon,
+  LogOut,
+  User,
+} from "lucide-react";
+import { useThemeStore, useAuthStore, useNotificationStore } from "@/store";
+import { NotificationDropdown } from "@/components/NotificationDropdown";
+import { youtubeApi } from "@/services/api";
 
 const navItems = [
-  { path: '/stories', label: 'Stories', icon: BookOpen },
-  { path: '/videos', label: 'Videos', icon: Video },
-  { path: '/automation', label: 'Automation', icon: Bot },
-  { path: '/settings', label: 'Settings', icon: Settings },
+  { path: "/stories", label: "Stories", icon: BookOpen },
+  { path: "/videos", label: "Videos", icon: Video },
+  { path: "/automation", label: "Automation", icon: Bot },
+  { path: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function Layout() {
   const { isDark, toggle } = useThemeStore();
   const { authStatus, logout } = useAuthStore();
-  const { unreadCount } = useNotificationStore();
+  const {} = useNotificationStore();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -26,10 +31,10 @@ export function Layout() {
     try {
       await youtubeApi.logout();
     } catch (e) {
-      console.error('Logout error:', e);
+      console.error("Logout error:", e);
     }
     logout();
-    navigate('/login');
+    navigate("/login");
   };
 
   return (
@@ -44,7 +49,9 @@ export function Layout() {
             </div>
             <div>
               <h1 className="font-bold text-lg leading-tight">Reddit Video</h1>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Automator</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Automator
+              </p>
             </div>
           </div>
         </div>
@@ -60,8 +67,8 @@ export function Layout() {
                 onClick={() => navigate(item.path)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
-                    ? 'bg-primary/10 text-primary dark:bg-primary/20'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    ? "bg-primary/10 text-primary dark:bg-primary/20"
+                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                 }`}
               >
                 <Icon className="w-5 h-5" />
@@ -77,8 +84,12 @@ export function Layout() {
             onClick={toggle}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           >
-            {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            {isDark ? 'Light Mode' : 'Dark Mode'}
+            {isDark ? (
+              <Sun className="w-5 h-5" />
+            ) : (
+              <Moon className="w-5 h-5" />
+            )}
+            {isDark ? "Light Mode" : "Dark Mode"}
           </button>
 
           {authStatus?.is_authenticated && authStatus.user_info && (
@@ -95,8 +106,12 @@ export function Layout() {
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{authStatus.user_info.name}</p>
-                <p className="text-xs text-gray-500 truncate">{authStatus.user_info.email}</p>
+                <p className="text-sm font-medium truncate">
+                  {authStatus.user_info.name}
+                </p>
+                <p className="text-xs text-gray-500 truncate">
+                  {authStatus.user_info.email}
+                </p>
               </div>
               <button
                 onClick={handleLogout}
@@ -115,7 +130,8 @@ export function Layout() {
         {/* Top bar */}
         <header className="h-14 bg-surface-light dark:bg-surface-dark border-b border-border-light dark:border-border-dark flex items-center justify-between px-6">
           <h2 className="text-lg font-semibold">
-            {navItems.find((n) => n.path === location.pathname)?.label || 'Dashboard'}
+            {navItems.find((n) => n.path === location.pathname)?.label ||
+              "Dashboard"}
           </h2>
 
           <div className="flex items-center gap-3">

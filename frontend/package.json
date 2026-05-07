@@ -35,6 +35,6 @@
     "electron:build": "npm run build && electron-builder",
     "preview": "vite preview"
   },
-  "main": "electron/main.js",
+  "main": "electron/main.cjs",
   "homepage": "."
 }
