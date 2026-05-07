@@ -2,6 +2,7 @@
 
 from typing import List, Optional
 from pathlib import Path
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 
@@ -58,11 +59,11 @@ def _create_notification(
 
 
 # Include automation routes
-router.include_router(automation_router, prefix="/automation")
+router.include_router(automation_router, prefix="/automation", tags=["Automation"])
 
 
 # Subreddits
-@router.post("/subreddits", response_model=SubredditResponse)
+@router.post("/subreddits", response_model=SubredditResponse, tags=["Subreddits"])
 def add_subreddit(data: SubredditCreate, db: Session = Depends(get_db)):
     fetcher = StoryFetcher(db)
     try:
@@ -71,7 +72,7 @@ def add_subreddit(data: SubredditCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.get("/subreddits", response_model=List[SubredditResponse])
+@router.get("/subreddits", response_model=List[SubredditResponse], tags=["Subreddits"])
 def list_subreddits(active_only: bool = False, db: Session = Depends(get_db)):
     q = db.query(Subreddit)
     if active_only:
@@ -79,7 +80,7 @@ def list_subreddits(active_only: bool = False, db: Session = Depends(get_db)):
     return q.all()
 
 
-@router.delete("/subreddits/{subreddit_id}")
+@router.delete("/subreddits/{subreddit_id}", tags=["Subreddits"])
 def delete_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
     sub = db.query(Subreddit).filter(Subreddit.id == subreddit_id).first()
     if not sub:
@@ -89,7 +90,7 @@ def delete_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
     return {"deleted": True}
 
 
-@router.post("/subreddits/{subreddit_id}/fetch", response_model=FetchResult)
+@router.post("/subreddits/{subreddit_id}/fetch", response_model=FetchResult, tags=["Subreddits"])
 def fetch_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
     fetcher = StoryFetcher(db)
     sub = db.query(Subreddit).filter(Subreddit.id == subreddit_id).first()
@@ -113,7 +114,7 @@ def fetch_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
         return FetchResult(subreddit=sub.name, fetched_count=0, error=str(exc))
 
 
-@router.post("/fetch-all", response_model=List[FetchResult])
+@router.post("/fetch-all", response_model=List[FetchResult], tags=["Subreddits"])
 def fetch_all(db: Session = Depends(get_db)):
     fetcher = StoryFetcher(db)
     results = fetcher.fetch_all_active()
@@ -124,7 +125,7 @@ def fetch_all(db: Session = Depends(get_db)):
 
 
 # Stories
-@router.get("/stories", response_model=List[StoryResponse])
+@router.get("/stories", response_model=List[StoryResponse], tags=["Stories"])
 def list_stories(
     subreddit: Optional[str] = None,
     status: Optional[str] = None,
@@ -141,7 +142,7 @@ def list_stories(
     return q.order_by(Story.fetched_at.desc()).all()
 
 
-@router.get("/stories/{story_id}", response_model=StoryDetailResponse)
+@router.get("/stories/{story_id}", response_model=StoryDetailResponse, tags=["Stories"])
 def get_story(story_id: int, db: Session = Depends(get_db)):
     story = db.query(Story).filter(Story.id == story_id).first()
     if not story:
@@ -149,7 +150,7 @@ def get_story(story_id: int, db: Session = Depends(get_db)):
     return story
 
 
-@router.get("/stories/{story_id}/chain", response_model=StoryChainResponse)
+@router.get("/stories/{story_id}/chain", response_model=StoryChainResponse, tags=["Stories"])
 def get_story_chain(story_id: int, db: Session = Depends(get_db)):
     linker = UpdateLinker(db)
     chain = linker.get_story_chain(story_id)
@@ -158,7 +159,7 @@ def get_story_chain(story_id: int, db: Session = Depends(get_db)):
     return StoryChainResponse(original=chain[0], updates=chain[1:])
 
 
-@router.post("/stories/link-updates")
+@router.post("/stories/link-updates", tags=["Stories"])
 def run_link_updates(subreddit: Optional[str] = None, db: Session = Depends(get_db)):
     linker = UpdateLinker(db)
     if subreddit:
@@ -176,7 +177,7 @@ def run_link_updates(subreddit: Optional[str] = None, db: Session = Depends(get_
 
 
 # Video Generation
-@router.post("/videos/generate", response_model=VideoGenerationResponse)
+@router.post("/videos/generate", response_model=VideoGenerationResponse, tags=["Videos"])
 def generate_video(
     request: VideoGenerationRequest,
     background_tasks: BackgroundTasks,
@@ -235,7 +236,7 @@ def generate_video(
     )
 
 
-@router.get("/videos", response_model=List[GeneratedVideoResponse])
+@router.get("/videos", response_model=List[GeneratedVideoResponse], tags=["Videos"])
 def list_videos(status: Optional[str] = None, db: Session = Depends(get_db)):
     q = db.query(GeneratedVideo)
     if status:
@@ -243,7 +244,7 @@ def list_videos(status: Optional[str] = None, db: Session = Depends(get_db)):
     return q.order_by(GeneratedVideo.created_at.desc()).all()
 
 
-@router.get("/videos/{video_id}", response_model=GeneratedVideoResponse)
+@router.get("/videos/{video_id}", response_model=GeneratedVideoResponse, tags=["Videos"])
 def get_video(video_id: int, db: Session = Depends(get_db)):
     video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
     if not video:
@@ -251,7 +252,7 @@ def get_video(video_id: int, db: Session = Depends(get_db)):
     return video
 
 
-@router.get("/videos/{video_id}/progress", response_model=VideoProgressResponse)
+@router.get("/videos/{video_id}/progress", response_model=VideoProgressResponse, tags=["Videos"])
 def get_video_progress(video_id: int, db: Session = Depends(get_db)):
     video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
     if not video:
@@ -267,7 +268,7 @@ def get_video_progress(video_id: int, db: Session = Depends(get_db)):
 
 
 # YouTube Auth
-@router.get("/youtube/auth/status", response_model=YouTubeAuthStatusResponse)
+@router.get("/youtube/auth/status", response_model=YouTubeAuthStatusResponse, tags=["YouTube"])
 def youtube_auth_status(db: Session = Depends(get_db)):
     auth = YouTubeAuthManager(db)
     user_info = None
@@ -283,7 +284,7 @@ def youtube_auth_status(db: Session = Depends(get_db)):
     )
 
 
-@router.post("/youtube/auth/initiate", response_model=YouTubeAuthInitiateResponse)
+@router.post("/youtube/auth/initiate", response_model=YouTubeAuthInitiateResponse, tags=["YouTube"])
 def youtube_auth_initiate(db: Session = Depends(get_db)):
     auth = YouTubeAuthManager(db)
     try:
@@ -293,7 +294,7 @@ def youtube_auth_initiate(db: Session = Depends(get_db)):
         raise _handle_error(exc, 400)
 
 
-@router.post("/youtube/auth/callback")
+@router.post("/youtube/auth/callback", tags=["YouTube"])
 def youtube_auth_callback(payload: YouTubeAuthCallbackRequest, db: Session = Depends(get_db)):
     auth = YouTubeAuthManager(db)
     try:
@@ -309,7 +310,7 @@ def youtube_auth_callback(payload: YouTubeAuthCallbackRequest, db: Session = Dep
         raise _handle_error(exc, 400)
 
 
-@router.post("/youtube/auth/logout")
+@router.post("/youtube/auth/logout", tags=["YouTube"])
 def youtube_auth_logout(db: Session = Depends(get_db)):
     auth = YouTubeAuthManager(db)
     try:
@@ -321,7 +322,7 @@ def youtube_auth_logout(db: Session = Depends(get_db)):
 
 
 # YouTube Upload
-@router.post("/youtube/upload", response_model=YouTubeUploadResponse)
+@router.post("/youtube/upload", response_model=YouTubeUploadResponse, tags=["YouTube"])
 def youtube_upload(
     request: YouTubeUploadRequest,
     background_tasks: BackgroundTasks,
@@ -422,7 +423,7 @@ def youtube_upload(
 
 
 # YouTube Management
-@router.get("/youtube/videos/{youtube_video_id}/stats", response_model=YouTubeVideoStatsResponse)
+@router.get("/youtube/videos/{youtube_video_id}/stats", response_model=YouTubeVideoStatsResponse, tags=["YouTube"])
 def youtube_video_stats(youtube_video_id: str, db: Session = Depends(get_db)):
     manager = YouTubeManager(db)
     try:
@@ -459,7 +460,7 @@ def youtube_video_stats(youtube_video_id: str, db: Session = Depends(get_db)):
         raise _handle_error(exc, 400)
 
 
-@router.put("/youtube/videos/{youtube_video_id}")
+@router.put("/youtube/videos/{youtube_video_id}", tags=["YouTube"])
 def youtube_update_metadata(
     youtube_video_id: str,
     payload: YouTubeUpdateMetadataRequest,
@@ -484,7 +485,7 @@ def youtube_update_metadata(
         raise _handle_error(exc, 400)
 
 
-@router.put("/youtube/videos/{youtube_video_id}/privacy")
+@router.put("/youtube/videos/{youtube_video_id}/privacy", tags=["YouTube"])
 def youtube_update_privacy(
     youtube_video_id: str,
     payload: YouTubeUpdatePrivacyRequest,
@@ -503,7 +504,7 @@ def youtube_update_privacy(
         raise _handle_error(exc, 400)
 
 
-@router.delete("/youtube/videos/{youtube_video_id}")
+@router.delete("/youtube/videos/{youtube_video_id}", tags=["YouTube"])
 def youtube_delete_video(youtube_video_id: str, db: Session = Depends(get_db)):
     manager = YouTubeManager(db)
     try:
@@ -519,7 +520,7 @@ def youtube_delete_video(youtube_video_id: str, db: Session = Depends(get_db)):
 
 
 # Notifications
-@router.get("/notifications", response_model=List[NotificationResponse])
+@router.get("/notifications", response_model=List[NotificationResponse], tags=["Notifications"])
 def list_notifications(
     unread_only: bool = False,
     limit: int = 50,
@@ -531,7 +532,7 @@ def list_notifications(
     return q.limit(limit).all()
 
 
-@router.post("/notifications/{notification_id}/read")
+@router.post("/notifications/{notification_id}/read", tags=["Notifications"])
 def mark_notification_read(notification_id: int, db: Session = Depends(get_db)):
     n = db.query(Notification).filter(Notification.id == notification_id).first()
     if not n:
@@ -541,14 +542,14 @@ def mark_notification_read(notification_id: int, db: Session = Depends(get_db)):
     return {"success": True}
 
 
-@router.post("/notifications/read-all")
+@router.post("/notifications/read-all", tags=["Notifications"])
 def mark_all_notifications_read(db: Session = Depends(get_db)):
     db.query(Notification).filter(Notification.is_read.is_(False)).update({"is_read": True})
     db.commit()
     return {"success": True}
 
 
-@router.delete("/notifications/{notification_id}")
+@router.delete("/notifications/{notification_id}", tags=["Notifications"])
 def delete_notification(notification_id: int, db: Session = Depends(get_db)):
     n = db.query(Notification).filter(Notification.id == notification_id).first()
     if not n:
