@@ -1,0 +1,30 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+
+.env
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Backend
+src/backend/.env
+src/backend/venv/
+src/backend/.venv/
+src/backend/__pycache__/
+src/backend/*.pyc
+src/backend/.pytest_cache/
+
+# Frontend
+src/frontend/node_modules/
+src/frontend/dist/
+src/frontend/.env
+src/frontend/coverage/
+src/frontend/playwright-report/
+src/frontend/test-results/

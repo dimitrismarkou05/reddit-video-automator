@@ -1,0 +1,32 @@
+[project]
+name = "reddit-video-automator"
+version = "0.1.0"
+description = "Automated Reddit story → YouTube video pipeline"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "sqlalchemy>=2.0.25",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "praw>=7.7.0",
+    "cryptography>=42.0.0",
+    "python-multipart>=0.0.6",
+    "httpx>=0.26.0",
+    "click>=8.1.0",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+    "black>=24.0.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+rva = "backend.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
