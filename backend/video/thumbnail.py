@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
-from backend.video.utils import sanitize_filename
+from video.utils import sanitize_filename
 
 
 class ThumbnailGenerator:

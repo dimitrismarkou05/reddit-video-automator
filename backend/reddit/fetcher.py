@@ -6,8 +6,8 @@ from typing import List, Dict, Any
 
 from sqlalchemy.orm import Session
 
-from backend.models import Story, Subreddit, StoryStatus
-from backend.reddit.client import RedditClient, RedditClientError
+from models import Story, Subreddit, StoryStatus
+from reddit.client import RedditClient, RedditClientError
 
 
 def sanitize_subreddit_name(name: str) -> str:
@@ -111,7 +111,7 @@ class StoryFetcher:
         return results
 
     def _link_updates_for_subreddit(self, subreddit_name: str) -> None:
-        from backend.reddit.linker import UpdateLinker
+        from reddit.linker import UpdateLinker
 
         linker = UpdateLinker(self.db)
         linker.link_updates_for_subreddit(subreddit_name)

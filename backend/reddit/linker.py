@@ -6,7 +6,7 @@ from typing import List, Optional
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
-from backend.models import Story, StoryStatus
+from models import Story, StoryStatus
 
 
 UPDATE_KEYWORDS = [

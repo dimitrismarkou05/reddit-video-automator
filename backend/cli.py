@@ -4,17 +4,17 @@ from rich.table import Table
 from sqlalchemy.orm import Session
 from pathlib import Path
 
-from backend.database import SessionLocal, init_db
-from backend.models import Story, Subreddit, GeneratedVideo, StoryStatus, Notification
-from backend.reddit.fetcher import StoryFetcher
-from backend.reddit.linker import UpdateLinker
-from backend.settings_manager import SettingsManager
-from backend.video.pipeline import VideoPipeline, VideoPipelineError
-from backend.video.utils import find_ffmpeg, get_ffmpeg_version
-from backend.schemas import SubtitleStyle
-from backend.youtube.auth import YouTubeAuthManager, YouTubeAuthError
-from backend.youtube.uploader import YouTubeUploader, UploadMetadata, YouTubeUploadError
-from backend.youtube.manager import YouTubeManager, YouTubeManagerError
+from database import SessionLocal, init_db
+from models import Story, Subreddit, GeneratedVideo, StoryStatus, Notification
+from reddit.fetcher import StoryFetcher
+from reddit.linker import UpdateLinker
+from settings_manager import SettingsManager
+from video.pipeline import VideoPipeline, VideoPipelineError
+from video.utils import find_ffmpeg, get_ffmpeg_version
+from schemas import SubtitleStyle
+from youtube.auth import YouTubeAuthManager, YouTubeAuthError
+from youtube.uploader import YouTubeUploader, UploadMetadata, YouTubeUploadError
+from youtube.manager import YouTubeManager, YouTubeManagerError
 
 console = Console()
 

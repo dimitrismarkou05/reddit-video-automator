@@ -4,9 +4,9 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from backend.database import get_db
-from backend.automation.models import AutomationTemplate, TemplateRun, TemplateStatus
-from backend.scheduler.core import start_scheduler, stop_scheduler
+from database import get_db
+from automation.models import AutomationTemplate, TemplateRun, TemplateStatus
+from scheduler.core import start_scheduler, stop_scheduler
 
 router = APIRouter()
 

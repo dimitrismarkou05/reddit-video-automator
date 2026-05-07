@@ -6,10 +6,10 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend.models import Base, Setting, GeneratedVideo, Story, StoryStatus, VideoStatus
-from backend.youtube.auth import YouTubeAuthManager, YouTubeAuthError
-from backend.youtube.uploader import UploadMetadata, YouTubeUploader
-from backend.youtube.manager import YouTubeManager, VideoAnalytics
+from models import Base, Setting, GeneratedVideo, Story, StoryStatus, VideoStatus
+from youtube.auth import YouTubeAuthManager, YouTubeAuthError
+from youtube.uploader import UploadMetadata, YouTubeUploader
+from youtube.manager import YouTubeManager, VideoAnalytics
 
 
 @pytest.fixture

@@ -65,8 +65,8 @@ async def notifications_stream(request: Request):
 @router.get("/sse/progress/{video_id}")
 async def progress_stream(video_id: int, request: Request):
     queue = await notification_queue.connect()
-    from backend.video.pipeline import VideoPipeline
-    from backend.database import SessionLocal
+    from video.pipeline import VideoPipeline
+    from database import SessionLocal
     db = SessionLocal()
     try:
         pipeline = VideoPipeline(db)

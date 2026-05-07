@@ -9,7 +9,7 @@ import openai
 from elevenlabs import generate, save, voices
 from sqlalchemy.orm import Session
 
-from backend.settings_manager import SettingsManager
+from settings_manager import SettingsManager
 
 
 class TTSProviderError(Exception):
@@ -44,7 +44,7 @@ class OpenAITTSProvider(BaseTTSProvider):
             )
             response.stream_to_file(str(output_path))
 
-            from backend.video.utils import get_video_info
+            from video.utils import get_video_info
             duration, _, _ = get_video_info(str(output_path))
             return duration
         except Exception as exc:
@@ -75,7 +75,7 @@ class ElevenLabsTTSProvider(BaseTTSProvider):
             )
             save(audio, str(output_path))
 
-            from backend.video.utils import get_video_info
+            from video.utils import get_video_info
             duration, _, _ = get_video_info(str(output_path))
             return duration
         except Exception as exc:

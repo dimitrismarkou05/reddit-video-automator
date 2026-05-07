@@ -6,7 +6,7 @@ import praw
 from praw.models import Submission
 from sqlalchemy.orm import Session
 
-from backend.settings_manager import SettingsManager
+from settings_manager import SettingsManager
 
 
 class RedditClientError(Exception):

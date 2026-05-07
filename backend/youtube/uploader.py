@@ -10,8 +10,8 @@ from googleapiclient.http import MediaFileUpload
 
 from sqlalchemy.orm import Session
 
-from backend.models import GeneratedVideo, StoryStatus
-from backend.youtube.auth import YouTubeAuthManager, YouTubeAuthError
+from models import GeneratedVideo, StoryStatus
+from youtube.auth import YouTubeAuthManager, YouTubeAuthError
 
 
 class YouTubeUploadError(Exception):

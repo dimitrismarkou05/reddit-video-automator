@@ -5,9 +5,9 @@ from datetime import datetime, timezone
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend.models import Base, Story, Subreddit, StoryStatus
-from backend.reddit.fetcher import sanitize_subreddit_name, StoryFetcher
-from backend.reddit.linker import UpdateLinker
+from models import Base, Story, Subreddit, StoryStatus
+from reddit.fetcher import sanitize_subreddit_name, StoryFetcher
+from reddit.linker import UpdateLinker
 
 
 @pytest.fixture

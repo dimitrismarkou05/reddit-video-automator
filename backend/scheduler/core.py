@@ -7,13 +7,13 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from backend.automation.models import AutomationTemplate, TemplateStatus, TemplateRun
-from backend.reddit.fetcher import StoryFetcher
-from backend.video.pipeline import VideoPipeline, VideoPipelineError
-from backend.youtube.uploader import YouTubeUploader, UploadMetadata, YouTubeUploadError
-from backend.youtube.auth import YouTubeAuthManager
-from backend.settings_manager import SettingsManager
-from backend.api.sse import notification_queue
+from automation.models import AutomationTemplate, TemplateStatus, TemplateRun
+from reddit.fetcher import StoryFetcher
+from video.pipeline import VideoPipeline, VideoPipelineError
+from youtube.uploader import YouTubeUploader, UploadMetadata, YouTubeUploadError
+from youtube.auth import YouTubeAuthManager
+from settings_manager import SettingsManager
+from api.sse import notification_queue
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +157,7 @@ class TemplateScheduler:
 
     async def _generate_videos_for_template(self, template: AutomationTemplate, run: TemplateRun) -> int:
         """Generate videos for stories ready for video generation."""
-        from backend.models import Story, StoryStatus, GeneratedVideo
+        from models import Story, StoryStatus, GeneratedVideo
 
         stories = self.db.query(Story).filter(
             Story.subreddit.in_(template.subreddit_names),
@@ -170,7 +170,7 @@ class TemplateScheduler:
             try:
                 pipeline = VideoPipeline(self.db)
 
-                from backend.schemas import SubtitleStyle
+                from schemas import SubtitleStyle
                 style = SubtitleStyle(**template.subtitle_style) if template.subtitle_style else SubtitleStyle()
 
                 video = pipeline.generate(
@@ -194,7 +194,7 @@ class TemplateScheduler:
 
     async def _upload_videos_for_template(self, template: AutomationTemplate, run: TemplateRun) -> int:
         """Upload generated videos to YouTube."""
-        from backend.models import GeneratedVideo, StoryStatus
+        from models import GeneratedVideo, StoryStatus
 
         videos = self.db.query(GeneratedVideo).filter(
             GeneratedVideo.status == "done",

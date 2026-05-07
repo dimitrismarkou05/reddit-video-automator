@@ -8,20 +8,20 @@ from typing import Optional, Callable, List
 
 from sqlalchemy.orm import Session
 
-from backend.models import Story, GeneratedVideo, StoryStatus, VideoStatus
-from backend.reddit.linker import UpdateLinker
-from backend.video.tts import TTSEngine, TTSProviderError
-from backend.video.subtitles import SubtitleGenerator
-from backend.video.composer import FFmpegComposer, FFmpegComposerError
-from backend.video.thumbnail import ThumbnailGenerator
-from backend.video.utils import (
+from models import Story, GeneratedVideo, StoryStatus, VideoStatus
+from reddit.linker import UpdateLinker
+from video.tts import TTSEngine, TTSProviderError
+from video.subtitles import SubtitleGenerator
+from video.composer import FFmpegComposer, FFmpegComposerError
+from video.thumbnail import ThumbnailGenerator
+from video.utils import (
     get_output_folder,
     get_temp_folder,
     cleanup_temp,
     select_background_video,
     get_video_info,
 )
-from backend.schemas import SubtitleStyle
+from schemas import SubtitleStyle
 
 
 class VideoPipelineError(Exception):

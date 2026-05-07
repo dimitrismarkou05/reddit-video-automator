@@ -2,8 +2,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Callable
 
-from backend.config import FFMPEG_PATH, VIDEO_FORMATS
-from backend.video.utils import (
+from config import FFMPEG_PATH, VIDEO_FORMATS
+from video.utils import (
     get_video_info,
     calculate_target_dimensions,
     select_background_video,

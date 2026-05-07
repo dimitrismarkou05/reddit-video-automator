@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
 
-from backend.config import FFMPEG_PATH, FFPROBE_PATH, TEMP_DIR, OUTPUT_DIR, VIDEO_FORMATS
+from config import FFMPEG_PATH, FFPROBE_PATH, TEMP_DIR, OUTPUT_DIR, VIDEO_FORMATS
 
 
 def sanitize_filename(name: str) -> str:

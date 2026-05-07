@@ -1,8 +1,8 @@
 from typing import Optional
 from sqlalchemy.orm import Session
 
-from backend.models import Setting
-from backend.crypto import encrypt, decrypt
+from models import Setting
+from crypto import encrypt, decrypt
 
 
 class SettingsManager:

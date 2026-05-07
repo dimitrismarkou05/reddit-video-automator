@@ -5,9 +5,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 
-from backend.database import get_db
-from backend.models import Subreddit, Story, Setting, GeneratedVideo, StoryStatus, Notification
-from backend.schemas import (
+from database import get_db
+from models import Subreddit, Story, Setting, GeneratedVideo, StoryStatus, Notification
+from schemas import (
     SubredditCreate, SubredditResponse, StoryResponse, StoryDetailResponse,
     StoryChainResponse, FetchResult, SettingsUpdate, SettingsResponse,
     VideoGenerationRequest, VideoGenerationResponse, GeneratedVideoResponse,
@@ -16,15 +16,15 @@ from backend.schemas import (
     YouTubeVideoStatsResponse, YouTubeUpdateMetadataRequest, YouTubeUpdatePrivacyRequest,
     NotificationResponse,
 )
-from backend.reddit.fetcher import StoryFetcher
-from backend.reddit.linker import UpdateLinker
-from backend.settings_manager import SettingsManager
-from backend.video.pipeline import VideoPipeline, VideoPipelineError
-from backend.youtube.auth import YouTubeAuthManager, YouTubeAuthError
-from backend.youtube.uploader import YouTubeUploader, UploadMetadata, YouTubeUploadError
-from backend.youtube.manager import YouTubeManager, YouTubeManagerError
-from backend.api.sse import notification_queue
-from backend.automation.routes import router as automation_router
+from reddit.fetcher import StoryFetcher
+from reddit.linker import UpdateLinker
+from settings_manager import SettingsManager
+from video.pipeline import VideoPipeline, VideoPipelineError
+from youtube.auth import YouTubeAuthManager, YouTubeAuthError
+from youtube.uploader import YouTubeUploader, UploadMetadata, YouTubeUploadError
+from youtube.manager import YouTubeManager, YouTubeManagerError
+from api.sse import notification_queue
+from automation.routes import router as automation_router
 
 router = APIRouter()
 
@@ -198,7 +198,7 @@ def generate_video(
     )
 
     def run_generation():
-        from backend.database import SessionLocal
+        from database import SessionLocal
         session = SessionLocal()
         try:
             pipe = VideoPipeline(session)
@@ -346,7 +346,7 @@ def youtube_upload(
     )
 
     def run_upload():
-        from backend.database import SessionLocal
+        from database import SessionLocal
         session = SessionLocal()
         try:
             uploader = YouTubeUploader(session)

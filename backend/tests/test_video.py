@@ -6,10 +6,10 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from backend.models import Base, Story, GeneratedVideo, StoryStatus, VideoStatus
-from backend.video.utils import sanitize_filename, get_output_folder, calculate_target_dimensions
-from backend.video.thumbnail import ThumbnailGenerator
-from backend.schemas import SubtitleStyle
+from models import Base, Story, GeneratedVideo, StoryStatus, VideoStatus
+from video.utils import sanitize_filename, get_output_folder, calculate_target_dimensions
+from video.thumbnail import ThumbnailGenerator
+from schemas import SubtitleStyle
 
 
 @pytest.fixture

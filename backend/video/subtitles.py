@@ -4,7 +4,7 @@ from typing import List, Tuple, Optional
 
 import whisper
 
-from backend.schemas import SubtitleStyle
+from schemas import SubtitleStyle
 
 
 class SubtitleGenerator:
