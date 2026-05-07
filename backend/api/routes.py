@@ -594,6 +594,11 @@ def delete_notification(notification_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"success": True}
 
+@router.delete("/notifications", tags=["Notifications"])
+def delete_all_notifications(db: Session = Depends(get_db)):
+    count = db.query(Notification).delete()
+    db.commit()
+    return {"deleted": True, "count": count}
 
 # Settings endpoints
 @router.post("/settings", response_model=SettingsResponse, tags=["Settings"])

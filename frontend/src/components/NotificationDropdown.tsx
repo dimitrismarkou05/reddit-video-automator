@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Bell, Check, Trash2 } from "lucide-react";
+import { Bell, Check, Trash2, AlertTriangle } from "lucide-react";
 import { useNotificationStore } from "@/store";
 import { notificationApi, sse } from "@/services/api";
 import { formatDistanceToNow } from "date-fns";
@@ -7,6 +7,7 @@ import type { Notification } from "@/types";
 
 export function NotificationDropdown() {
   const [isOpen, setIsOpen] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const {
     notifications,
@@ -16,6 +17,7 @@ export function NotificationDropdown() {
     markAsRead,
     markAllAsRead,
     removeNotification,
+    clearAll,
   } = useNotificationStore();
 
   useEffect(() => {
@@ -45,6 +47,7 @@ export function NotificationDropdown() {
         !dropdownRef.current.contains(event.target as Node)
       ) {
         setIsOpen(false);
+        setShowDeleteConfirm(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -80,6 +83,16 @@ export function NotificationDropdown() {
     }
   };
 
+  const handleDeleteAll = async () => {
+    try {
+      await notificationApi.deleteAll(); // Single API call
+      clearAll();
+      setShowDeleteConfirm(false);
+    } catch (e) {
+      console.error("Failed to delete all notifications:", e);
+    }
+  };
+
   const getLevelColor = (level: string) => {
     switch (level) {
       case "error":
@@ -111,15 +124,48 @@ export function NotificationDropdown() {
         <div className="absolute right-0 top-full mt-2 w-96 bg-surface-light dark:bg-surface-dark rounded-xl shadow-lg border border-border-light dark:border-border-dark z-50 overflow-hidden">
           <div className="flex items-center justify-between p-3 border-b border-border-light dark:border-border-dark">
             <h3 className="font-semibold">Notifications</h3>
-            {unreadCount > 0 && (
-              <button
-                onClick={handleMarkAllRead}
-                className="text-xs text-primary hover:text-primary-dark flex items-center gap-1"
-              >
-                <Check className="w-3 h-3" />
-                Mark all read
-              </button>
-            )}
+            <div className="flex items-center gap-1">
+              {unreadCount > 0 && (
+                <button
+                  onClick={handleMarkAllRead}
+                  className="text-xs text-primary hover:text-primary-dark flex items-center gap-1 px-2 py-1 rounded-md hover:bg-primary/10 transition-colors"
+                  title="Mark all as read"
+                >
+                  <Check className="w-3 h-3" />
+                  Mark all read
+                </button>
+              )}
+              {notifications.length > 0 && (
+                <>
+                  {showDeleteConfirm ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setShowDeleteConfirm(false)}
+                        className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleDeleteAll}
+                        className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+                      >
+                        <AlertTriangle className="w-3 h-3" />
+                        Confirm
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1 px-2 py-1 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      title="Delete all notifications"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Delete all
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
 
           <div className="max-h-96 overflow-y-auto">
@@ -145,7 +191,7 @@ export function NotificationDropdown() {
                 >
                   <div className="flex items-start gap-3">
                     <div
-                      className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${getLevelColor(notification.level)}`}
+                      className={`w-2 h-2 rounded-full mt-2 shrink-0 ${getLevelColor(notification.level)}`}
                     />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium">

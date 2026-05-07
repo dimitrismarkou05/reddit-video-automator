@@ -1,5 +1,5 @@
-import { create } from 'zustand';
-import type { Notification } from '@/types';
+import { create } from "zustand";
+import type { Notification } from "@/types";
 
 interface NotificationState {
   notifications: Notification[];
@@ -9,6 +9,7 @@ interface NotificationState {
   markAsRead: (id: number) => void;
   markAllAsRead: () => void;
   removeNotification: (id: number) => void;
+  clearAll: () => void;
 }
 
 export const useNotificationStore = create<NotificationState>((set) => ({
@@ -27,7 +28,7 @@ export const useNotificationStore = create<NotificationState>((set) => ({
   markAsRead: (id) =>
     set((state) => ({
       notifications: state.notifications.map((n) =>
-        n.id === id ? { ...n, is_read: true } : n
+        n.id === id ? { ...n, is_read: true } : n,
       ),
       unreadCount: Math.max(0, state.unreadCount - 1),
     })),
@@ -39,6 +40,13 @@ export const useNotificationStore = create<NotificationState>((set) => ({
   removeNotification: (id) =>
     set((state) => ({
       notifications: state.notifications.filter((n) => n.id !== id),
-      unreadCount: state.notifications.filter((n) => n.id !== id && !n.is_read).length,
+      unreadCount: state.notifications.filter((n) => n.id !== id && !n.is_read)
+        .length,
     })),
+
+  clearAll: () =>
+    set({
+      notifications: [],
+      unreadCount: 0,
+    }),
 }));

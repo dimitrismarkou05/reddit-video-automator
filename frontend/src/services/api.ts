@@ -1,11 +1,11 @@
-import axios from 'axios';
+import axios from "axios";
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
 
 export const api = axios.create({
   baseURL: API_BASE,
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   },
 });
 
@@ -18,16 +18,16 @@ export class SSEConnection {
   connect(endpoint: string) {
     if (this.eventSource) return;
 
-    const url = `${API_BASE.replace('/api/v1', '')}${endpoint}`;
+    const url = `${API_BASE.replace("/api/v1", "")}${endpoint}`;
     this.eventSource = new EventSource(url);
 
     this.eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        const eventType = event.type || 'message';
+        const eventType = event.type || "message";
         this.emit(eventType, data);
       } catch (e) {
-        console.error('SSE parse error:', e);
+        console.error("SSE parse error:", e);
       }
     };
 
@@ -62,8 +62,8 @@ export class SSEConnection {
   }
 
   private emit(event: string, data: any) {
-    this.listeners.get(event)?.forEach(cb => cb(data));
-    this.listeners.get('message')?.forEach(cb => cb(data));
+    this.listeners.get(event)?.forEach((cb) => cb(data));
+    this.listeners.get("message")?.forEach((cb) => cb(data));
   }
 }
 
@@ -71,63 +71,69 @@ export const sse = new SSEConnection();
 
 // API endpoints
 export const subredditApi = {
-  list: () => api.get('/subreddits'),
-  add: (name: string, settings?: Record<string, any>) => 
-    api.post('/subreddits', { name, fetch_settings: settings }),
+  list: () => api.get("/subreddits"),
+  add: (name: string, settings?: Record<string, any>) =>
+    api.post("/subreddits", { name, fetch_settings: settings }),
   delete: (id: number) => api.delete(`/subreddits/${id}`),
   fetch: (id: number) => api.post(`/subreddits/${id}/fetch`),
-  fetchAll: () => api.post('/fetch-all'),
+  fetchAll: () => api.post("/fetch-all"),
 };
 
 export const storyApi = {
-  list: (params?: Record<string, any>) => api.get('/stories', { params }),
+  list: (params?: Record<string, any>) => api.get("/stories", { params }),
   get: (id: number) => api.get(`/stories/${id}`),
   getChain: (id: number) => api.get(`/stories/${id}/chain`),
-  linkUpdates: (subreddit?: string) => api.post('/stories/link-updates', {}, { params: { subreddit } }),
+  linkUpdates: (subreddit?: string) =>
+    api.post("/stories/link-updates", {}, { params: { subreddit } }),
 };
 
 export const videoApi = {
-  list: (status?: string) => api.get('/videos', { params: { status } }),
+  list: (status?: string) => api.get("/videos", { params: { status } }),
   get: (id: number) => api.get(`/videos/${id}`),
-  generate: (data: Record<string, any>) => api.post('/videos/generate', data),
+  generate: (data: Record<string, any>) => api.post("/videos/generate", data),
   getProgress: (id: number) => api.get(`/videos/${id}/progress`),
 };
 
 export const youtubeApi = {
-  authStatus: () => api.get('/youtube/auth/status'),
-  initiateAuth: () => api.post('/youtube/auth/initiate'),
-  callback: (code: string, state: string) => api.post('/youtube/auth/callback', { code, state }),
-  logout: () => api.post('/youtube/auth/logout'),
-  upload: (data: Record<string, any>) => api.post('/youtube/upload', data),
+  authStatus: () => api.get("/youtube/auth/status"),
+  initiateAuth: () => api.post("/youtube/auth/initiate"),
+  callback: (code: string, state: string) =>
+    api.post("/youtube/auth/callback", { code, state }),
+  logout: () => api.post("/youtube/auth/logout"),
+  upload: (data: Record<string, any>) => api.post("/youtube/upload", data),
   getStats: (videoId: string) => api.get(`/youtube/videos/${videoId}/stats`),
-  updateMetadata: (videoId: string, data: Record<string, any>) => 
+  updateMetadata: (videoId: string, data: Record<string, any>) =>
     api.put(`/youtube/videos/${videoId}`, data),
-  updatePrivacy: (videoId: string, privacy: string) => 
+  updatePrivacy: (videoId: string, privacy: string) =>
     api.put(`/youtube/videos/${videoId}/privacy`, { privacy_status: privacy }),
   delete: (videoId: string) => api.delete(`/youtube/videos/${videoId}`),
 };
 
 export const notificationApi = {
-  list: (unreadOnly?: boolean, limit?: number) => 
-    api.get('/notifications', { params: { unread_only: unreadOnly, limit } }),
+  list: (unreadOnly?: boolean, limit?: number) =>
+    api.get("/notifications", { params: { unread_only: unreadOnly, limit } }),
   markRead: (id: number) => api.post(`/notifications/${id}/read`),
-  markAllRead: () => api.post('/notifications/read-all'),
+  markAllRead: () => api.post("/notifications/read-all"),
   delete: (id: number) => api.delete(`/notifications/${id}`),
+  deleteAll: () => api.delete("/notifications"),
 };
 
 export const settingsApi = {
   get: (key: string) => api.get(`/settings/${key}`),
-  set: (key: string, value: string, encrypt?: boolean) => 
-    api.post('/settings', { key, value, encrypt }),
+  set: (key: string, value: string, encrypt?: boolean) =>
+    api.post("/settings", { key, value, encrypt }),
 };
 
 export const automationApi = {
-  listTemplates: () => api.get('/automation/templates'),
+  listTemplates: () => api.get("/automation/templates"),
   getTemplate: (id: number) => api.get(`/automation/templates/${id}`),
-  createTemplate: (data: Record<string, any>) => api.post('/automation/templates', data),
-  updateTemplate: (id: number, data: Record<string, any>) => api.put(`/automation/templates/${id}`, data),
+  createTemplate: (data: Record<string, any>) =>
+    api.post("/automation/templates", data),
+  updateTemplate: (id: number, data: Record<string, any>) =>
+    api.put(`/automation/templates/${id}`, data),
   deleteTemplate: (id: number) => api.delete(`/automation/templates/${id}`),
-  toggleTemplate: (id: number) => api.post(`/automation/templates/${id}/toggle`),
+  toggleTemplate: (id: number) =>
+    api.post(`/automation/templates/${id}/toggle`),
   runTemplate: (id: number) => api.post(`/automation/templates/${id}/run`),
   getRuns: (id: number) => api.get(`/automation/templates/${id}/runs`),
 };
