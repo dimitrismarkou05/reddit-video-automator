@@ -34,8 +34,12 @@ dev = [
     "ruff>=0.1.0",
 ]
 
-[project.scripts]
-rva = "backend.cli:main"
+[tool.setuptools]
+package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["automation*", "reddit*", "video*", "youtube*", "scheduler*", "api*"]
+
+[project.scripts]
+rva = "cli:main"
