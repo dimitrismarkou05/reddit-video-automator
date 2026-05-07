@@ -57,12 +57,11 @@ class Story(Base):
 
     updates: Mapped[List["Story"]] = relationship(
         back_populates="parent_story",
-        remote_side="Story.id",
         cascade="all, delete-orphan",
     )
     parent_story: Mapped[Optional["Story"]] = relationship(
         back_populates="updates",
-        remote_side="Story.parent_story_id",
+        remote_side="Story.id",
     )
 
     generated_video: Mapped[Optional["GeneratedVideo"]] = relationship(

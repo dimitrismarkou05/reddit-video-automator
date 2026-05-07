@@ -64,7 +64,7 @@ class AutomationTemplate(Base):
     runs: Mapped[list["TemplateRun"]] = relationship(
         back_populates="template",
         cascade="all, delete-orphan",
-        order_by="TemplateRun.created_at.desc()",
+        order_by=lambda: TemplateRun.started_at.desc(),
     )
 
 
