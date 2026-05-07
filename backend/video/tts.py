@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 import openai
-from elevenlabs import generate, save, voices
+from elevenlabs import ElevenLabs
 from sqlalchemy.orm import Session
 
 from settings_manager import SettingsManager
@@ -64,16 +64,21 @@ class OpenAITTSProvider(BaseTTSProvider):
 class ElevenLabsTTSProvider(BaseTTSProvider):
     def __init__(self, api_key: str):
         super().__init__(api_key)
-        os.environ["ELEVEN_API_KEY"] = api_key
+        self.client = ElevenLabs(api_key=api_key)
 
     def synthesize(self, text: str, voice: str, output_path: Path) -> float:
         try:
-            audio = generate(
+            # ElevenLabs v2.x API
+            audio_generator = self.client.text_to_speech.convert(
+                voice_id=voice,
+                output_format="mp3_44100_128",
                 text=text,
-                voice=voice,
-                model="eleven_monolingual_v1",
+                model_id="eleven_monolingual_v1",
             )
-            save(audio, str(output_path))
+            
+            # Collect audio chunks and write to file
+            audio_bytes = b"".join(audio_generator)
+            output_path.write_bytes(audio_bytes)
 
             from video.utils import get_video_info
             duration, _, _ = get_video_info(str(output_path))
@@ -83,10 +88,14 @@ class ElevenLabsTTSProvider(BaseTTSProvider):
 
     def list_voices(self) -> list[dict]:
         try:
-            voice_list = voices()
+            response = self.client.voices.get_all()
             return [
-                {"id": v.voice_id, "name": v.name, "description": v.category}
-                for v in voice_list
+                {
+                    "id": v.voice_id,
+                    "name": v.name,
+                    "description": v.labels.get("description", "") if v.labels else "",
+                }
+                for v in response.voices
             ]
         except Exception as exc:
             raise TTSProviderError(f"Failed to list ElevenLabs voices: {exc}")

@@ -57,24 +57,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         current_start = None
         current_end = None
 
-        def flush_line():
-            nonlocal current_line, current_start, current_end
-            if not current_line:
-                return
+        def flush_line(line_parts, start_time, end_time):
+            if not line_parts:
+                return [], None, None
 
-            text = " ".join(current_line)
+            text = " ".join(line_parts)
             text = self._word_wrap(text, max_width, style.font_size)
 
-            start = self._format_time(current_start)
-            end = self._format_time(current_end)
+            start = self._format_time(start_time)
+            end = self._format_time(end_time)
 
             text = text.replace("{", "\\{").replace("}", "\\}")
 
             lines.append(f"Dialogue: 0,{start},{end},Default,,0,0,0,,{text}")
-            current_line.clear()
-            nonlocal current_start, current_end
-            current_start = None
-            current_end = None
+            return [], None, None
 
         for segment in whisper_result.get("segments", []):
             for word in segment.get("words", []):
@@ -91,13 +87,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
                 test_line = " ".join(current_line + [word_text])
                 if self._estimate_text_width(test_line, style.font_size) > max_width and current_line:
-                    flush_line()
+                    current_line, current_start, current_end = flush_line(current_line, current_start, current_end)
                     current_start = word_start
 
                 current_line.append(word_text)
                 current_end = word_end
 
-        flush_line()
+        flush_line(current_line, current_start, current_end)
 
         ass_content = header + "\n".join(lines)
         output_path.write_text(ass_content, encoding="utf-8")
