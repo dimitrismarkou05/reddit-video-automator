@@ -7,7 +7,7 @@ from backend.api.routes import router
 app = FastAPI(
     title="Reddit Video Automator API",
     description="Orchestration layer for Reddit story -> YouTube video pipeline",
-    version="0.1.0",
+    version="0.3.0",
 )
 
 app.add_middleware(
@@ -29,4 +29,4 @@ app.include_router(router, prefix="/api/v1")
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "phase": 1}
+    return {"status": "ok", "phase": 3}

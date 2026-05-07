@@ -1,6 +1,6 @@
 [project]
 name = "reddit-video-automator"
-version = "0.2.0"
+version = "0.3.0"
 description = "Automated Reddit story -> YouTube video pipeline"
 requires-python = ">=3.10"
 dependencies = [
@@ -21,6 +21,9 @@ dependencies = [
     "pillow>=10.2.0",
     "psutil>=5.9.8",
     "aiofiles>=23.2.1",
+    "google-api-python-client>=2.115.0",
+    "google-auth-oauthlib>=1.2.0",
+    "google-auth-httplib2>=0.2.0",
 ]
 
 [project.optional-dependencies]

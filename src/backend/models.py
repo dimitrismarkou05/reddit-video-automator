@@ -128,8 +128,9 @@ class GeneratedVideo(Base):
     background_source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subtitle_style: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
-    youtube_video_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    youtube_video_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     youtube_upload_status: Mapped[str] = mapped_column(String(50), default="not_uploaded")
+    youtube_analytics: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
@@ -140,3 +141,21 @@ class GeneratedVideo(Base):
 
     def __repr__(self) -> str:
         return f"<GeneratedVideo(id={self.id}, story_id={self.story_id}, status={self.status})>"
+
+
+class Notification(Base):
+    """Real-time notification queue for the UI."""
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    type: Mapped[str] = mapped_column(String(50), index=True)
+    level: Mapped[str] = mapped_column(String(20), default="info")
+    message: Mapped[str] = mapped_column(Text)
+    details: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+    def __repr__(self) -> str:
+        return f"<Notification(id={self.id}, type={self.type}, level={self.level})>"
