@@ -8,26 +8,12 @@ from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models import Subreddit, Story, Setting, GeneratedVideo, StoryStatus, Notification
 from backend.schemas import (
-    SubredditCreate,
-    SubredditResponse,
-    StoryResponse,
-    StoryDetailResponse,
-    StoryChainResponse,
-    FetchResult,
-    SettingsUpdate,
-    SettingsResponse,
-    VideoGenerationRequest,
-    VideoGenerationResponse,
-    GeneratedVideoResponse,
-    VideoProgressResponse,
-    YouTubeAuthInitiateResponse,
-    YouTubeAuthCallbackRequest,
-    YouTubeAuthStatusResponse,
-    YouTubeUploadRequest,
-    YouTubeUploadResponse,
-    YouTubeVideoStatsResponse,
-    YouTubeUpdateMetadataRequest,
-    YouTubeUpdatePrivacyRequest,
+    SubredditCreate, SubredditResponse, StoryResponse, StoryDetailResponse,
+    StoryChainResponse, FetchResult, SettingsUpdate, SettingsResponse,
+    VideoGenerationRequest, VideoGenerationResponse, GeneratedVideoResponse,
+    VideoProgressResponse, YouTubeAuthInitiateResponse, YouTubeAuthCallbackRequest,
+    YouTubeAuthStatusResponse, YouTubeUploadRequest, YouTubeUploadResponse,
+    YouTubeVideoStatsResponse, YouTubeUpdateMetadataRequest, YouTubeUpdatePrivacyRequest,
     NotificationResponse,
 )
 from backend.reddit.fetcher import StoryFetcher
@@ -37,12 +23,13 @@ from backend.video.pipeline import VideoPipeline, VideoPipelineError
 from backend.youtube.auth import YouTubeAuthManager, YouTubeAuthError
 from backend.youtube.uploader import YouTubeUploader, UploadMetadata, YouTubeUploadError
 from backend.youtube.manager import YouTubeManager, YouTubeManagerError
+from backend.api.sse import notification_queue
+from backend.automation.routes import router as automation_router
 
 router = APIRouter()
 
 
 def _handle_error(exc: Exception, default_status: int = 500) -> HTTPException:
-    """Map domain exceptions to HTTPExceptions with user-friendly messages."""
     if isinstance(exc, (YouTubeAuthError, YouTubeUploadError, YouTubeManagerError)):
         return HTTPException(status_code=400, detail=str(exc))
     if isinstance(exc, VideoPipelineError):
@@ -53,21 +40,25 @@ def _handle_error(exc: Exception, default_status: int = 500) -> HTTPException:
 
 
 def _create_notification(
-    db: Session,
-    notif_type: str,
-    level: str,
-    message: str,
-    details: Optional[dict] = None,
+    db: Session, notif_type: str, level: str, message: str, details: Optional[dict] = None,
 ) -> None:
-    """Persist a notification for the UI bell."""
-    n = Notification(
-        type=notif_type,
-        level=level,
-        message=message,
-        details=details,
-    )
+    n = Notification(type=notif_type, level=level, message=message, details=details)
     db.add(n)
     db.commit()
+
+    # Broadcast via SSE
+    asyncio = __import__("asyncio")
+    try:
+        asyncio.create_task(notification_queue.broadcast("notification", {
+            "id": n.id, "type": notif_type, "level": level, "message": message,
+            "details": details, "is_read": False, "created_at": n.created_at.isoformat(),
+        }))
+    except Exception:
+        pass
+
+
+# Include automation routes
+router.include_router(automation_router, prefix="/automation")
 
 
 # Subreddits
@@ -211,7 +202,7 @@ def generate_video(
         session = SessionLocal()
         try:
             pipe = VideoPipeline(session)
-            pipe.generate(
+            video = pipe.generate(
                 story_id=request.story_id,
                 include_updates=request.include_updates,
                 tts_provider=request.tts_provider,
@@ -224,7 +215,7 @@ def generate_video(
             _create_notification(
                 session, "video", "success",
                 f'Video generation completed for "{story.title[:50]}..."',
-                {"story_id": story.id},
+                {"story_id": story.id, "video_id": video.id},
             )
         except Exception as exc:
             _create_notification(
@@ -245,10 +236,7 @@ def generate_video(
 
 
 @router.get("/videos", response_model=List[GeneratedVideoResponse])
-def list_videos(
-    status: Optional[str] = None,
-    db: Session = Depends(get_db),
-):
+def list_videos(status: Optional[str] = None, db: Session = Depends(get_db)):
     q = db.query(GeneratedVideo)
     if status:
         q = q.filter(GeneratedVideo.status == status)
@@ -306,10 +294,7 @@ def youtube_auth_initiate(db: Session = Depends(get_db)):
 
 
 @router.post("/youtube/auth/callback")
-def youtube_auth_callback(
-    payload: YouTubeAuthCallbackRequest,
-    db: Session = Depends(get_db),
-):
+def youtube_auth_callback(payload: YouTubeAuthCallbackRequest, db: Session = Depends(get_db)):
     auth = YouTubeAuthManager(db)
     try:
         auth.exchange_code(code=payload.code, state=payload.state)
