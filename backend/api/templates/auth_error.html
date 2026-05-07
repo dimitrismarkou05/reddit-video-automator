@@ -1,0 +1,123 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Authentication Failed</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          "Inter",
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        background: linear-gradient(135deg, #1a1a1a 0%, #242424 100%);
+        color: #f9f9f9;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      .container {
+        text-align: center;
+        padding: 3rem;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 16px;
+        backdrop-filter: blur(12px);
+        max-width: 420px;
+        width: 90%;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+      }
+
+      .icon-wrapper {
+        width: 80px;
+        height: 80px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 1.5rem;
+        box-shadow: 0 10px 30px -10px rgba(220, 38, 38, 0.4);
+      }
+
+      .icon {
+        font-size: 40px;
+        color: white;
+        line-height: 1;
+      }
+
+      .title {
+        font-size: 20px;
+        font-weight: 600;
+        color: #f9f9f9;
+        margin-bottom: 0.5rem;
+      }
+
+      .message {
+        color: #9ca3af;
+        font-size: 14px;
+        margin-bottom: 0.5rem;
+        line-height: 1.5;
+      }
+
+      .error-message {
+        color: #fca5a5;
+        font-size: 13px;
+        margin-top: 0.5rem;
+        padding: 0.75rem;
+        background: rgba(220, 38, 38, 0.1);
+        border: 1px solid rgba(220, 38, 38, 0.2);
+        border-radius: 8px;
+        word-break: break-word;
+      }
+
+      .divider {
+        width: 40px;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #ef4444, transparent);
+        margin: 1.25rem auto;
+        border-radius: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="icon-wrapper">
+        <span class="icon">✕</span>
+      </div>
+      <h1 class="title">Authentication Failed</h1>
+      <p class="message">
+        Something went wrong during the authentication process.
+      </p>
+      <div class="divider"></div>
+      <div class="error-message">{{ error_message }}</div>
+    </div>
+    <script>
+      setTimeout(function () {
+        window.close();
+
+        setTimeout(function () {
+          if (!window.closed) {
+            document.body.innerHTML +=
+              '<p class="message" style="margin-top: 1rem;">You can close this window now.</p>';
+          }
+        }, 500);
+      }, 5000);
+    </script>
+  </body>
+</html>

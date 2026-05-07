@@ -26,6 +26,7 @@ from youtube.auth import YouTubeAuthManager, YouTubeAuthError
 from youtube.uploader import YouTubeUploader, UploadMetadata, YouTubeUploadError
 from youtube.manager import YouTubeManager, YouTubeManagerError
 from api.sse import notification_queue
+from api.template_loader import load_template, render_template
 from automation.routes import router as automation_router
 
 router = APIRouter()
@@ -304,6 +305,7 @@ def youtube_auth_callback_get(
     """Handle Google OAuth redirect (GET request with code and state)."""
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
+    
     auth = YouTubeAuthManager(db)
     try:
         auth.exchange_code(
@@ -318,69 +320,14 @@ def youtube_auth_callback_get(
             {"email": user_info.get("email"), "name": user_info.get("name")},
         )
         
-        # Return HTML that closes the popup and notifies the parent window
         from fastapi.responses import HTMLResponse
-        html_content = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Authentication Complete</title>
-            <style>
-                body {
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    height: 100vh;
-                    margin: 0;
-                    background-color: #f3f4f6;
-                }
-                .container {
-                    text-align: center;
-                    padding: 2rem;
-                }
-                .checkmark {
-                    font-size: 48px;
-                    margin-bottom: 1rem;
-                }
-                .message {
-                    color: #374151;
-                    font-size: 16px;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="checkmark">✅</div>
-                <p class="message">Authentication successful!</p>
-                <p class="message">This window will close automatically...</p>
-            </div>
-            <script>
-                if (window.opener) {
-                    try {
-                        window.opener.postMessage({ type: 'auth_complete' }, '*');
-                    } catch (e) {
-                        console.error('Failed to post message:', e);
-                    }
-                }
-                
-                setTimeout(function() {
-                    window.close();
-                    
-                    setTimeout(function() {
-                        if (!window.closed) {
-                            document.body.innerHTML = '<div class="container"><p class="message">Authentication complete! You can close this window now.</p></div>';
-                        }
-                    }, 500);
-                }, 1000);
-            </script>
-        </body>
-        </html>
-        """
+        html_content = load_template("auth_callback.html")
         return HTMLResponse(content=html_content)
         
     except YouTubeAuthError as exc:
-        raise _handle_error(exc, 400)
+        from fastapi.responses import HTMLResponse
+        html_content = render_template("auth_error.html", error_message=str(exc))
+        return HTMLResponse(content=html_content, status_code=400)
 
 
 @router.post("/youtube/auth/callback", tags=["YouTube"])
