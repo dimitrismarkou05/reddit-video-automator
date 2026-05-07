@@ -1,11 +1,11 @@
 """FastAPI orchestration routes no business logic."""
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
-from backend.models import Subreddit, Story, Setting
+from backend.models import Subreddit, Story, Setting, GeneratedVideo, StoryStatus
 from backend.schemas import (
     SubredditCreate,
     SubredditResponse,
@@ -15,10 +15,15 @@ from backend.schemas import (
     FetchResult,
     SettingsUpdate,
     SettingsResponse,
+    VideoGenerationRequest,
+    VideoGenerationResponse,
+    GeneratedVideoResponse,
+    VideoProgressResponse,
 )
 from backend.reddit.fetcher import StoryFetcher
 from backend.reddit.linker import UpdateLinker
 from backend.settings_manager import SettingsManager
+from backend.video.pipeline import VideoPipeline, VideoPipelineError
 
 router = APIRouter()
 
@@ -120,6 +125,84 @@ def run_link_updates(subreddit: Optional[str] = None, db: Session = Depends(get_
         for (sub_name,) in db.query(Story.subreddit).distinct().all():
             count += linker.link_updates_for_subreddit(sub_name)
     return {"linked_count": count}
+
+
+# Video Generation
+@router.post("/videos/generate", response_model=VideoGenerationResponse)
+def generate_video(
+    request: VideoGenerationRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    story = db.query(Story).filter(Story.id == request.story_id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    if story.generated_video:
+        raise HTTPException(status_code=400, detail="Video already generated for this story")
+
+    story.status = StoryStatus.VIDEO_PROCESSING.value
+    db.commit()
+
+    def run_generation():
+        from backend.database import SessionLocal
+        session = SessionLocal()
+        try:
+            pipe = VideoPipeline(session)
+            pipe.generate(
+                story_id=request.story_id,
+                include_updates=request.include_updates,
+                tts_provider=request.tts_provider,
+                tts_voice=request.tts_voice,
+                background_source=request.background_source,
+                video_format=request.video_format,
+                subtitle_style=request.subtitle_style,
+                generate_hashtags=request.generate_hashtags,
+            )
+        finally:
+            session.close()
+
+    background_tasks.add_task(run_generation)
+
+    return VideoGenerationResponse(
+        video_id=0,
+        status="processing",
+        message="Video generation started in background",
+    )
+
+
+@router.get("/videos", response_model=List[GeneratedVideoResponse])
+def list_videos(
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    q = db.query(GeneratedVideo)
+    if status:
+        q = q.filter(GeneratedVideo.status == status)
+    return q.order_by(GeneratedVideo.created_at.desc()).all()
+
+
+@router.get("/videos/{video_id}", response_model=GeneratedVideoResponse)
+def get_video(video_id: int, db: Session = Depends(get_db)):
+    video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    return video
+
+
+@router.get("/videos/{video_id}/progress", response_model=VideoProgressResponse)
+def get_video_progress(video_id: int, db: Session = Depends(get_db)):
+    video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    return VideoProgressResponse(
+        video_id=video.id,
+        status=video.status,
+        progress_percent=video.progress_percent,
+        current_step=video.status,
+        error_message=video.error_message,
+    )
 
 
 # Settings

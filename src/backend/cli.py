@@ -1,13 +1,17 @@
 import click
 from rich.console import Console
 from rich.table import Table
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from sqlalchemy.orm import Session
 
 from backend.database import SessionLocal, init_db
-from backend.models import Story, Subreddit
+from backend.models import Story, Subreddit, GeneratedVideo, StoryStatus
 from backend.reddit.fetcher import StoryFetcher
 from backend.reddit.linker import UpdateLinker
 from backend.settings_manager import SettingsManager
+from backend.video.pipeline import VideoPipeline, VideoPipelineError
+from backend.video.utils import find_ffmpeg, get_ffmpeg_version
+from backend.schemas import SubtitleStyle
 
 console = Console()
 
@@ -23,7 +27,7 @@ def main():
 @click.argument("value")
 @click.option("--encrypt/--no-encrypt", default=False, help="Encrypt value at rest")
 def set_setting(key, value, encrypt):
-    """Store an application setting (e.g. reddit_client_id)."""
+    """Store an application setting."""
     db = SessionLocal()
     try:
         mgr = SettingsManager(db)
@@ -157,14 +161,166 @@ def list_stories_cmd(limit):
         table.add_column("Title", style="green")
         table.add_column("Sub", style="yellow", no_wrap=True)
         table.add_column("Update", style="red", no_wrap=True)
+        table.add_column("Video", style="blue", no_wrap=True)
         for s in stories:
+            has_video = "Yes" if s.generated_video else "No"
             table.add_row(
                 str(s.id),
                 s.title[:55] + "..." if len(s.title) > 55 else s.title,
                 s.subreddit,
                 "Yes" if s.is_update else "No",
+                has_video,
             )
         console.print(table)
+    finally:
+        db.close()
+
+
+# Video Generation Commands
+@main.command("check-ffmpeg")
+def check_ffmpeg_cmd():
+    """Check FFmpeg installation."""
+    path = find_ffmpeg()
+    if path:
+        version = get_ffmpeg_version(path)
+        console.print(f"[green]FFmpeg found:[/green] {path}")
+        console.print(f"[dim]{version}[/dim]")
+    else:
+        console.print("[red]FFmpeg not found![/red]")
+        console.print("Install FFmpeg: https://ffmpeg.org/download.html")
+
+
+@main.command("generate-video")
+@click.argument("story_id", type=int)
+@click.option("--tts-provider", default="openai", help="openai | elevenlabs")
+@click.option("--tts-voice", default="alloy", help="Voice ID")
+@click.option("--background", required=True, help="Path to video file or folder")
+@click.option("--format", "video_format", default="shorts", help="shorts | normal")
+@click.option("--include-updates/--no-include-updates", default=True, help="Include update stories")
+@click.option("--subtitle-position", default="center", help="center | bottom | top")
+@click.option("--subtitle-size", default=48, help="Font size for subtitles")
+def generate_video_cmd(
+    story_id,
+    tts_provider,
+    tts_voice,
+    background,
+    video_format,
+    include_updates,
+    subtitle_position,
+    subtitle_size,
+):
+    """Generate a video from a story (CLI test for Phase 2)."""
+    db = SessionLocal()
+    try:
+        story = db.query(Story).filter(Story.id == story_id).first()
+        if not story:
+            console.print("[red]Story not found[/red]")
+            return
+
+        if story.generated_video:
+            console.print("[yellow]Video already exists. Delete it first to regenerate.[/yellow]")
+            return
+
+        mgr = SettingsManager(db)
+        key_name = f"{tts_provider}_api_key"
+        if not mgr.get(key_name, decrypt_value=True):
+            console.print(f"[red]Error: {key_name} not set. Use: rva set-setting {key_name} <key> --encrypt[/red]")
+            return
+
+        ffmpeg_path = find_ffmpeg()
+        if not ffmpeg_path:
+            console.print("[red]FFmpeg not found. Install it first.[/red]")
+            return
+
+        console.print(f"[bold cyan]Generating video for:[/bold cyan] {story.title[:60]}...")
+        console.print(f"  TTS: {tts_provider} / {tts_voice}")
+        console.print(f"  Background: {background}")
+        console.print(f"  Format: {video_format}")
+        console.print()
+
+        pipeline = VideoPipeline(db, ffmpeg_path=ffmpeg_path)
+
+        style = SubtitleStyle(
+            position=subtitle_position,
+            font_size=subtitle_size,
+        )
+
+        def progress_cb(percent, step):
+            console.print(f"  [{percent:3d}%] {step}")
+
+        video = pipeline.generate(
+            story_id=story_id,
+            include_updates=include_updates,
+            tts_provider=tts_provider,
+            tts_voice=tts_voice,
+            background_source=background,
+            video_format=video_format,
+            subtitle_style=style,
+            progress_callback=progress_cb,
+        )
+
+        console.print()
+        console.print(f"[bold green]✓ Video generated successfully![/bold green]")
+        console.print(f"  Video: {video.video_path}")
+        console.print(f"  Thumbnail: {video.thumbnail_path}")
+        console.print(f"  Duration: {video.duration_seconds:.1f}s")
+        console.print(f"  Size: {video.file_size_bytes / 1024 / 1024:.1f} MB")
+
+    except VideoPipelineError as exc:
+        console.print(f"[bold red]Pipeline Error:[/bold red] {exc}")
+    except Exception as exc:
+        console.print(f"[bold red]Unexpected Error:[/bold red] {exc}")
+    finally:
+        db.close()
+
+
+@main.command("list-videos")
+@click.option("--limit", default=30, help="Max rows to show")
+def list_videos_cmd(limit):
+    """Browse generated videos."""
+    db = SessionLocal()
+    try:
+        videos = db.query(GeneratedVideo).order_by(GeneratedVideo.created_at.desc()).limit(limit).all()
+        table = Table(title="Generated Videos")
+        table.add_column("ID", style="cyan", no_wrap=True)
+        table.add_column("Story", style="green")
+        table.add_column("Format", style="yellow", no_wrap=True)
+        table.add_column("Status", style="red", no_wrap=True)
+        table.add_column("Progress", style="blue", no_wrap=True)
+        table.add_column("YouTube", style="magenta", no_wrap=True)
+        for v in videos:
+            yt_status = v.youtube_upload_status
+            if v.youtube_video_id:
+                yt_status += f" ({v.youtube_video_id})"
+            table.add_row(
+                str(v.id),
+                v.story.title[:40] + "..." if len(v.story.title) > 40 else v.story.title,
+                v.format,
+                v.status,
+                f"{v.progress_percent}%",
+                yt_status,
+            )
+        console.print(table)
+    finally:
+        db.close()
+
+
+@main.command("video-progress")
+@click.argument("video_id", type=int)
+def video_progress_cmd(video_id):
+    """Check video generation progress."""
+    db = SessionLocal()
+    try:
+        pipeline = VideoPipeline(db)
+        progress = pipeline.get_progress(video_id)
+        console.print(f"[cyan]Video {video_id}[/cyan]")
+        console.print(f"  Status: {progress['status']}")
+        console.print(f"  Progress: {progress['progress_percent']}%")
+        console.print(f"  Step: {progress['current_step']}")
+        if progress['error_message']:
+            console.print(f"  [red]Error: {progress['error_message']}[/red]")
+    except VideoPipelineError as exc:
+        console.print(f"[red]{exc}[/red]")
     finally:
         db.close()
 
