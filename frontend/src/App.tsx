@@ -9,6 +9,7 @@ import { VideosPage } from "@/pages/VideosPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { AutomationPage } from "@/pages/AutomationPage";
 import { youtubeApi } from "@/services/api";
+import { PublicSettingsPage } from "@/pages/PublicSettingsPage";
 
 function ProtectedRoute() {
   const { authStatus, isLoading } = useAuthStore();
@@ -65,6 +66,7 @@ function App() {
       />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/setup" element={<PublicSettingsPage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>
             <Route path="/stories" element={<StoriesPage />} />

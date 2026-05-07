@@ -1,26 +1,41 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Video, ArrowRight, AlertCircle } from 'lucide-react';
-import { useAuthStore } from '@/store';
-import { youtubeApi } from '@/services/api';
-import toast from 'react-hot-toast';
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Video, ArrowRight, AlertCircle } from "lucide-react";
+import { useAuthStore } from "@/store";
+import { youtubeApi } from "@/services/api";
+import toast from "react-hot-toast";
 
 export function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const navigate = useNavigate();
   const { setAuthStatus } = useAuthStore();
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.get("auth") === "success") {
+      // Fetch the current auth status immediately
+      youtubeApi.authStatus().then(({ data }) => {
+        setAuthStatus(data);
+        navigate("/stories");
+      });
+      // Clean the URL
+      window.history.replaceState({}, document.title, "/login");
+    }
+  }, [searchParams]);
 
   const handleLogin = async () => {
     setIsLoading(true);
-    setError('');
+    setError("");
 
     try {
       // Check if YouTube is configured
       const { data: status } = await youtubeApi.authStatus();
 
       if (!status.is_configured) {
-        setError('YouTube OAuth credentials not configured. Please set them in Settings first.');
+        setError(
+          "YouTube OAuth credentials not configured. Please set them in Settings first.",
+        );
         setIsLoading(false);
         return;
       }
@@ -32,13 +47,16 @@ export function LoginPage() {
       if (window.electronAPI) {
         await window.electronAPI.openExternal(flow.auth_url);
       } else {
-        window.open(flow.auth_url, '_blank');
+        window.open(flow.auth_url, "_blank");
       }
 
       // Show instructions
-      toast.success('Google login opened in browser. Complete authorization and return.', {
-        duration: 10000,
-      });
+      toast.success(
+        "Google login opened in browser. Complete authorization and return.",
+        {
+          duration: 10000,
+        },
+      );
 
       // Poll for auth status
       const checkInterval = setInterval(async () => {
@@ -47,11 +65,11 @@ export function LoginPage() {
           if (newStatus.is_authenticated) {
             clearInterval(checkInterval);
             setAuthStatus(newStatus);
-            toast.success(`Welcome, ${newStatus.user_info?.name || 'User'}!`);
-            navigate('/stories');
+            toast.success(`Welcome, ${newStatus.user_info?.name || "User"}!`);
+            navigate("/stories");
           }
         } catch (e) {
-          console.error('Auth check error:', e);
+          console.error("Auth check error:", e);
         }
       }, 3000);
 
@@ -60,9 +78,11 @@ export function LoginPage() {
         clearInterval(checkInterval);
         setIsLoading(false);
       }, 300000);
-
     } catch (e: any) {
-      setError(e.response?.data?.detail || 'Failed to initiate login. Please try again.');
+      setError(
+        e.response?.data?.detail ||
+          "Failed to initiate login. Please try again.",
+      );
       setIsLoading(false);
     }
   };
@@ -129,7 +149,7 @@ export function LoginPage() {
 
           <div className="mt-6 text-center">
             <button
-              onClick={() => navigate('/settings')}
+              onClick={() => navigate("/setup")}
               className="text-sm text-primary hover:text-primary-dark"
             >
               Configure API settings first →

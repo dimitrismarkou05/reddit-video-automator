@@ -19,6 +19,9 @@ from settings_manager import SettingsManager
 YOUTUBE_SCOPES = [
     "https://www.googleapis.com/auth/youtube",
     "https://www.googleapis.com/auth/youtube.upload",
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
 ]
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -112,7 +115,7 @@ class YouTubeAuthManager:
         except Exception as exc:
             raise YouTubeAuthError(f"Failed to fetch user info: {exc}")
 
-    def initiate_auth_flow(self, redirect_uri: str = "http://localhost:8080/callback") -> Dict[str, str]:
+    def initiate_auth_flow(self, redirect_uri: str = "http://localhost:8000/api/v1/youtube/auth/callback") -> Dict[str, str]:
         """Start the OAuth consent flow and return the authorization URL."""
         config = self._get_client_config()
         state = secrets.token_urlsafe(32)
@@ -134,7 +137,7 @@ class YouTubeAuthManager:
         self,
         code: str,
         state: str,
-        redirect_uri: str = "http://localhost:8080/callback",
+        redirect_uri: str = "http://localhost:8000/api/v1/youtube/auth/callback",
     ) -> Credentials:
         """Exchange the authorization code for access/refresh tokens."""
         stored_state = self.settings.get("youtube_oauth_state", decrypt_value=True)

@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
+from starlette.responses import RedirectResponse
 
 from database import get_db
 from models import Subreddit, Story, Setting, GeneratedVideo, StoryStatus, Notification
@@ -294,6 +295,30 @@ def youtube_auth_initiate(db: Session = Depends(get_db)):
         raise _handle_error(exc, 400)
 
 
+@router.get("/youtube/auth/callback", tags=["YouTube"])
+def youtube_auth_callback_get(
+    code: str = None,
+    state: str = None,
+    db: Session = Depends(get_db),
+):
+    """Handle Google OAuth redirect (GET request with code and state)."""
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Missing code or state")
+    auth = YouTubeAuthManager(db)
+    try:
+        auth.exchange_code(code=code, state=state, redirect_uri="http://localhost:8000/api/v1/youtube/auth/callback")
+        user_info = auth.get_user_info()
+        _create_notification(
+            db, "upload", "success",
+            f"YouTube account connected: {user_info.get('email', 'Unknown')}",
+            {"email": user_info.get("email"), "name": user_info.get("name")},
+        )
+        # Redirect to frontend with success
+        return RedirectResponse(url="http://localhost:3000/login?auth=success")
+    except YouTubeAuthError as exc:
+        raise _handle_error(exc, 400)
+
+
 @router.post("/youtube/auth/callback", tags=["YouTube"])
 def youtube_auth_callback(payload: YouTubeAuthCallbackRequest, db: Session = Depends(get_db)):
     auth = YouTubeAuthManager(db)
@@ -557,3 +582,22 @@ def delete_notification(notification_id: int, db: Session = Depends(get_db)):
     db.delete(n)
     db.commit()
     return {"success": True}
+
+
+# Settings endpoints
+@router.post("/settings", response_model=SettingsResponse, tags=["Settings"])
+def set_setting(data: SettingsUpdate, db: Session = Depends(get_db)):
+    mgr = SettingsManager(db)
+    setting = mgr.set(data.key, data.value, encrypt_value=data.encrypt)
+    return setting
+
+
+@router.get("/settings/{key}", response_model=SettingsResponse, tags=["Settings"])
+def get_setting(key: str, decrypt: bool = False, db: Session = Depends(get_db)):
+    mgr = SettingsManager(db)
+    value = mgr.get(key, decrypt_value=decrypt)
+    if value is None:
+        raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
+    # Return the full Setting object (SettingsResponse expects a Setting ORM object)
+    setting = db.query(Setting).filter(Setting.key == key).first()
+    return setting
