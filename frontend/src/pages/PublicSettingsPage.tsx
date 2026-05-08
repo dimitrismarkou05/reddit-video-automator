@@ -87,7 +87,10 @@ export function PublicSettingsPage() {
               onChange={(e) => setClientSecret(e.target.value)}
               className="input"
             />
-            <button onClick={handleSave} className="btn-primary w-full">
+            <button
+              onClick={handleSave}
+              className="cursor-pointer btn-primary w-full"
+            >
               Save & Go to Login
             </button>
           </div>
@@ -96,7 +99,7 @@ export function PublicSettingsPage() {
         <div className="text-center mt-6">
           <button
             onClick={() => navigate("/login")}
-            className="text-sm text-primary hover:underline"
+            className="cursor-pointer text-sm text-primary hover:underline"
           >
             ← Back to login
           </button>

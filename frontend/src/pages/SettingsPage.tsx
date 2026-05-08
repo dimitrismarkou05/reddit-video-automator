@@ -119,7 +119,7 @@ export function SettingsPage() {
             <h4 className="font-medium">Reddit API</h4>
             <button
               onClick={() => openExternal("https://www.reddit.com/prefs/apps")}
-              className="text-sm text-primary flex items-center gap-1 hover:underline"
+              className="cursor-pointer text-sm text-primary flex items-center gap-1 hover:underline"
             >
               <ExternalLink className="w-3 h-3" />
               Get API Key
@@ -153,21 +153,24 @@ export function SettingsPage() {
               }
               className="input"
             />
-            <button onClick={handleSaveReddit} className="btn-primary w-fit">
+            <button
+              onClick={handleSaveReddit}
+              className="cursor-pointer btn-primary w-fit"
+            >
               Save Reddit Credentials
             </button>
           </div>
         </div>
 
         {/* TTS */}
-        <div className="space-y-4 border-t border-border-light dark:border-border-dark pt-4">
+        <div className="space-y-4 border-t border-border-light dark:border-border-dark pt-4 mb-6">
           <div className="flex items-center justify-between">
             <h4 className="font-medium">Text-to-Speech (OpenAI)</h4>
             <button
               onClick={() =>
                 openExternal("https://platform.openai.com/api-keys")
               }
-              className="text-sm text-primary flex items-center gap-1 hover:underline"
+              className="cursor-pointer text-sm text-primary flex items-center gap-1 hover:underline"
             >
               <ExternalLink className="w-3 h-3" />
               Get API Key
@@ -181,7 +184,10 @@ export function SettingsPage() {
               onChange={(e) => setTtsKey(e.target.value)}
               className="input flex-1"
             />
-            <button onClick={handleSaveTTS} className="btn-primary">
+            <button
+              onClick={handleSaveTTS}
+              className="cursor-pointer btn-primary"
+            >
               Save
             </button>
           </div>
@@ -245,7 +251,7 @@ export function SettingsPage() {
             </div>
             <button
               onClick={() => openExternal("https://ffmpeg.org/download.html")}
-              className="btn-secondary text-sm flex items-center gap-2"
+              className="cursor-pointer btn-secondary text-sm flex items-center gap-2"
             >
               <ExternalLink className="w-4 h-4" />
               Download FFmpeg
@@ -258,7 +264,7 @@ export function SettingsPage() {
                 onChange={(e) => setFfmpegPath(e.target.value)}
                 className="input flex-1"
               />
-              <button className="btn-primary">Set Path</button>
+              <button className="cursor-pointer btn-primary">Set Path</button>
             </div>
           </div>
         )}
@@ -269,7 +275,7 @@ export function SettingsPage() {
         <div className="flex items-center gap-4">
           <button
             onClick={toggle}
-            className={`flex-1 p-4 rounded-xl border-2 transition-colors ${
+            className={`cursor-pointer flex-1 p-4 rounded-xl border-2 transition-colors ${
               !isDark
                 ? "border-primary bg-primary/5"
                 : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -281,7 +287,7 @@ export function SettingsPage() {
           </button>
           <button
             onClick={toggle}
-            className={`flex-1 p-4 rounded-xl border-2 transition-colors ${
+            className={`cursor-pointer flex-1 p-4 rounded-xl border-2 transition-colors ${
               isDark
                 ? "border-primary bg-primary/5"
                 : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -311,7 +317,7 @@ export function SettingsPage() {
               />
               <button
                 onClick={handleSelectOutputDir}
-                className="btn-secondary flex items-center gap-2"
+                className="cursor-pointer btn-secondary flex items-center gap-2"
               >
                 <FolderOpen className="w-4 h-4" />
                 Browse
@@ -323,13 +329,13 @@ export function SettingsPage() {
               Default Video Format
             </label>
             <div className="flex gap-3">
-              <button className="flex-1 p-3 rounded-lg border-2 border-primary bg-primary/5 text-center">
+              <button className="cursor-pointer flex-1 p-3 rounded-lg border-2 border-primary bg-primary/5 text-center">
                 <div className="text-sm font-medium">Shorts (9:16)</div>
                 <div className="text-xs text-gray-500">
                   Vertical mobile format
                 </div>
               </button>
-              <button className="flex-1 p-3 rounded-lg border-2 border-border-light dark:border-border-dark text-center hover:bg-gray-50 dark:hover:bg-gray-700">
+              <button className="cursor-pointer flex-1 p-3 rounded-lg border-2 border-border-light dark:border-border-dark text-center hover:bg-gray-50 dark:hover:bg-gray-700">
                 <div className="text-sm font-medium">Normal (16:9)</div>
                 <div className="text-xs text-gray-500">Standard horizontal</div>
               </button>

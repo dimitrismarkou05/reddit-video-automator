@@ -114,7 +114,7 @@ export function GenerateVideoModal({
           <button
             onClick={onClose}
             disabled={isGenerating}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -197,7 +197,7 @@ export function GenerateVideoModal({
                 <div className="flex items-center gap-3">
                   <button
                     onClick={handleSelectBackground}
-                    className="btn-secondary flex items-center gap-2"
+                    className="cursor-pointer btn-secondary flex items-center gap-2"
                   >
                     <Image className="w-4 h-4" />
                     Select Folder
@@ -225,7 +225,7 @@ export function GenerateVideoModal({
                     onClick={() =>
                       setSettings((s) => ({ ...s, video_format: "shorts" }))
                     }
-                    className={`flex-1 p-3 rounded-lg border-2 transition-colors ${
+                    className={`cursor-pointer flex-1 p-3 rounded-lg border-2 transition-colors ${
                       settings.video_format === "shorts"
                         ? "border-primary bg-primary/5"
                         : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -238,7 +238,7 @@ export function GenerateVideoModal({
                     onClick={() =>
                       setSettings((s) => ({ ...s, video_format: "normal" }))
                     }
-                    className={`flex-1 p-3 rounded-lg border-2 transition-colors ${
+                    className={`cursor-pointer flex-1 p-3 rounded-lg border-2 transition-colors ${
                       settings.video_format === "normal"
                         ? "border-primary bg-primary/5"
                         : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -339,12 +339,12 @@ export function GenerateVideoModal({
         {/* Footer */}
         {!isGenerating && (
           <div className="flex items-center justify-end gap-3 p-6 border-t border-border-light dark:border-border-dark">
-            <button onClick={onClose} className="btn-secondary">
+            <button onClick={onClose} className="cursor-pointer btn-secondary">
               Cancel
             </button>
             <button
               onClick={handleGenerate}
-              className="btn-primary flex items-center gap-2"
+              className="cursor-pointer btn-primary flex items-center gap-2"
             >
               <Film className="w-4 h-4" />
               Generate Video

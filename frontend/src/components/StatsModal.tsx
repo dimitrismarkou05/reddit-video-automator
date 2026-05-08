@@ -107,7 +107,7 @@ export function StatsModal({ videoId, onClose }: StatsModalProps) {
           <h2 className="text-lg font-semibold">YouTube Studio</h2>
           <button
             onClick={onClose}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             <X className="w-5 h-5" />
           </button>
@@ -156,7 +156,7 @@ export function StatsModal({ videoId, onClose }: StatsModalProps) {
               <h3 className="font-semibold">Video Details</h3>
               <button
                 onClick={() => setIsEditing(!isEditing)}
-                className="text-sm text-primary hover:text-primary-dark"
+                className="cursor-pointer text-sm text-primary hover:text-primary-dark"
               >
                 {isEditing ? "Cancel" : "Edit"}
               </button>
@@ -206,7 +206,7 @@ export function StatsModal({ videoId, onClose }: StatsModalProps) {
                 <button
                   onClick={handleSave}
                   disabled={isSaving}
-                  className="btn-primary flex items-center gap-2"
+                  className="cursor-pointer btn-primary flex items-center gap-2"
                 >
                   <Save className="w-4 h-4" />
                   {isSaving ? "Saving..." : "Save Changes"}
@@ -215,13 +215,13 @@ export function StatsModal({ videoId, onClose }: StatsModalProps) {
             ) : (
               <div className="space-y-2">
                 <div className="flex items-start gap-2">
-                  <span className="text-sm text-gray-500 w-24 flex-shrink-0">
+                  <span className="text-sm text-gray-500 w-24 shrink-0">
                     Title:
                   </span>
                   <span className="text-sm font-medium">{stats.title}</span>
                 </div>
                 <div className="flex items-start gap-2">
-                  <span className="text-sm text-gray-500 w-24 flex-shrink-0">
+                  <span className="text-sm text-gray-500 w-24 shrink-0">
                     Description:
                   </span>
                   <span className="text-sm">
@@ -229,7 +229,7 @@ export function StatsModal({ videoId, onClose }: StatsModalProps) {
                   </span>
                 </div>
                 <div className="flex items-start gap-2">
-                  <span className="text-sm text-gray-500 w-24 flex-shrink-0">
+                  <span className="text-sm text-gray-500 w-24 shrink-0">
                     Tags:
                   </span>
                   <div className="flex flex-wrap gap-1">
@@ -267,7 +267,7 @@ export function StatsModal({ videoId, onClose }: StatsModalProps) {
                   <button
                     key={privacy}
                     onClick={() => handlePrivacyChange(privacy)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${
+                    className={`cursor-pointer px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${
                       isActive
                         ? "bg-primary text-white"
                         : "bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
@@ -284,7 +284,7 @@ export function StatsModal({ videoId, onClose }: StatsModalProps) {
           <div className="border-t border-red-200 dark:border-red-800 pt-4">
             <button
               onClick={handleDelete}
-              className="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+              className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
             >
               <Trash2 className="w-4 h-4" />
               Delete from YouTube

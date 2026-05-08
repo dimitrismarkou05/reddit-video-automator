@@ -147,7 +147,7 @@ export function LoginPage() {
           <button
             onClick={handleLogin}
             disabled={isLoading}
-            className="w-full flex items-center justify-center gap-3 px-4 py-3 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg font-medium hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+            className="cursor-pointer w-full flex items-center justify-center gap-3 px-4 py-3 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg font-medium hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
           >
             {isLoading ? (
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
@@ -179,7 +179,7 @@ export function LoginPage() {
           <div className="mt-6 text-center">
             <button
               onClick={() => navigate("/setup")}
-              className="text-sm text-primary hover:text-primary-dark"
+              className="cursor-pointer text-sm text-primary hover:text-primary-dark"
             >
               Configure API settings first →
             </button>

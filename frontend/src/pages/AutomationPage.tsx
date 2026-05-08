@@ -54,7 +54,7 @@ function TemplateCard({
         <div className="flex items-center gap-2">
           <button
             onClick={onToggle}
-            className={`p-2 rounded-lg transition-colors ${
+            className={`cursor-pointer p-2 rounded-lg transition-colors ${
               template.is_active
                 ? "bg-green-100 dark:bg-green-900/30 text-green-600 hover:bg-green-200"
                 : "bg-gray-100 dark:bg-gray-700 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600"
@@ -69,14 +69,14 @@ function TemplateCard({
           </button>
           <button
             onClick={onRun}
-            className="p-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+            className="cursor-pointer p-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
             title="Run now"
           >
             <Play className="w-4 h-4" />
           </button>
           <button
             onClick={onDelete}
-            className="p-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+            className="cursor-pointer p-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
             title="Delete template"
           >
             <Trash2 className="w-4 h-4" />
@@ -119,7 +119,7 @@ function TemplateCard({
         </div>
         <button
           onClick={() => setShowDetails(!showDetails)}
-          className="flex items-center gap-1 text-primary hover:underline"
+          className="cursor-pointer flex items-center gap-1 text-primary hover:underline"
         >
           {showDetails ? "Less" : "More"}
           <ChevronRight
@@ -225,7 +225,7 @@ export function AutomationPage() {
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="btn-primary flex items-center gap-2"
+          className="cursor-pointer btn-primary flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
           New Template
@@ -325,7 +325,7 @@ function CreateTemplateModal({
           <h2 className="text-lg font-semibold">Create Automation Template</h2>
           <button
             onClick={onClose}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             <XCircle className="w-5 h-5" />
           </button>
@@ -489,7 +489,7 @@ function CreateTemplateModal({
           <button
             onClick={handleSubmit}
             disabled={isCreating}
-            className="btn-primary flex items-center gap-2"
+            className="cursor-pointer btn-primary flex items-center gap-2"
           >
             {isCreating ? (
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />

@@ -159,7 +159,7 @@ function VideoCard({ video }: { video: GeneratedVideo }) {
             video.youtube_upload_status === "not_uploaded" && (
               <button
                 onClick={() => setShowUploadModal(true)}
-                className="flex-1 btn-primary text-xs py-2 flex items-center justify-center gap-1"
+                className="cursor-pointer flex-1 btn-primary text-xs py-2 flex items-center justify-center gap-1"
               >
                 <Upload className="w-3 h-3" />
                 Upload to YouTube
@@ -170,7 +170,7 @@ function VideoCard({ video }: { video: GeneratedVideo }) {
             video.youtube_video_id && (
               <button
                 onClick={() => setShowStatsModal(true)}
-                className="flex-1 btn-secondary text-xs py-2 flex items-center justify-center gap-1"
+                className="cursor-pointer flex-1 btn-secondary text-xs py-2 flex items-center justify-center gap-1"
               >
                 <BarChart3 className="w-3 h-3" />
                 Statistics
@@ -223,7 +223,7 @@ export function VideosPage() {
         <h2 className="text-xl font-semibold">Generated Videos</h2>
         <button
           onClick={() => refetch()}
-          className="btn-secondary text-sm flex items-center gap-2"
+          className="cursor-pointer btn-secondary text-sm flex items-center gap-2"
         >
           <Clock className="w-4 h-4" />
           Refresh

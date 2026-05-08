@@ -82,7 +82,7 @@ export function UploadModal({ video, onClose }: UploadModalProps) {
           <h2 className="text-lg font-semibold">Upload to YouTube</h2>
           <button
             onClick={onClose}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             <X className="w-5 h-5" />
           </button>
@@ -176,7 +176,7 @@ export function UploadModal({ video, onClose }: UploadModalProps) {
                         onClick={() =>
                           setForm((f) => ({ ...f, privacy: opt.value }))
                         }
-                        className={`p-3 rounded-lg border-2 text-center transition-colors ${
+                        className={`cursor-pointer p-3 rounded-lg border-2 text-center transition-colors ${
                           form.privacy === opt.value
                             ? "border-primary bg-primary/5"
                             : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -232,12 +232,12 @@ export function UploadModal({ video, onClose }: UploadModalProps) {
 
         {!isUploading && (
           <div className="flex items-center justify-end gap-3 p-6 border-t border-border-light dark:border-border-dark">
-            <button onClick={onClose} className="btn-secondary">
+            <button onClick={onClose} className="cursor-pointer btn-secondary">
               Cancel
             </button>
             <button
               onClick={handleSubmit}
-              className="btn-primary flex items-center gap-2"
+              className="cursor-pointer btn-primary flex items-center gap-2"
             >
               <Upload className="w-4 h-4" />
               Upload Now

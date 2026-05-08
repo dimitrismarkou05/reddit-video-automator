@@ -119,7 +119,7 @@ export function NotificationDropdown() {
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+        className="cursor-pointer relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
@@ -137,7 +137,7 @@ export function NotificationDropdown() {
               {unreadCount > 0 && (
                 <button
                   onClick={handleMarkAllRead}
-                  className="text-xs text-primary hover:text-primary-dark flex items-center gap-1 px-2 py-1 rounded-md hover:bg-primary/10 transition-colors"
+                  className="cursor-pointer text-xs text-primary hover:text-primary-dark flex items-center gap-1 px-2 py-1 rounded-md hover:bg-primary/10 transition-colors"
                   title="Mark all as read"
                 >
                   <Check className="w-3 h-3" />
@@ -150,13 +150,13 @@ export function NotificationDropdown() {
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => setShowDeleteConfirm(false)}
-                        className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                        className="cursor-pointer text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                       >
                         Cancel
                       </button>
                       <button
                         onClick={handleDeleteAll}
-                        className="text-xs text-red-600 hover:text-red-700 flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+                        className="cursor-pointer text-xs text-red-600 hover:text-red-700 flex items-center gap-1 px-2 py-1 rounded-md bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
                       >
                         <AlertTriangle className="w-3 h-3" />
                         Confirm
@@ -165,7 +165,7 @@ export function NotificationDropdown() {
                   ) : (
                     <button
                       onClick={() => setShowDeleteConfirm(true)}
-                      className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1 px-2 py-1 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      className="cursor-pointer text-xs text-red-500 hover:text-red-600 flex items-center gap-1 px-2 py-1 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
                       title="Delete all notifications"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -187,7 +187,7 @@ export function NotificationDropdown() {
               notifications.map((notification) => (
                 <div
                   key={notification.id}
-                  className={`p-3 border-b border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer ${
+                  className={`p-3 border-b border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
                     !notification.is_read
                       ? "bg-primary/5 dark:bg-primary/10"
                       : ""
@@ -217,7 +217,7 @@ export function NotificationDropdown() {
                       {!notification.is_read && (
                         <button
                           onClick={(e) => handleMarkRead(notification.id, e)}
-                          className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+                          className="cursor-pointer p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
                           title="Mark as read"
                         >
                           <Check className="w-3 h-3" />
@@ -225,7 +225,7 @@ export function NotificationDropdown() {
                       )}
                       <button
                         onClick={(e) => handleDelete(notification.id, e)}
-                        className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400"
+                        className="cursor-pointer p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400"
                         title="Delete"
                       >
                         <Trash2 className="w-3 h-3" />
