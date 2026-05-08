@@ -43,17 +43,20 @@ export function Layout() {
       <aside className="w-64 bg-surface-light dark:bg-surface-dark border-r border-border-light dark:border-border-dark flex flex-col">
         {/* Logo */}
         <div className="p-4 border-b border-border-light dark:border-border-dark">
-          <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate("/stories")}
+            className="cursor-pointer flex items-center gap-3"
+          >
             <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
               <Video className="w-5 h-5 text-white" />
             </div>
-            <div>
+            <div className="flex items-start flex-col">
               <h1 className="font-bold text-lg leading-tight">Reddit Video</h1>
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Automator
               </p>
             </div>
-          </div>
+          </button>
         </div>
 
         {/* Navigation */}
