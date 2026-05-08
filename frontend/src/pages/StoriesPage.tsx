@@ -451,8 +451,8 @@ export function StoriesPage() {
       toast.success("Updates linked!", { id: "link" });
       await refreshNotifications();
       refetchStories();
-    } catch (e) {
-      toast.error("Linking failed", { id: "link" });
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || "Linking failed", { id: "link" });
     }
   };
 
