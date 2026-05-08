@@ -33,7 +33,6 @@ function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
     >
       <div className="card p-4 mb-3 hover:shadow-md transition-shadow">
         <div className="flex items-start gap-4">
-          {/* Expand button for updates */}
           {hasUpdates && (
             <button
               onClick={() => setIsExpanded(!isExpanded)}
@@ -125,7 +124,6 @@ function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
         </div>
       </div>
 
-      {/* Nested updates */}
       {isExpanded && hasUpdates && (
         <div className="space-y-2">
           {story.updates?.map((update) => (
@@ -169,7 +167,6 @@ export function StoriesPage() {
     },
   });
 
-  // Helper: refresh notifications from server
   const refreshNotifications = async () => {
     try {
       const { data } = await notificationApi.list(false, 20);
@@ -199,7 +196,6 @@ export function StoriesPage() {
     try {
       const { data } = await subredditApi.fetchAll();
 
-      // Inspect the response: each FetchResult has error field
       const errors = data.filter(
         (r: any) => r.error !== null && r.error !== undefined,
       );
@@ -209,15 +205,11 @@ export function StoriesPage() {
       const empty = data.filter((r: any) => !r.error && r.fetched_count === 0);
 
       if (errors.length > 0) {
-        const errMsg = errors
-          .map((r: any) => `r/${r.subreddit}: ${r.error}`)
-          .join("\n");
+        // REFACTORED: Short toast, details go to notification inbox
+        const totalSubs = data.length;
         toast.error(
-          `Fetch failed for ${errors.length} subreddit(s)\n${errMsg}`,
-          {
-            id: "fetch",
-            duration: 6000,
-          },
+          `Fetch failed for ${errors.length} of ${totalSubs} subreddit(s). Check notification inbox for details.`,
+          { id: "fetch", duration: 5000 },
         );
       } else if (successes.length > 0) {
         const total = successes.reduce(
@@ -229,21 +221,15 @@ export function StoriesPage() {
           { id: "fetch" },
         );
       } else if (empty.length > 0) {
-        toast(
-          `No new stories found in ${empty.length} subreddit(s) (all already fetched)`,
-          {
-            id: "fetch",
-            icon: "ℹ️",
-          },
-        );
+        toast(`No new stories found in ${empty.length} subreddit(s)`, {
+          id: "fetch",
+          icon: "ℹ️",
+        });
       } else {
         toast("Nothing to fetch — no active subreddits", { id: "fetch" });
       }
 
-      // CRITICAL: Refresh notifications immediately after fetch
-      // because the backend creates them during the HTTP request
       await refreshNotifications();
-
       refetch();
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Fetch request failed", {
@@ -257,10 +243,7 @@ export function StoriesPage() {
       toast.loading("Linking updates...", { id: "link" });
       await storyApi.linkUpdates();
       toast.success("Updates linked!", { id: "link" });
-
-      // Refresh notifications after linking too
       await refreshNotifications();
-
       refetch();
     } catch (e) {
       toast.error("Linking failed", { id: "link" });
@@ -269,7 +252,6 @@ export function StoriesPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header actions */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex-1 min-w-0 flex items-center gap-2">
           <input
@@ -308,7 +290,6 @@ export function StoriesPage() {
         </div>
       </div>
 
-      {/* Active subreddits */}
       {subreddits && subreddits.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {subreddits.map((sub: any) => (
@@ -322,7 +303,6 @@ export function StoriesPage() {
         </div>
       )}
 
-      {/* Stories list */}
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />

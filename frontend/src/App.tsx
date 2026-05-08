@@ -62,7 +62,7 @@ function App() {
   return (
     <div className="min-h-screen bg-background-light dark:bg-background-dark text-gray-900 dark:text-gray-100 transition-colors duration-200">
       <Toaster
-        position="top-right"
+        position="bottom-right"
         toastOptions={{
           className: "dark:bg-surface-dark dark:text-white",
           duration: 4000,
