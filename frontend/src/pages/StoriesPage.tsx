@@ -147,7 +147,7 @@ function SubredditList({
   );
 }
 
-/* ─── Story Card ─── */
+/* Story Card */
 function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -317,7 +317,7 @@ function DeleteConfirmModal({
   );
 }
 
-/* ─── Main Page ─── */
+/* Main Page */
 export function StoriesPage() {
   const [newSubreddit, setNewSubreddit] = useState("");
   const [isAdding, setIsAdding] = useState(false);
