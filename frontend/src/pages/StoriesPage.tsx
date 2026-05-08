@@ -14,6 +14,8 @@ import {
   BookOpen,
 } from "lucide-react";
 import { storyApi, subredditApi } from "@/services/api";
+import { useNotificationStore } from "@/store";
+import { notificationApi } from "@/services/api";
 import { GenerateVideoModal } from "@/components/GenerateVideoModal";
 import type { Story } from "@/types";
 import { formatDistanceToNow } from "date-fns";
@@ -145,6 +147,7 @@ function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
 export function StoriesPage() {
   const [newSubreddit, setNewSubreddit] = useState("");
   const [isAdding, setIsAdding] = useState(false);
+  const { setNotifications } = useNotificationStore();
 
   const {
     data: stories,
@@ -166,6 +169,16 @@ export function StoriesPage() {
     },
   });
 
+  // Helper: refresh notifications from server
+  const refreshNotifications = async () => {
+    try {
+      const { data } = await notificationApi.list(false, 20);
+      setNotifications(data);
+    } catch (e) {
+      console.error("Failed to refresh notifications:", e);
+    }
+  };
+
   const handleAddSubreddit = async () => {
     if (!newSubreddit.trim()) return;
     setIsAdding(true);
@@ -182,13 +195,60 @@ export function StoriesPage() {
   };
 
   const handleFetchAll = async () => {
+    toast.loading("Fetching stories...", { id: "fetch" });
     try {
-      toast.loading("Fetching stories...", { id: "fetch" });
-      await subredditApi.fetchAll();
-      toast.success("Fetch complete!", { id: "fetch" });
+      const { data } = await subredditApi.fetchAll();
+
+      // Inspect the response: each FetchResult has error field
+      const errors = data.filter(
+        (r: any) => r.error !== null && r.error !== undefined,
+      );
+      const successes = data.filter(
+        (r: any) => !r.error && r.fetched_count > 0,
+      );
+      const empty = data.filter((r: any) => !r.error && r.fetched_count === 0);
+
+      if (errors.length > 0) {
+        const errMsg = errors
+          .map((r: any) => `r/${r.subreddit}: ${r.error}`)
+          .join("\n");
+        toast.error(
+          `Fetch failed for ${errors.length} subreddit(s)\n${errMsg}`,
+          {
+            id: "fetch",
+            duration: 6000,
+          },
+        );
+      } else if (successes.length > 0) {
+        const total = successes.reduce(
+          (sum: number, r: any) => sum + r.fetched_count,
+          0,
+        );
+        toast.success(
+          `Fetched ${total} new stories from ${successes.length} subreddit(s)`,
+          { id: "fetch" },
+        );
+      } else if (empty.length > 0) {
+        toast(
+          `No new stories found in ${empty.length} subreddit(s) (all already fetched)`,
+          {
+            id: "fetch",
+            icon: "ℹ️",
+          },
+        );
+      } else {
+        toast("Nothing to fetch — no active subreddits", { id: "fetch" });
+      }
+
+      // CRITICAL: Refresh notifications immediately after fetch
+      // because the backend creates them during the HTTP request
+      await refreshNotifications();
+
       refetch();
-    } catch (e) {
-      toast.error("Fetch failed", { id: "fetch" });
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || "Fetch request failed", {
+        id: "fetch",
+      });
     }
   };
 
@@ -197,6 +257,10 @@ export function StoriesPage() {
       toast.loading("Linking updates...", { id: "link" });
       await storyApi.linkUpdates();
       toast.success("Updates linked!", { id: "link" });
+
+      // Refresh notifications after linking too
+      await refreshNotifications();
+
       refetch();
     } catch (e) {
       toast.error("Linking failed", { id: "link" });

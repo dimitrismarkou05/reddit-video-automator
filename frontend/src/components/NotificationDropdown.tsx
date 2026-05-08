@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Bell, Check, Trash2, AlertTriangle } from "lucide-react";
 import { useNotificationStore } from "@/store";
 import { notificationApi, sse } from "@/services/api";
@@ -20,25 +20,34 @@ export function NotificationDropdown() {
     clearAll,
   } = useNotificationStore();
 
-  useEffect(() => {
-    const fetchNotifications = async () => {
-      try {
-        const { data } = await notificationApi.list(false, 20);
-        setNotifications(data);
-      } catch (e) {
-        console.error("Failed to fetch notifications:", e);
-      }
-    };
-    fetchNotifications();
+  // Extract fetchNotifications as reusable callback
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const { data } = await notificationApi.list(false, 20);
+      setNotifications(data);
+    } catch (e) {
+      console.error("Failed to fetch notifications:", e);
+    }
   }, [setNotifications]);
+
+  useEffect(() => {
+    fetchNotifications();
+  }, [fetchNotifications]);
 
   useEffect(() => {
     sse.connect("/api/v1/sse/notifications");
     sse.on("notification", (data) => {
       addNotification(data as Notification);
     });
-    return () => sse.disconnect();
+    // Don't disconnect on unmount — keep SSE alive globally
+    // return () => sse.disconnect();
   }, [addNotification]);
+
+  // Poll every 10 seconds as fallback for missed SSE messages
+  useEffect(() => {
+    const interval = setInterval(fetchNotifications, 10000);
+    return () => clearInterval(interval);
+  }, [fetchNotifications]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

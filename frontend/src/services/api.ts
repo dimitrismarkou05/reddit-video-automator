@@ -1,4 +1,5 @@
 import axios from "axios";
+import { useNotificationStore } from "@/store";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
 
@@ -8,6 +9,44 @@ export const api = axios.create({
     "Content-Type": "application/json",
   },
 });
+
+// Global notification refresh after mutating requests
+// This runs after ANY POST/PUT/DELETE that might create notifications
+api.interceptors.response.use(
+  (response) => {
+    const method = response.config.method?.toLowerCase();
+    const isMutation =
+      method === "post" || method === "put" || method === "delete";
+    const isNotificationEndpoint =
+      response.config.url?.includes("/notifications");
+
+    // Skip if this IS a notification list request (avoid loops)
+    if (isMutation && !isNotificationEndpoint) {
+      // Fire-and-forget: refresh notifications in background
+      refreshNotifications().catch(() => {
+        // Silently ignore — notifications are best-effort
+      });
+    }
+    return response;
+  },
+  (error) => {
+    return Promise.reject(error);
+  },
+);
+
+// Helper to refresh notifications from server
+async function refreshNotifications() {
+  try {
+    const { data } = await axios.get(`${API_BASE}/notifications?limit=20`, {
+      headers: { "Content-Type": "application/json" },
+    });
+    // Update zustand store directly
+    useNotificationStore.getState().setNotifications(data);
+  } catch (e) {
+    // Silently ignore — don't break the app if notifications fail
+    console.debug("Notification refresh failed:", e);
+  }
+}
 
 // SSE connection manager
 export class SSEConnection {

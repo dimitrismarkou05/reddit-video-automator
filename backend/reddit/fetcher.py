@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -96,8 +96,10 @@ class StoryFetcher:
 
         return stories
 
-    def fetch_all_active(self) -> Dict[str, List[Story]]:
+    def fetch_all_active(self) -> Tuple[Dict[str, List[Story]], Dict[str, str]]:
+        """Fetch from every active subreddit. Returns (results, errors)."""
         results: Dict[str, List[Story]] = {}
+        errors: Dict[str, str] = {}
         active = self.db.query(Subreddit).filter(Subreddit.is_active.is_(True)).all()
 
         for sub in active:
@@ -105,10 +107,9 @@ class StoryFetcher:
                 results[sub.name] = self.fetch_stories(sub.id)
             except Exception as exc:
                 results[sub.name] = []
-                # In production this should write to a persistent log / notification queue
-                print(f"[ERROR] r/{sub.name}: {exc}")
+                errors[sub.name] = str(exc)
 
-        return results
+        return results, errors
 
     def _link_updates_for_subreddit(self, subreddit_name: str) -> None:
         from reddit.linker import UpdateLinker

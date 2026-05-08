@@ -1,5 +1,6 @@
 """FastAPI orchestration routes no business logic."""
 
+import asyncio
 from typing import List, Optional
 from pathlib import Path
 from datetime import datetime, timezone
@@ -45,18 +46,25 @@ def _handle_error(exc: Exception, default_status: int = 500) -> HTTPException:
 def _create_notification(
     db: Session, notif_type: str, level: str, message: str, details: Optional[dict] = None,
 ) -> None:
+    """Create a notification and attempt SSE broadcast (best-effort)."""
     n = Notification(type=notif_type, level=level, message=message, details=details)
     db.add(n)
     db.commit()
 
-    # Broadcast via SSE
-    asyncio = __import__("asyncio")
+    # Best effort SSE broadcast to avoid RuntimeWarning by checking for running loop
     try:
-        asyncio.create_task(notification_queue.broadcast("notification", {
-            "id": n.id, "type": notif_type, "level": level, "message": message,
-            "details": details, "is_read": False, "created_at": n.created_at.isoformat(),
-        }))
-    except Exception:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # Schedule without waiting; suppress "never awaited" warning
+            task = loop.create_task(notification_queue.broadcast("notification", {
+                "id": n.id, "type": notif_type, "level": level, "message": message,
+                "details": details, "is_read": False, "created_at": n.created_at.isoformat(),
+            }))
+            # Suppress "never awaited" by keeping a weak reference or ignoring
+            # In practice the task runs in the background. We just need to avoid the warning
+            _ = task  # reference prevents "never awaited" in some contexts
+    except RuntimeError:
+        # No event loop running (eg in background thread)
         pass
 
 
@@ -101,11 +109,19 @@ def fetch_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
 
     try:
         stories = fetcher.fetch_stories(subreddit_id)
-        _create_notification(
-            db, "story", "success",
-            f"Fetched {len(stories)} new stories from r/{sub.name}",
-            {"subreddit": sub.name, "count": len(stories)},
-        )
+        # Distinguish: 0 stories = info (not error), actual error = error
+        if len(stories) == 0:
+            _create_notification(
+                db, "story", "info",
+                f"No new stories found in r/{sub.name} (all already fetched)",
+                {"subreddit": sub.name, "count": 0},
+            )
+        else:
+            _create_notification(
+                db, "story", "success",
+                f"Fetched {len(stories)} new stories from r/{sub.name}",
+                {"subreddit": sub.name, "count": len(stories)},
+            )
         return FetchResult(subreddit=sub.name, fetched_count=len(stories), error=None)
     except Exception as exc:
         _create_notification(
@@ -119,11 +135,34 @@ def fetch_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
 @router.post("/fetch-all", response_model=List[FetchResult], tags=["Subreddits"])
 def fetch_all(db: Session = Depends(get_db)):
     fetcher = StoryFetcher(db)
-    results = fetcher.fetch_all_active()
-    return [
-        FetchResult(subreddit=name, fetched_count=len(stories), error=None)
-        for name, stories in results.items()
-    ]
+    results, errors = fetcher.fetch_all_active()
+
+    fetch_results = []
+    for name, stories in results.items():
+        error = errors.get(name)
+        if error:
+            _create_notification(
+                db, "story", "error",
+                f"Failed to fetch r/{name}: {error}",
+                {"subreddit": name},
+            )
+        elif len(stories) == 0:
+            _create_notification(
+                db, "story", "info",
+                f"No new stories found in r/{name} (all already fetched)",
+                {"subreddit": name, "count": 0},
+            )
+        else:
+            _create_notification(
+                db, "story", "success",
+                f"Fetched {len(stories)} new stories from r/{name}",
+                {"subreddit": name, "count": len(stories)},
+            )
+        fetch_results.append(
+            FetchResult(subreddit=name, fetched_count=len(stories), error=error)
+        )
+
+    return fetch_results
 
 
 # Stories
@@ -305,7 +344,7 @@ def youtube_auth_callback_get(
     """Handle Google OAuth redirect (GET request with code and state)."""
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
-    
+
     auth = YouTubeAuthManager(db)
     try:
         auth.exchange_code(
@@ -319,11 +358,11 @@ def youtube_auth_callback_get(
             f"YouTube account connected: {user_info.get('email', 'Unknown')}",
             {"email": user_info.get("email"), "name": user_info.get("name")},
         )
-        
+
         from fastapi.responses import HTMLResponse
         html_content = load_template("auth_callback.html")
         return HTMLResponse(content=html_content)
-        
+
     except YouTubeAuthError as exc:
         from fastapi.responses import HTMLResponse
         html_content = render_template("auth_error.html", error_message=str(exc))
