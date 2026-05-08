@@ -99,6 +99,16 @@ def delete_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
     db.commit()
     return {"deleted": True}
 
+@router.delete("/subreddits", tags=["Subreddits"])
+def delete_all_subreddits(db: Session = Depends(get_db)):
+    count = db.query(Subreddit).delete()
+    db.commit()
+    _create_notification(
+        db, "subreddit", "warning",
+        f"Deleted all {count} subreddits",
+        {"deleted_count": count},
+    )
+    return {"deleted": True, "count": count}
 
 @router.post("/subreddits/{subreddit_id}/fetch", response_model=FetchResult, tags=["Subreddits"])
 def fetch_subreddit(subreddit_id: int, db: Session = Depends(get_db)):

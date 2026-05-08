@@ -114,6 +114,7 @@ export const subredditApi = {
   add: (name: string, settings?: Record<string, any>) =>
     api.post("/subreddits", { name, fetch_settings: settings }),
   delete: (id: number) => api.delete(`/subreddits/${id}`),
+  deleteAll: () => api.delete("/subreddits"),
   fetch: (id: number) => api.post(`/subreddits/${id}/fetch`),
   fetchAll: () => api.post("/fetch-all"),
 };
