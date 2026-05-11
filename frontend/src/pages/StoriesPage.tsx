@@ -359,6 +359,9 @@ export function StoriesPage() {
   const [showSortDropdown, setShowSortDropdown] = useState(false);
   const sortDropdownRef = useRef<HTMLDivElement>(null);
 
+  const [showSubredditDropdown, setShowSubredditDropdown] = useState(false);
+  const subredditDropdownRef = useRef<HTMLDivElement>(null);
+
   const [deleteTarget, setDeleteTarget] = useState<
     | { type: "single"; id?: number; name?: string }
     | { type: "all" }
@@ -396,6 +399,11 @@ export function StoriesPage() {
         !sortDropdownRef.current.contains(e.target as Node)
       )
         setShowSortDropdown(false);
+      if (
+        subredditDropdownRef.current &&
+        !subredditDropdownRef.current.contains(e.target as Node)
+      )
+        setShowSubredditDropdown(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -573,20 +581,55 @@ export function StoriesPage() {
 
       {/* Filter & Sort Bar */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-gray-500" />
-          <select
-            value={selectedSubreddit}
-            onChange={(e) => setSelectedSubreddit(e.target.value)}
-            className="input w-48 text-sm py-1.5"
+        <div className="relative" ref={subredditDropdownRef}>
+          <button
+            onClick={() => setShowSubredditDropdown(!showSubredditDropdown)}
+            className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-800 border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           >
-            <option value="all">All Subreddits</option>
-            {subreddits?.map((sub: any) => (
-              <option key={sub.id} value={sub.name}>
-                {sub.display_name}
-              </option>
-            ))}
-          </select>
+            <Filter className="w-4 h-4" />
+            {selectedSubreddit === "all"
+              ? "All Subreddits"
+              : subreddits?.find((s: any) => s.name === selectedSubreddit)
+                  ?.display_name || selectedSubreddit}
+            <ChevronDown className="w-3 h-3" />
+          </button>
+          {showSubredditDropdown && (
+            <div className="absolute left-0 top-full mt-1 w-56 bg-surface-light dark:bg-surface-dark rounded-xl shadow-lg border border-border-light dark:border-border-dark z-50 overflow-hidden">
+              <button
+                onClick={() => {
+                  setSelectedSubreddit("all");
+                  setShowSubredditDropdown(false);
+                }}
+                className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                  selectedSubreddit === "all"
+                    ? "bg-primary/10 text-primary font-medium"
+                    : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                }`}
+              >
+                <Filter className="w-4 h-4" />
+                All Subreddits
+              </button>
+              {subreddits?.map((sub: any) => (
+                <button
+                  key={sub.id}
+                  onClick={() => {
+                    setSelectedSubreddit(sub.name);
+                    setShowSubredditDropdown(false);
+                  }}
+                  className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                    selectedSubreddit === sub.name
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  }`}
+                >
+                  <span className="w-4 h-4 flex items-center justify-center text-xs font-medium text-gray-500">
+                    r/
+                  </span>
+                  {sub.display_name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="relative" ref={sortDropdownRef}>
