@@ -578,6 +578,15 @@ export function StoriesPage() {
         </div>
       </div>
 
+      {/* Subreddit list - MOVED ABOVE filter and sort */}
+      {subreddits && subreddits.length > 0 && (
+        <SubredditList
+          subreddits={subreddits}
+          onDelete={(id, name) => setDeleteTarget({ type: "single", id, name })}
+          onDeleteAll={() => setDeleteTarget({ type: "all" })}
+        />
+      )}
+
       {/* Filter & Sort Bar */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Subreddit Filter */}
@@ -644,15 +653,6 @@ export function StoriesPage() {
           </button>
         )}
       </div>
-
-      {/* Subreddit list */}
-      {subreddits && subreddits.length > 0 && (
-        <SubredditList
-          subreddits={subreddits}
-          onDelete={(id, name) => setDeleteTarget({ type: "single", id, name })}
-          onDeleteAll={() => setDeleteTarget({ type: "all" })}
-        />
-      )}
 
       {/* Stories */}
       {isLoading ? (
