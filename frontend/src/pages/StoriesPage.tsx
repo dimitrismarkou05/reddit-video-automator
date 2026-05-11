@@ -16,6 +16,9 @@ import {
   Trash2,
   ChevronUp,
   AlertTriangle,
+  Filter,
+  ArrowUpDown,
+  ArrowDownAZ,
 } from "lucide-react";
 import { storyApi, subredditApi } from "@/services/api";
 import { useNotificationStore } from "@/store";
@@ -24,6 +27,25 @@ import { GenerateVideoModal } from "@/components/GenerateVideoModal";
 import type { Story } from "@/types";
 import { formatDistanceToNow } from "date-fns";
 import toast from "react-hot-toast";
+
+type SortOption =
+  | "date_desc"
+  | "date_asc"
+  | "score_desc"
+  | "score_asc"
+  | "title_asc";
+
+const SORT_OPTIONS: {
+  value: SortOption;
+  label: string;
+  icon: typeof ArrowUpDown;
+}[] = [
+  { value: "date_desc", label: "Newest first", icon: ArrowUpDown },
+  { value: "date_asc", label: "Oldest first", icon: ArrowUpDown },
+  { value: "score_desc", label: "Upvotes: High → Low", icon: ArrowUpDown },
+  { value: "score_asc", label: "Upvotes: Low → High", icon: ArrowUpDown },
+  { value: "title_asc", label: "Alphabetical", icon: ArrowDownAZ },
+];
 
 /* Subreddit Badge with delete */
 function SubredditBadge({
@@ -42,14 +64,7 @@ function SubredditBadge({
           e.stopPropagation();
           onDelete(sub.id, sub.display_name);
         }}
-        className="
-        cursor-pointer flex items-center justify-center
-        w-5 h-5 rounded-full
-        text-primary
-        transition-all
-        hover:bg-primary/20
-        hover:text-primary-foreground
-      "
+        className="cursor-pointer flex items-center justify-center w-5 h-5 rounded-full text-primary transition-all hover:bg-primary/20 hover:text-primary-foreground"
         title={`Remove ${sub.display_name}`}
       >
         <X className="w-3.5 h-3.5" />
@@ -91,7 +106,6 @@ function SubredditList({
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-3">
-        {/* Scrollable / expandable container */}
         <div
           ref={containerRef}
           className={`relative flex-1 min-w-0 ${
@@ -104,13 +118,11 @@ function SubredditList({
             <SubredditBadge key={sub.id} sub={sub} onDelete={onDelete} />
           ))}
 
-          {/* Fade indicator when collapsed and overflowing */}
           {!expanded && overflows && (
             <div className="absolute right-0 top-0 bottom-0 w-16 bg-linear-to-l from-background-light dark:from-background-dark to-transparent pointer-events-none" />
           )}
         </div>
 
-        {/* Toggle expand */}
         {visibleCount > 0 && (
           <button
             onClick={() => setExpanded((v) => !v)}
@@ -125,7 +137,6 @@ function SubredditList({
           </button>
         )}
 
-        {/* Delete all */}
         {visibleCount > 0 && (
           <button
             onClick={onDeleteAll}
@@ -137,7 +148,6 @@ function SubredditList({
         )}
       </div>
 
-      {/* Overflow hint */}
       {!expanded && overflows && (
         <p className="text-xs text-gray-400">
           {visibleCount} subreddits — click the arrow to see all
@@ -148,7 +158,15 @@ function SubredditList({
 }
 
 /* Story Card */
-function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
+function StoryCard({
+  story,
+  depth = 0,
+  onDelete,
+}: {
+  story: Story;
+  depth?: number;
+  onDelete: (story: Story) => void;
+}) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const hasUpdates = story.updates && story.updates.length > 0;
@@ -174,7 +192,7 @@ function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
           )}
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full font-medium">
                 r/{story.subreddit}
               </span>
@@ -193,7 +211,7 @@ function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
 
             <h3 className="font-semibold text-base mb-1">{story.title}</h3>
 
-            <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
+            <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
               <span className="flex items-center gap-1">
                 <ArrowUp className="w-3 h-3" />
                 {story.score.toLocaleString()}
@@ -247,6 +265,13 @@ function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
             >
               <ExternalLink className="w-5 h-5" />
             </a>
+            <button
+              onClick={() => onDelete(story)}
+              className="cursor-pointer p-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+              title="Delete story"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
           </div>
         </div>
       </div>
@@ -254,7 +279,12 @@ function StoryCard({ story, depth = 0 }: { story: Story; depth?: number }) {
       {isExpanded && hasUpdates && (
         <div className="space-y-2">
           {story.updates?.map((update) => (
-            <StoryCard key={update.id} story={update} depth={depth + 1} />
+            <StoryCard
+              key={update.id}
+              story={update}
+              depth={depth + 1}
+              onDelete={onDelete}
+            />
           ))}
         </div>
       )}
@@ -323,22 +353,36 @@ export function StoriesPage() {
   const [isAdding, setIsAdding] = useState(false);
   const { setNotifications } = useNotificationStore();
 
+  /* Filter & Sort state */
+  const [selectedSubreddit, setSelectedSubreddit] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<SortOption>("date_desc");
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
+  const sortDropdownRef = useRef<HTMLDivElement>(null);
+
   /* Delete confirmation state */
-  const [deleteTarget, setDeleteTarget] = useState<{
-    type: "single" | "all";
-    id?: number;
-    name?: string;
-  } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { type: "single"; id?: number; name?: string }
+    | { type: "all" }
+    | { type: "story"; story: Story }
+    | null
+  >(null);
 
   const {
     data: stories,
     isLoading,
     refetch: refetchStories,
   } = useQuery({
-    queryKey: ["stories"],
+    queryKey: ["stories", selectedSubreddit, sortBy],
     queryFn: async () => {
-      const { data } = await storyApi.list();
-      return data.filter((s: Story) => !s.is_update);
+      const params: Record<string, any> = {
+        is_update: false,
+        sort_by: sortBy,
+      };
+      if (selectedSubreddit !== "all") {
+        params.subreddit = selectedSubreddit;
+      }
+      const { data } = await storyApi.list(params);
+      return data;
     },
   });
 
@@ -349,6 +393,20 @@ export function StoriesPage() {
       return data;
     },
   });
+
+  // Close sort dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (
+        sortDropdownRef.current &&
+        !sortDropdownRef.current.contains(e.target as Node)
+      ) {
+        setShowSortDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   const refreshNotifications = async () => {
     try {
@@ -376,10 +434,15 @@ export function StoriesPage() {
 
   const handleDeleteSubreddit = async (id: number) => {
     try {
-      await subredditApi.delete(id);
-      toast.success("Subreddit removed");
+      const { data } = await subredditApi.delete(id);
+      toast.success(
+        `Deleted ${data.subreddit} and ${data.stories_deleted} story(s)`,
+      );
       refetchSubreddits();
       refetchStories();
+      if (selectedSubreddit === data.subreddit) {
+        setSelectedSubreddit("all");
+      }
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Failed to delete subreddit");
     }
@@ -388,13 +451,29 @@ export function StoriesPage() {
   const handleDeleteAllSubreddits = async () => {
     try {
       const { data } = await subredditApi.deleteAll();
-      toast.success(`Deleted ${data.count} subreddit(s)`);
+      toast.success(
+        `Deleted ${data.count} subreddit(s) and ${data.stories_deleted} story(s)`,
+      );
       refetchSubreddits();
       refetchStories();
+      setSelectedSubreddit("all");
     } catch (e: any) {
       toast.error(
         e.response?.data?.detail || "Failed to delete all subreddits",
       );
+    }
+  };
+
+  const handleDeleteStory = async (story: Story) => {
+    try {
+      const { data } = await storyApi.delete(story.id);
+      toast.success(
+        `Deleted "${data.title}..." and ${data.updates_deleted} update(s)`,
+      );
+      refetchStories();
+      refreshNotifications();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || "Failed to delete story");
     }
   };
 
@@ -456,9 +535,11 @@ export function StoriesPage() {
     }
   };
 
+  const activeSortLabel = SORT_OPTIONS.find((s) => s.value === sortBy)?.label;
+
   return (
     <div className="space-y-6">
-      {/* Controls */}
+      {/* Controls Row */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex-1 min-w-0 flex items-center gap-2">
           <input
@@ -497,6 +578,73 @@ export function StoriesPage() {
         </div>
       </div>
 
+      {/* Filter & Sort Bar */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Subreddit Filter */}
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-gray-500" />
+          <select
+            value={selectedSubreddit}
+            onChange={(e) => setSelectedSubreddit(e.target.value)}
+            className="input w-48 text-sm py-1.5"
+          >
+            <option value="all">All Subreddits</option>
+            {subreddits?.map((sub: any) => (
+              <option key={sub.id} value={sub.name}>
+                {sub.display_name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Sort Dropdown */}
+        <div className="relative" ref={sortDropdownRef}>
+          <button
+            onClick={() => setShowSortDropdown(!showSortDropdown)}
+            className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-800 border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            <ArrowUpDown className="w-4 h-4" />
+            {activeSortLabel}
+            <ChevronDown className="w-3 h-3" />
+          </button>
+
+          {showSortDropdown && (
+            <div className="absolute left-0 top-full mt-1 w-56 bg-surface-light dark:bg-surface-dark rounded-xl shadow-lg border border-border-light dark:border-border-dark z-50 overflow-hidden">
+              {SORT_OPTIONS.map((option) => {
+                const Icon = option.icon;
+                return (
+                  <button
+                    key={option.value}
+                    onClick={() => {
+                      setSortBy(option.value);
+                      setShowSortDropdown(false);
+                    }}
+                    className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                      sortBy === option.value
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Clear filter */}
+        {selectedSubreddit !== "all" && (
+          <button
+            onClick={() => setSelectedSubreddit("all")}
+            className="cursor-pointer text-sm text-primary hover:underline"
+          >
+            Clear filter
+          </button>
+        )}
+      </div>
+
       {/* Subreddit list */}
       {subreddits && subreddits.length > 0 && (
         <SubredditList
@@ -514,27 +662,35 @@ export function StoriesPage() {
       ) : stories && stories.length > 0 ? (
         <div className="space-y-2">
           {stories.map((story: Story) => (
-            <StoryCard key={story.id} story={story} />
+            <StoryCard
+              key={story.id}
+              story={story}
+              onDelete={(s) => setDeleteTarget({ type: "story", story: s })}
+            />
           ))}
         </div>
       ) : (
         <div className="card p-12 text-center">
           <BookOpen className="w-12 h-12 mx-auto mb-4 text-gray-300" />
           <h3 className="text-lg font-semibold text-gray-500">
-            No stories yet
+            {selectedSubreddit !== "all"
+              ? `No stories in r/${selectedSubreddit}`
+              : "No stories yet"}
           </h3>
           <p className="text-sm text-gray-400 mt-1">
-            Add a subreddit and click "Fetch All" to get started
+            {selectedSubreddit !== "all"
+              ? "Try selecting a different subreddit or fetch new stories"
+              : "Add a subreddit and click 'Fetch All' to get started"}
           </p>
         </div>
       )}
 
-      {/* Delete confirmation modal */}
+      {/* Delete confirmation modals */}
       {deleteTarget?.type === "single" && (
         <DeleteConfirmModal
           title="Remove Subreddit?"
           message={`Are you sure you want to remove ${deleteTarget.name}? This will stop monitoring this subreddit.`}
-          warning="All stories fetched from this subreddit will also be deleted. This action cannot be undone."
+          warning={`All stories fetched from this subreddit (including updates) will be permanently deleted. This action cannot be undone.`}
           onConfirm={() => {
             if (deleteTarget.id) handleDeleteSubreddit(deleteTarget.id);
             setDeleteTarget(null);
@@ -547,9 +703,26 @@ export function StoriesPage() {
         <DeleteConfirmModal
           title="Delete All Subreddits?"
           message={`Are you sure you want to delete all ${subreddits?.length || 0} subreddits?`}
-          warning="This will permanently delete all subreddits and every story fetched from them. This action cannot be undone."
+          warning="This will permanently delete all subreddits and every story (including all updates) fetched from them. This action cannot be undone."
           onConfirm={() => {
             handleDeleteAllSubreddits();
+            setDeleteTarget(null);
+          }}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+
+      {deleteTarget?.type === "story" && (
+        <DeleteConfirmModal
+          title="Delete Story?"
+          message={`Are you sure you want to delete "${deleteTarget.story.title}"?`}
+          warning={
+            deleteTarget.story.updates && deleteTarget.story.updates.length > 0
+              ? `This will also delete ${deleteTarget.story.updates.length} linked update(s). This action cannot be undone.`
+              : "This action cannot be undone."
+          }
+          onConfirm={() => {
+            handleDeleteStory(deleteTarget.story);
             setDeleteTarget(null);
           }}
           onCancel={() => setDeleteTarget(null)}

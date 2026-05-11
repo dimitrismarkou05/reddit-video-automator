@@ -96,20 +96,44 @@ def delete_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
     sub = db.query(Subreddit).filter(Subreddit.id == subreddit_id).first()
     if not sub:
         raise HTTPException(status_code=404, detail="Subreddit not found")
+
+    # Cascade: delete all stories (originals + updates) belonging to this subreddit
+    # The Story model has cascade="all, delete-orphan" on updates relationship,
+    # so deleting an original will auto-delete its linked updates.
+    # However, updates have their own rows with the same subreddit field.
+    # We delete all stories where subreddit matches — originals first, then updates.
+    story_count = db.query(Story).filter(Story.subreddit == sub.name).delete()
     db.delete(sub)
     db.commit()
-    return {"deleted": True}
+
+    _create_notification(
+        db, "subreddit", "warning",
+        f"Deleted r/{sub.name} and {story_count} associated stories",
+        {"subreddit": sub.name, "deleted_stories": story_count},
+    )
+    return {"deleted": True, "subreddit": sub.name, "stories_deleted": story_count}
+
 
 @router.delete("/subreddits", tags=["Subreddits"])
 def delete_all_subreddits(db: Session = Depends(get_db)):
+    # First count all stories that will be cascade-deleted
+    subreddits = db.query(Subreddit).all()
+    total_stories = 0
+    for sub in subreddits:
+        total_stories += db.query(Story).filter(Story.subreddit == sub.name).count()
+
     count = db.query(Subreddit).delete()
+    # Delete all stories since subreddits are gone
+    db.query(Story).delete()
     db.commit()
+
     _create_notification(
         db, "subreddit", "warning",
-        f"Deleted all {count} subreddits",
-        {"deleted_count": count},
+        f"Deleted all {count} subreddits and {total_stories} stories",
+        {"deleted_subreddits": count, "deleted_stories": total_stories},
     )
-    return {"deleted": True, "count": count}
+    return {"deleted": True, "count": count, "stories_deleted": total_stories}
+
 
 @router.post("/subreddits/{subreddit_id}/fetch", response_model=FetchResult, tags=["Subreddits"])
 def fetch_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
@@ -182,6 +206,7 @@ def list_stories(
     subreddit: Optional[str] = None,
     status: Optional[str] = None,
     is_update: Optional[bool] = None,
+    sort_by: Optional[str] = None,  # date_desc, date_asc, score_desc, score_asc, title_asc
     db: Session = Depends(get_db),
 ):
     q = db.query(Story)
@@ -191,7 +216,21 @@ def list_stories(
         q = q.filter(Story.status == status)
     if is_update is not None:
         q = q.filter(Story.is_update == is_update)
-    return q.order_by(Story.fetched_at.desc()).all()
+
+    # Sorting
+    if sort_by == "date_asc":
+        q = q.order_by(Story.fetched_at.asc())
+    elif sort_by == "score_desc":
+        q = q.order_by(Story.score.desc())
+    elif sort_by == "score_asc":
+        q = q.order_by(Story.score.asc())
+    elif sort_by == "title_asc":
+        q = q.order_by(Story.title.asc())
+    else:
+        # Default: newest first
+        q = q.order_by(Story.fetched_at.desc())
+
+    return q.all()
 
 
 @router.get("/stories/{story_id}", response_model=StoryDetailResponse, tags=["Stories"])
@@ -200,6 +239,33 @@ def get_story(story_id: int, db: Session = Depends(get_db)):
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
     return story
+
+
+@router.delete("/stories/{story_id}", tags=["Stories"])
+def delete_story(story_id: int, db: Session = Depends(get_db)):
+    """Delete a story and all its linked updates (cascade)."""
+    story = db.query(Story).filter(Story.id == story_id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    # Count updates that will be cascade-deleted
+    update_count = len(story.updates) if story.updates else 0
+    title = story.title[:50]
+
+    db.delete(story)
+    db.commit()
+
+    _create_notification(
+        db, "story", "warning",
+        f'Deleted story "{title}..." and {update_count} update(s)',
+        {"story_id": story_id, "updates_deleted": update_count},
+    )
+    return {
+        "deleted": True,
+        "story_id": story_id,
+        "title": title,
+        "updates_deleted": update_count,
+    }
 
 
 @router.get("/stories/{story_id}/chain", response_model=StoryChainResponse, tags=["Stories"])
