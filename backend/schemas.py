@@ -19,6 +19,14 @@ class SubredditResponse(BaseModel):
     fetch_settings: Dict[str, Any]
     added_at: datetime
 
+    @field_serializer('added_at')
+    def serialize_datetime(self, value: datetime) -> str:
+        if value is None:
+            return ""
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
+
 
 class StoryBase(BaseModel):
     reddit_id: str
@@ -41,6 +49,14 @@ class StoryResponse(StoryBase):
     id: int
     fetched_at: datetime
     parent_story_id: Optional[int] = None
+
+    @field_serializer('created_utc', 'fetched_at')
+    def serialize_datetime(self, value: datetime) -> str:
+        if value is None:
+            return ""
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
 
 
 class StoryDetailResponse(StoryResponse):
@@ -70,6 +86,14 @@ class SettingsResponse(BaseModel):
     value: str
     is_encrypted: bool
     updated_at: datetime
+
+    @field_serializer('updated_at')
+    def serialize_datetime(self, value: datetime) -> str:
+        if value is None:
+            return ""
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
 
 
 class SubtitleStyle(BaseModel):
@@ -116,6 +140,14 @@ class GeneratedVideoResponse(BaseModel):
     youtube_analytics: Optional[dict]
     created_at: datetime
     completed_at: Optional[datetime]
+
+    @field_serializer('created_at', 'completed_at')
+    def serialize_datetime(self, value: Optional[datetime]) -> str:
+        if value is None:
+            return ""
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
 
 
 class VideoProgressResponse(BaseModel):
@@ -198,7 +230,6 @@ class NotificationResponse(BaseModel):
 
     @field_serializer('created_at')
     def serialize_created_at(self, value: datetime) -> str:
-        # If naive, assume UTC; if aware, convert to UTC
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')

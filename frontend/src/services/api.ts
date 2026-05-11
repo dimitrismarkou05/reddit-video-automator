@@ -115,6 +115,7 @@ export const storyApi = {
   list: (params?: Record<string, any>) => api.get("/stories", { params }),
   get: (id: number) => api.get(`/stories/${id}`),
   delete: (id: number) => api.delete(`/stories/${id}`),
+  deleteAll: () => api.delete("/stories"),
   getChain: (id: number) => api.get(`/stories/${id}/chain`),
   linkUpdates: (subreddit?: string) =>
     api.post("/stories/link-updates", {}, { params: { subreddit } }),

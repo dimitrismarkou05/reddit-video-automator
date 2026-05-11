@@ -19,13 +19,14 @@ import {
   Filter,
   ArrowUpDown,
   ArrowDownAZ,
+  Trash,
 } from "lucide-react";
 import { storyApi, subredditApi } from "@/services/api";
 import { useNotificationStore } from "@/store";
 import { notificationApi } from "@/services/api";
 import { GenerateVideoModal } from "@/components/GenerateVideoModal";
 import type { Story } from "@/types";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, parseISO } from "date-fns";
 import toast from "react-hot-toast";
 
 type SortOption =
@@ -35,19 +36,42 @@ type SortOption =
   | "score_asc"
   | "title_asc";
 
-const SORT_OPTIONS: {
-  value: SortOption;
-  label: string;
-  icon: typeof ArrowUpDown;
-}[] = [
-  { value: "date_desc", label: "Newest first", icon: ArrowUpDown },
-  { value: "date_asc", label: "Oldest first", icon: ArrowUpDown },
-  { value: "score_desc", label: "Upvotes: High → Low", icon: ArrowUpDown },
-  { value: "score_asc", label: "Upvotes: Low → High", icon: ArrowUpDown },
-  { value: "title_asc", label: "Alphabetical", icon: ArrowDownAZ },
+const SORT_OPTIONS = [
+  {
+    value: "date_desc" as SortOption,
+    label: "Newest first",
+    icon: ArrowUpDown,
+  },
+  { value: "date_asc" as SortOption, label: "Oldest first", icon: ArrowUpDown },
+  {
+    value: "score_desc" as SortOption,
+    label: "Upvotes: High → Low",
+    icon: ArrowUpDown,
+  },
+  {
+    value: "score_asc" as SortOption,
+    label: "Upvotes: Low → High",
+    icon: ArrowUpDown,
+  },
+  {
+    value: "title_asc" as SortOption,
+    label: "Alphabetical",
+    icon: ArrowDownAZ,
+  },
 ];
 
-/* Subreddit Badge with delete */
+/* Parse UTC ISO string from backend */
+function formatUtcRelative(dateString: string | null): string {
+  if (!dateString) return "Unknown";
+  try {
+    const date = parseISO(dateString);
+    return formatDistanceToNow(date, { addSuffix: true });
+  } catch {
+    return "Unknown";
+  }
+}
+
+/* Subreddit Badge */
 function SubredditBadge({
   sub,
   onDelete,
@@ -58,7 +82,6 @@ function SubredditBadge({
   return (
     <span className="group inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary text-sm rounded-full font-medium transition-colors hover:bg-primary/15">
       {sub.display_name}
-
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -101,33 +124,25 @@ function SubredditList({
     };
   }, [subreddits]);
 
-  const visibleCount = subreddits.length;
-
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-3">
         <div
           ref={containerRef}
-          className={`relative flex-1 min-w-0 ${
-            expanded
-              ? "flex flex-wrap gap-2"
-              : "flex items-center gap-2 overflow-hidden"
-          }`}
+          className={`relative flex-1 min-w-0 ${expanded ? "flex flex-wrap gap-2" : "flex items-center gap-2 overflow-hidden"}`}
         >
           {subreddits.map((sub) => (
             <SubredditBadge key={sub.id} sub={sub} onDelete={onDelete} />
           ))}
-
           {!expanded && overflows && (
             <div className="absolute right-0 top-0 bottom-0 w-16 bg-linear-to-l from-background-light dark:from-background-dark to-transparent pointer-events-none" />
           )}
         </div>
-
-        {visibleCount > 0 && (
+        {subreddits.length > 0 && (
           <button
             onClick={() => setExpanded((v) => !v)}
             className="cursor-pointer shrink-0 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 transition-colors"
-            title={expanded ? "Collapse list" : "Expand list"}
+            title={expanded ? "Collapse" : "Expand"}
           >
             {expanded ? (
               <ChevronUp className="w-4 h-4" />
@@ -136,8 +151,7 @@ function SubredditList({
             )}
           </button>
         )}
-
-        {visibleCount > 0 && (
+        {subreddits.length > 0 && (
           <button
             onClick={onDeleteAll}
             className="cursor-pointer shrink-0 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 transition-colors"
@@ -147,10 +161,9 @@ function SubredditList({
           </button>
         )}
       </div>
-
       {!expanded && overflows && (
         <p className="text-xs text-gray-400">
-          {visibleCount} subreddits — click the arrow to see all
+          {subreddits.length} subreddits — click arrow to see all
         </p>
       )}
     </div>
@@ -190,7 +203,6 @@ function StoryCard({
               )}
             </button>
           )}
-
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full font-medium">
@@ -208,9 +220,7 @@ function StoryCard({
                 </span>
               )}
             </div>
-
             <h3 className="font-semibold text-base mb-1">{story.title}</h3>
-
             <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
               <span className="flex items-center gap-1">
                 <ArrowUp className="w-3 h-3" />
@@ -220,11 +230,10 @@ function StoryCard({
                 <MessageCircle className="w-3 h-3" />
                 u/{story.author}
               </span>
+              {/* FIXED: Use created_utc with proper UTC parsing */}
               <span className="flex items-center gap-1">
                 <Calendar className="w-3 h-3" />
-                {formatDistanceToNow(new Date(story.fetched_at), {
-                  addSuffix: true,
-                })}
+                {formatUtcRelative(story.created_utc)}
               </span>
               {hasUpdates && (
                 <span className="flex items-center gap-1 text-primary">
@@ -234,7 +243,6 @@ function StoryCard({
                 </span>
               )}
             </div>
-
             {story.body && (
               <p className="mt-2 text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
                 {story.body.substring(0, 200)}
@@ -242,17 +250,12 @@ function StoryCard({
               </p>
             )}
           </div>
-
           <div className="flex flex-col gap-2">
             <button
               onClick={() => setShowGenerateModal(true)}
               disabled={hasVideo}
-              className={`cursor-pointer p-2 rounded-lg transition-colors ${
-                hasVideo
-                  ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
-                  : "bg-primary/10 text-primary hover:bg-primary/20"
-              }`}
-              title={hasVideo ? "Video already generated" : "Generate video"}
+              className={`cursor-pointer p-2 rounded-lg transition-colors ${hasVideo ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default" : "bg-primary/10 text-primary hover:bg-primary/20"}`}
+              title={hasVideo ? "Video ready" : "Generate video"}
             >
               <Film className="w-5 h-5" />
             </button>
@@ -275,7 +278,6 @@ function StoryCard({
           </div>
         </div>
       </div>
-
       {isExpanded && hasUpdates && (
         <div className="space-y-2">
           {story.updates?.map((update) => (
@@ -288,7 +290,6 @@ function StoryCard({
           ))}
         </div>
       )}
-
       {showGenerateModal && (
         <GenerateVideoModal
           story={story}
@@ -353,17 +354,16 @@ export function StoriesPage() {
   const [isAdding, setIsAdding] = useState(false);
   const { setNotifications } = useNotificationStore();
 
-  /* Filter & Sort state */
   const [selectedSubreddit, setSelectedSubreddit] = useState<string>("all");
   const [sortBy, setSortBy] = useState<SortOption>("date_desc");
   const [showSortDropdown, setShowSortDropdown] = useState(false);
   const sortDropdownRef = useRef<HTMLDivElement>(null);
 
-  /* Delete confirmation state */
   const [deleteTarget, setDeleteTarget] = useState<
     | { type: "single"; id?: number; name?: string }
     | { type: "all" }
     | { type: "story"; story: Story }
+    | { type: "all_stories" }
     | null
   >(null);
 
@@ -374,13 +374,8 @@ export function StoriesPage() {
   } = useQuery({
     queryKey: ["stories", selectedSubreddit, sortBy],
     queryFn: async () => {
-      const params: Record<string, any> = {
-        is_update: false,
-        sort_by: sortBy,
-      };
-      if (selectedSubreddit !== "all") {
-        params.subreddit = selectedSubreddit;
-      }
+      const params: Record<string, any> = { is_update: false, sort_by: sortBy };
+      if (selectedSubreddit !== "all") params.subreddit = selectedSubreddit;
       const { data } = await storyApi.list(params);
       return data;
     },
@@ -394,15 +389,13 @@ export function StoriesPage() {
     },
   });
 
-  // Close sort dropdown on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (
         sortDropdownRef.current &&
         !sortDropdownRef.current.contains(e.target as Node)
-      ) {
+      )
         setShowSortDropdown(false);
-      }
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -412,9 +405,7 @@ export function StoriesPage() {
     try {
       const { data } = await notificationApi.list(false, 20);
       setNotifications(data);
-    } catch (e) {
-      console.error("Failed to refresh notifications:", e);
-    }
+    } catch (e) {}
   };
 
   const handleAddSubreddit = async () => {
@@ -426,7 +417,7 @@ export function StoriesPage() {
       setNewSubreddit("");
       refetchSubreddits();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail || "Failed to add subreddit");
+      toast.error(e.response?.data?.detail || "Failed");
     } finally {
       setIsAdding(false);
     }
@@ -436,15 +427,13 @@ export function StoriesPage() {
     try {
       const { data } = await subredditApi.delete(id);
       toast.success(
-        `Deleted ${data.subreddit} and ${data.stories_deleted} story(s)`,
+        `Deleted ${data.subreddit} + ${data.stories_deleted} stories`,
       );
       refetchSubreddits();
       refetchStories();
-      if (selectedSubreddit === data.subreddit) {
-        setSelectedSubreddit("all");
-      }
+      if (selectedSubreddit === data.subreddit) setSelectedSubreddit("all");
     } catch (e: any) {
-      toast.error(e.response?.data?.detail || "Failed to delete subreddit");
+      toast.error(e.response?.data?.detail || "Failed");
     }
   };
 
@@ -452,15 +441,13 @@ export function StoriesPage() {
     try {
       const { data } = await subredditApi.deleteAll();
       toast.success(
-        `Deleted ${data.count} subreddit(s) and ${data.stories_deleted} story(s)`,
+        `Deleted ${data.count} subs + ${data.stories_deleted} stories`,
       );
       refetchSubreddits();
       refetchStories();
       setSelectedSubreddit("all");
     } catch (e: any) {
-      toast.error(
-        e.response?.data?.detail || "Failed to delete all subreddits",
-      );
+      toast.error(e.response?.data?.detail || "Failed");
     }
   };
 
@@ -468,70 +455,68 @@ export function StoriesPage() {
     try {
       const { data } = await storyApi.delete(story.id);
       toast.success(
-        `Deleted "${data.title}..." and ${data.updates_deleted} update(s)`,
+        `Deleted "${data.title}..." + ${data.updates_deleted} updates`,
       );
       refetchStories();
       refreshNotifications();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail || "Failed to delete story");
+      toast.error(e.response?.data?.detail || "Failed");
+    }
+  };
+
+  const handleDeleteAllStories = async () => {
+    try {
+      const { data } = await storyApi.deleteAll();
+      toast.success(`Deleted all ${data.count} stories`);
+      refetchStories();
+      refreshNotifications();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || "Failed");
     }
   };
 
   const handleFetchAll = async () => {
-    toast.loading("Fetching stories...", { id: "fetch" });
+    toast.loading("Fetching...", { id: "fetch" });
     try {
       const { data } = await subredditApi.fetchAll();
-
-      const errors = data.filter(
-        (r: any) => r.error !== null && r.error !== undefined,
-      );
+      const errors = data.filter((r: any) => r.error != null);
       const successes = data.filter(
         (r: any) => !r.error && r.fetched_count > 0,
       );
       const empty = data.filter((r: any) => !r.error && r.fetched_count === 0);
-
-      if (errors.length > 0) {
-        const totalSubs = data.length;
-        toast.error(
-          `Fetch failed for ${errors.length} of ${totalSubs} subreddit(s). Check notification inbox for details.`,
-          { id: "fetch", duration: 5000 },
-        );
-      } else if (successes.length > 0) {
+      if (errors.length > 0)
+        toast.error(`Failed for ${errors.length} sub(s)`, {
+          id: "fetch",
+          duration: 5000,
+        });
+      else if (successes.length > 0) {
         const total = successes.reduce(
-          (sum: number, r: any) => sum + r.fetched_count,
+          (s: number, r: any) => s + r.fetched_count,
           0,
         );
-        toast.success(
-          `Fetched ${total} new stories from ${successes.length} subreddit(s)`,
-          { id: "fetch" },
-        );
-      } else if (empty.length > 0) {
-        toast(`No new stories found in ${empty.length} subreddit(s)`, {
+        toast.success(`Fetched ${total} stories`, { id: "fetch" });
+      } else if (empty.length > 0)
+        toast(`No new stories in ${empty.length} sub(s)`, {
           id: "fetch",
           icon: "ℹ️",
         });
-      } else {
-        toast("Nothing to fetch — no active subreddits", { id: "fetch" });
-      }
-
+      else toast("No active subreddits", { id: "fetch" });
       await refreshNotifications();
       refetchStories();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail || "Fetch request failed", {
-        id: "fetch",
-      });
+      toast.error(e.response?.data?.detail || "Failed", { id: "fetch" });
     }
   };
 
   const handleLinkUpdates = async () => {
     try {
-      toast.loading("Linking updates...", { id: "link" });
+      toast.loading("Linking...", { id: "link" });
       await storyApi.linkUpdates();
-      toast.success("Updates linked!", { id: "link" });
+      toast.success("Linked!", { id: "link" });
       await refreshNotifications();
       refetchStories();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail || "Linking failed", { id: "link" });
+      toast.error(e.response?.data?.detail || "Failed", { id: "link" });
     }
   };
 
@@ -559,7 +544,6 @@ export function StoriesPage() {
             Add
           </button>
         </div>
-
         <div className="flex items-center gap-2">
           <button
             onClick={handleFetchAll}
@@ -589,7 +573,6 @@ export function StoriesPage() {
 
       {/* Filter & Sort Bar */}
       <div className="flex flex-wrap items-center gap-3">
-        {/* Subreddit Filter */}
         <div className="flex items-center gap-2">
           <Filter className="w-4 h-4 text-gray-500" />
           <select
@@ -606,7 +589,6 @@ export function StoriesPage() {
           </select>
         </div>
 
-        {/* Sort Dropdown */}
         <div className="relative" ref={sortDropdownRef}>
           <button
             onClick={() => setShowSortDropdown(!showSortDropdown)}
@@ -616,7 +598,6 @@ export function StoriesPage() {
             {activeSortLabel}
             <ChevronDown className="w-3 h-3" />
           </button>
-
           {showSortDropdown && (
             <div className="absolute left-0 top-full mt-1 w-56 bg-surface-light dark:bg-surface-dark rounded-xl shadow-lg border border-border-light dark:border-border-dark z-50 overflow-hidden">
               {SORT_OPTIONS.map((option) => {
@@ -628,11 +609,7 @@ export function StoriesPage() {
                       setSortBy(option.value);
                       setShowSortDropdown(false);
                     }}
-                    className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
-                      sortBy === option.value
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                    }`}
+                    className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${sortBy === option.value ? "bg-primary/10 text-primary font-medium" : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"}`}
                   >
                     <Icon className="w-4 h-4" />
                     {option.label}
@@ -643,7 +620,6 @@ export function StoriesPage() {
           )}
         </div>
 
-        {/* Clear filter */}
         {selectedSubreddit !== "all" && (
           <button
             onClick={() => setSelectedSubreddit("all")}
@@ -652,6 +628,18 @@ export function StoriesPage() {
             Clear filter
           </button>
         )}
+
+        {/* Delete All Stories button — opposite side */}
+        <div className="flex-1 flex justify-end">
+          <button
+            onClick={() => setDeleteTarget({ type: "all_stories" })}
+            className="cursor-pointer flex items-center gap-2 px-3 py-1.5 text-sm text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+            title="Delete all stories"
+          >
+            <Trash className="w-4 h-4" />
+            Delete All Stories
+          </button>
+        </div>
       </div>
 
       {/* Stories */}
@@ -679,8 +667,8 @@ export function StoriesPage() {
           </h3>
           <p className="text-sm text-gray-400 mt-1">
             {selectedSubreddit !== "all"
-              ? "Try selecting a different subreddit or fetch new stories"
-              : "Add a subreddit and click 'Fetch All' to get started"}
+              ? "Try another subreddit or fetch new stories"
+              : "Add a subreddit and click 'Fetch All'"}
           </p>
         </div>
       )}
@@ -689,8 +677,8 @@ export function StoriesPage() {
       {deleteTarget?.type === "single" && (
         <DeleteConfirmModal
           title="Remove Subreddit?"
-          message={`Are you sure you want to remove ${deleteTarget.name}? This will stop monitoring this subreddit.`}
-          warning={`All stories fetched from this subreddit (including updates) will be permanently deleted. This action cannot be undone.`}
+          message={`Remove ${deleteTarget.name}?`}
+          warning="All stories (including updates) will be permanently deleted."
           onConfirm={() => {
             if (deleteTarget.id) handleDeleteSubreddit(deleteTarget.id);
             setDeleteTarget(null);
@@ -698,12 +686,11 @@ export function StoriesPage() {
           onCancel={() => setDeleteTarget(null)}
         />
       )}
-
       {deleteTarget?.type === "all" && (
         <DeleteConfirmModal
           title="Delete All Subreddits?"
-          message={`Are you sure you want to delete all ${subreddits?.length || 0} subreddits?`}
-          warning="This will permanently delete all subreddits and every story (including all updates) fetched from them. This action cannot be undone."
+          message={`Delete all ${subreddits?.length || 0} subreddits?`}
+          warning="All subreddits and every story (including updates) will be deleted."
           onConfirm={() => {
             handleDeleteAllSubreddits();
             setDeleteTarget(null);
@@ -711,18 +698,29 @@ export function StoriesPage() {
           onCancel={() => setDeleteTarget(null)}
         />
       )}
-
       {deleteTarget?.type === "story" && (
         <DeleteConfirmModal
           title="Delete Story?"
-          message={`Are you sure you want to delete "${deleteTarget.story.title}"?`}
+          message={`Delete "${deleteTarget.story.title}"?`}
           warning={
             deleteTarget.story.updates && deleteTarget.story.updates.length > 0
-              ? `This will also delete ${deleteTarget.story.updates.length} linked update(s). This action cannot be undone.`
+              ? `This will also delete ${deleteTarget.story.updates.length} linked update(s).`
               : "This action cannot be undone."
           }
           onConfirm={() => {
             handleDeleteStory(deleteTarget.story);
+            setDeleteTarget(null);
+          }}
+          onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+      {deleteTarget?.type === "all_stories" && (
+        <DeleteConfirmModal
+          title="Delete All Stories?"
+          message="Delete every story (including all updates)?"
+          warning="Subreddits will NOT be deleted — only stories. This cannot be undone."
+          onConfirm={() => {
+            handleDeleteAllStories();
             setDeleteTarget(null);
           }}
           onCancel={() => setDeleteTarget(null)}
