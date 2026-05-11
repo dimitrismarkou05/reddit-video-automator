@@ -213,14 +213,7 @@ def get_story_chain(story_id: int, db: Session = Depends(get_db)):
 
 @router.post("/stories/link-updates", tags=["Stories"])
 def run_link_updates(subreddit: Optional[str] = None, db: Session = Depends(get_db)):
-    # Guard: linking is meaningless if we cant fetch stories because
-    # credentials are missing. Mirror the behavior of /fetch-all.
-    reddit_client = RedditClient(db)
-    try:
-        reddit_client._init_client()
-    except RedditClientError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
+    # No Reddit API credentials check needed — old.reddit.com is public
     linker = UpdateLinker(db)
     if subreddit:
         count = linker.link_updates_for_subreddit(subreddit)

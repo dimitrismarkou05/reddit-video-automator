@@ -11,6 +11,7 @@ import {
   Sun,
   Moon,
   Monitor,
+  Mic,
 } from "lucide-react";
 import { useThemeStore, useAuthStore } from "@/store";
 import { settingsApi } from "@/services/api";
@@ -41,12 +42,8 @@ function Section({
 export function SettingsPage() {
   const { isDark, toggle } = useThemeStore();
   const { authStatus } = useAuthStore();
-  const [redditCreds, setRedditCreds] = useState({
-    clientId: "",
-    clientSecret: "",
-    userAgent: "",
-  });
   const [ttsKey, setTtsKey] = useState("");
+  const [elevenLabsKey, setElevenLabsKey] = useState("");
   const [ffmpegPath, setFfmpegPath] = useState("");
   const [outputDir, setOutputDir] = useState("");
 
@@ -63,27 +60,29 @@ export function SettingsPage() {
     staleTime: Infinity,
   });
 
-  const handleSaveReddit = async () => {
+  const handleSaveOpenAI = async () => {
+    if (!ttsKey.trim()) {
+      toast.error("Please enter an API key");
+      return;
+    }
     try {
-      await settingsApi.set("reddit_client_id", redditCreds.clientId, true);
-      await settingsApi.set(
-        "reddit_client_secret",
-        redditCreds.clientSecret,
-        true,
-      );
-      await settingsApi.set("reddit_user_agent", redditCreds.userAgent);
-      toast.success("Reddit credentials saved");
-      setRedditCreds({ clientId: "", clientSecret: "", userAgent: "" });
+      await settingsApi.set("openai_api_key", ttsKey, true);
+      toast.success("OpenAI API key saved securely");
+      setTtsKey("");
     } catch (e) {
-      toast.error("Failed to save credentials");
+      toast.error("Failed to save API key");
     }
   };
 
-  const handleSaveTTS = async () => {
+  const handleSaveElevenLabs = async () => {
+    if (!elevenLabsKey.trim()) {
+      toast.error("Please enter an API key");
+      return;
+    }
     try {
-      await settingsApi.set("openai_api_key", ttsKey, true);
-      toast.success("TTS API key saved");
-      setTtsKey("");
+      await settingsApi.set("elevenlabs_api_key", elevenLabsKey, true);
+      toast.success("ElevenLabs API key saved securely");
+      setElevenLabsKey("");
     } catch (e) {
       toast.error("Failed to save API key");
     }
@@ -111,61 +110,12 @@ export function SettingsPage() {
     <div className="max-w-3xl mx-auto space-y-6">
       <h2 className="text-2xl font-bold mb-6">Settings</h2>
 
-      {/* API Connections */}
-      <Section title="API Connections" icon={Key}>
-        {/* Reddit */}
+      {/* TTS API Keys */}
+      <Section title="Text-to-Speech APIs" icon={Mic}>
+        {/* OpenAI */}
         <div className="space-y-4 mb-6">
           <div className="flex items-center justify-between">
-            <h4 className="font-medium">Reddit API</h4>
-            <button
-              onClick={() => openExternal("https://www.reddit.com/prefs/apps")}
-              className="cursor-pointer text-sm text-primary flex items-center gap-1 hover:underline"
-            >
-              <ExternalLink className="w-3 h-3" />
-              Get API Key
-            </button>
-          </div>
-          <div className="grid grid-cols-1 gap-3">
-            <input
-              type="password"
-              placeholder="Client ID"
-              value={redditCreds.clientId}
-              onChange={(e) =>
-                setRedditCreds((c) => ({ ...c, clientId: e.target.value }))
-              }
-              className="input"
-            />
-            <input
-              type="password"
-              placeholder="Client Secret"
-              value={redditCreds.clientSecret}
-              onChange={(e) =>
-                setRedditCreds((c) => ({ ...c, clientSecret: e.target.value }))
-              }
-              className="input"
-            />
-            <input
-              type="text"
-              placeholder="User Agent (optional)"
-              value={redditCreds.userAgent}
-              onChange={(e) =>
-                setRedditCreds((c) => ({ ...c, userAgent: e.target.value }))
-              }
-              className="input"
-            />
-            <button
-              onClick={handleSaveReddit}
-              className="cursor-pointer btn-primary w-fit"
-            >
-              Save Reddit Credentials
-            </button>
-          </div>
-        </div>
-
-        {/* TTS */}
-        <div className="space-y-4 border-t border-border-light dark:border-border-dark pt-4 mb-6">
-          <div className="flex items-center justify-between">
-            <h4 className="font-medium">Text-to-Speech (OpenAI)</h4>
+            <h4 className="font-medium">OpenAI (Default)</h4>
             <button
               onClick={() =>
                 openExternal("https://platform.openai.com/api-keys")
@@ -179,53 +129,89 @@ export function SettingsPage() {
           <div className="flex gap-3">
             <input
               type="password"
-              placeholder="OpenAI API Key"
+              placeholder="sk-..."
               value={ttsKey}
               onChange={(e) => setTtsKey(e.target.value)}
               className="input flex-1"
             />
             <button
-              onClick={handleSaveTTS}
+              onClick={handleSaveOpenAI}
               className="cursor-pointer btn-primary"
             >
               Save
             </button>
           </div>
+          <p className="text-xs text-gray-500">
+            Used for voice narration. Your key is encrypted at rest.
+          </p>
         </div>
 
-        {/* YouTube Auth Status */}
-        <div className="border-t border-border-light dark:border-border-dark pt-4">
-          <h4 className="font-medium mb-3">YouTube Account</h4>
-          {authStatus?.is_authenticated && authStatus.user_info ? (
-            <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
-              {authStatus.user_info.picture ? (
-                <img
-                  src={authStatus.user_info.picture}
-                  alt=""
-                  className="w-10 h-10 rounded-full"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
-                  <Monitor className="w-5 h-5 text-primary" />
-                </div>
-              )}
-              <div>
-                <p className="font-medium">{authStatus.user_info.name}</p>
-                <p className="text-sm text-gray-500">
-                  {authStatus.user_info.email}
-                </p>
+        {/* ElevenLabs */}
+        <div className="space-y-4 border-t border-border-light dark:border-border-dark pt-4">
+          <div className="flex items-center justify-between">
+            <h4 className="font-medium">ElevenLabs (Optional)</h4>
+            <button
+              onClick={() =>
+                openExternal("https://elevenlabs.io/app/settings/api-keys")
+              }
+              className="cursor-pointer text-sm text-primary flex items-center gap-1 hover:underline"
+            >
+              <ExternalLink className="w-3 h-3" />
+              Get API Key
+            </button>
+          </div>
+          <div className="flex gap-3">
+            <input
+              type="password"
+              placeholder="ElevenLabs API key..."
+              value={elevenLabsKey}
+              onChange={(e) => setElevenLabsKey(e.target.value)}
+              className="input flex-1"
+            />
+            <button
+              onClick={handleSaveElevenLabs}
+              className="cursor-pointer btn-primary"
+            >
+              Save
+            </button>
+          </div>
+          <p className="text-xs text-gray-500">
+            Higher quality voices. Optional — falls back to OpenAI if not set.
+          </p>
+        </div>
+      </Section>
+
+      {/* YouTube Auth Status */}
+      <Section title="YouTube Account" icon={Key}>
+        {authStatus?.is_authenticated && authStatus.user_info ? (
+          <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+            {authStatus.user_info.picture ? (
+              <img
+                src={authStatus.user_info.picture}
+                alt=""
+                className="w-10 h-10 rounded-full"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center">
+                <Monitor className="w-5 h-5 text-primary" />
               </div>
-              <Check className="w-5 h-5 text-green-500 ml-auto" />
-            </div>
-          ) : (
-            <div className="flex items-center gap-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
-              <AlertCircle className="w-5 h-5 text-yellow-500" />
-              <p className="text-sm">
-                Not connected. Go to Login to connect your Google account.
+            )}
+            <div>
+              <p className="font-medium">{authStatus.user_info.name}</p>
+              <p className="text-sm text-gray-500">
+                {authStatus.user_info.email}
               </p>
             </div>
-          )}
-        </div>
+            <Check className="w-5 h-5 text-green-500 ml-auto" />
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+            <AlertCircle className="w-5 h-5 text-yellow-500" />
+            <p className="text-sm">
+              Not connected. Go to Login to connect your Google account.
+            </p>
+          </div>
+        )}
       </Section>
 
       {/* FFmpeg */}

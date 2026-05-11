@@ -77,7 +77,7 @@ class StoryFetcher:
             story = Story(
                 reddit_id=submission.id,
                 title=submission.title,
-                author=submission.author.name if submission.author else "[deleted]",
+                author=submission.author,
                 subreddit=sub.name,
                 score=submission.score,
                 body=submission.selftext if submission.is_self else None,
