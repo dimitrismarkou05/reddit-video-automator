@@ -11,7 +11,6 @@ export const api = axios.create({
 });
 
 // Global notification refresh after mutating requests
-// This runs after ANY POST/PUT/DELETE that might create notifications
 api.interceptors.response.use(
   (response) => {
     const method = response.config.method?.toLowerCase();
@@ -20,12 +19,8 @@ api.interceptors.response.use(
     const isNotificationEndpoint =
       response.config.url?.includes("/notifications");
 
-    // Skip if this IS a notification list request (avoid loops)
     if (isMutation && !isNotificationEndpoint) {
-      // Fire-and-forget: refresh notifications in background
-      refreshNotifications().catch(() => {
-        // Silently ignore — notifications are best-effort
-      });
+      refreshNotifications().catch(() => {});
     }
     return response;
   },
@@ -34,16 +29,13 @@ api.interceptors.response.use(
   },
 );
 
-// Helper to refresh notifications from server
 async function refreshNotifications() {
   try {
     const { data } = await axios.get(`${API_BASE}/notifications?limit=20`, {
       headers: { "Content-Type": "application/json" },
     });
-    // Update zustand store directly
     useNotificationStore.getState().setNotifications(data);
   } catch (e) {
-    // Silently ignore — don't break the app if notifications fail
     console.debug("Notification refresh failed:", e);
   }
 }
@@ -122,6 +114,8 @@ export const subredditApi = {
 export const storyApi = {
   list: (params?: Record<string, any>) => api.get("/stories", { params }),
   get: (id: number) => api.get(`/stories/${id}`),
+  delete: (id: number) => api.delete(`/stories/${id}`),
+  deleteAll: () => api.delete("/stories"),
   getChain: (id: number) => api.get(`/stories/${id}/chain`),
   linkUpdates: (subreddit?: string) =>
     api.post("/stories/link-updates", {}, { params: { subreddit } }),

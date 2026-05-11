@@ -52,24 +52,18 @@ def _create_notification(
     db.add(n)
     db.commit()
 
-    # Best effort SSE broadcast to avoid RuntimeWarning by checking for running loop
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # Schedule without waiting; suppress "never awaited" warning
             task = loop.create_task(notification_queue.broadcast("notification", {
                 "id": n.id, "type": notif_type, "level": level, "message": message,
                 "details": details, "is_read": False, "created_at": n.created_at.isoformat(),
             }))
-            # Suppress "never awaited" by keeping a weak reference or ignoring
-            # In practice the task runs in the background. We just need to avoid the warning
-            _ = task  # reference prevents "never awaited" in some contexts
+            _ = task
     except RuntimeError:
-        # No event loop running (eg in background thread)
         pass
 
 
-# Include automation routes
 router.include_router(automation_router, prefix="/automation", tags=["Automation"])
 
 
@@ -96,20 +90,37 @@ def delete_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
     sub = db.query(Subreddit).filter(Subreddit.id == subreddit_id).first()
     if not sub:
         raise HTTPException(status_code=404, detail="Subreddit not found")
+
+    story_count = db.query(Story).filter(Story.subreddit == sub.name).delete()
     db.delete(sub)
     db.commit()
-    return {"deleted": True}
+
+    _create_notification(
+        db, "subreddit", "warning",
+        f"Deleted r/{sub.name} and {story_count} associated stories",
+        {"subreddit": sub.name, "deleted_stories": story_count},
+    )
+    return {"deleted": True, "subreddit": sub.name, "stories_deleted": story_count}
+
 
 @router.delete("/subreddits", tags=["Subreddits"])
 def delete_all_subreddits(db: Session = Depends(get_db)):
+    subreddits = db.query(Subreddit).all()
+    total_stories = 0
+    for sub in subreddits:
+        total_stories += db.query(Story).filter(Story.subreddit == sub.name).count()
+
     count = db.query(Subreddit).delete()
+    db.query(Story).delete()
     db.commit()
+
     _create_notification(
         db, "subreddit", "warning",
-        f"Deleted all {count} subreddits",
-        {"deleted_count": count},
+        f"Deleted all {count} subreddits and {total_stories} stories",
+        {"deleted_subreddits": count, "deleted_stories": total_stories},
     )
-    return {"deleted": True, "count": count}
+    return {"deleted": True, "count": count, "stories_deleted": total_stories}
+
 
 @router.post("/subreddits/{subreddit_id}/fetch", response_model=FetchResult, tags=["Subreddits"])
 def fetch_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
@@ -120,7 +131,6 @@ def fetch_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
 
     try:
         stories = fetcher.fetch_stories(subreddit_id)
-        # Distinguish: 0 stories = info (not error), actual error = error
         if len(stories) == 0:
             _create_notification(
                 db, "story", "info",
@@ -182,6 +192,7 @@ def list_stories(
     subreddit: Optional[str] = None,
     status: Optional[str] = None,
     is_update: Optional[bool] = None,
+    sort_by: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     q = db.query(Story)
@@ -191,7 +202,19 @@ def list_stories(
         q = q.filter(Story.status == status)
     if is_update is not None:
         q = q.filter(Story.is_update == is_update)
-    return q.order_by(Story.fetched_at.desc()).all()
+
+    if sort_by == "date_asc":
+        q = q.order_by(Story.created_utc.asc())
+    elif sort_by == "score_desc":
+        q = q.order_by(Story.score.desc())
+    elif sort_by == "score_asc":
+        q = q.order_by(Story.score.asc())
+    elif sort_by == "title_asc":
+        q = q.order_by(Story.title.asc())
+    else:
+        q = q.order_by(Story.created_utc.desc())
+
+    return q.all()
 
 
 @router.get("/stories/{story_id}", response_model=StoryDetailResponse, tags=["Stories"])
@@ -200,6 +223,46 @@ def get_story(story_id: int, db: Session = Depends(get_db)):
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
     return story
+
+
+@router.delete("/stories/{story_id}", tags=["Stories"])
+def delete_story(story_id: int, db: Session = Depends(get_db)):
+    story = db.query(Story).filter(Story.id == story_id).first()
+    if not story:
+        raise HTTPException(status_code=404, detail="Story not found")
+
+    update_count = len(story.updates) if story.updates else 0
+    title = story.title[:50]
+
+    db.delete(story)
+    db.commit()
+
+    _create_notification(
+        db, "story", "warning",
+        f'Deleted story "{title}..." and {update_count} update(s)',
+        {"story_id": story_id, "updates_deleted": update_count},
+    )
+    return {
+        "deleted": True,
+        "story_id": story_id,
+        "title": title,
+        "updates_deleted": update_count,
+    }
+
+
+@router.delete("/stories", tags=["Stories"])
+def delete_all_stories(db: Session = Depends(get_db)):
+    """Delete all stories (originals + updates) without touching subreddits."""
+    count = db.query(Story).count()
+    db.query(Story).delete()
+    db.commit()
+
+    _create_notification(
+        db, "story", "warning",
+        f"Deleted all {count} stories",
+        {"deleted_count": count},
+    )
+    return {"deleted": True, "count": count}
 
 
 @router.get("/stories/{story_id}/chain", response_model=StoryChainResponse, tags=["Stories"])
@@ -213,7 +276,6 @@ def get_story_chain(story_id: int, db: Session = Depends(get_db)):
 
 @router.post("/stories/link-updates", tags=["Stories"])
 def run_link_updates(subreddit: Optional[str] = None, db: Session = Depends(get_db)):
-    # No Reddit API credentials check needed — old.reddit.com is public
     linker = UpdateLinker(db)
     if subreddit:
         count = linker.link_updates_for_subreddit(subreddit)
@@ -353,7 +415,6 @@ def youtube_auth_callback_get(
     state: str = None,
     db: Session = Depends(get_db),
 ):
-    """Handle Google OAuth redirect (GET request with code and state)."""
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
 
@@ -665,6 +726,5 @@ def get_setting(key: str, decrypt: bool = False, db: Session = Depends(get_db)):
     value = mgr.get(key, decrypt_value=decrypt)
     if value is None:
         raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
-    # Return the full Setting object (SettingsResponse expects a Setting ORM object)
     setting = db.query(Setting).filter(Setting.key == key).first()
     return setting
