@@ -594,12 +594,12 @@ export function StoriesPage() {
 
       if (errors.length > 0) {
         if (errors.length === 1) {
-          toast.error(`Failed for r/${errors[0].subreddit}`, {
+          toast.error(`Failed to fetch r/${errors[0].subreddit}`, {
             id: "fetch",
             duration: 5000,
           });
         } else {
-          toast.error(`Failed for ${errors.length} subreddits`, {
+          toast.error(`Failed to fetch ${errors.length} subreddits`, {
             id: "fetch",
             duration: 5000,
           });
