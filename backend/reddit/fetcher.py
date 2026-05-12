@@ -32,6 +32,49 @@ class StoryFetcher:
     def __init__(self, db: Session):
         self.db = db
         self.client = RedditClient(db)
+    
+    def test_subreddit_access(self, name: str) -> dict:
+        """Test if a subreddit is accessible and return status info."""
+        try:
+            # Try to fetch just 1 post to test access
+            stories = self.client.fetch_subreddit_stories(name, limit=1)
+            return {
+                "accessible": True,
+                "is_private": False,
+                "is_banned": False,
+                "message": None,
+            }
+        except RedditClientError as exc:
+            error_msg = str(exc).lower()
+            if "403" in error_msg or "access denied" in error_msg:
+                # Could be private or banned — try to determine which
+                try:
+                    # Try hitting the subreddit page directly to check if it exists
+                    resp = self.client._request(
+                        "GET", f"{self.client.BASE_URL}/r/{name}/about/.json"
+                    )
+                    about_data = resp.json()
+                    if about_data.get("data", {}).get("subreddit_type") == "private":
+                        return {
+                            "accessible": False,
+                            "is_private": True,
+                            "is_banned": False,
+                            "message": f"r/{name} is a private subreddit",
+                        }
+                except Exception:
+                    pass
+                return {
+                    "accessible": False,
+                    "is_private": False,
+                    "is_banned": False,
+                    "message": f"r/{name} may be private, banned, or restricted",
+                }
+            return {
+                "accessible": False,
+                "is_private": False,
+                "is_banned": False,
+                "message": str(exc),
+            }
 
     def add_subreddit(self, name: str, fetch_settings: Dict[str, Any] = None) -> Subreddit:
         sanitized = sanitize_subreddit_name(name)
@@ -39,6 +82,11 @@ class StoryFetcher:
         existing = self.db.query(Subreddit).filter(Subreddit.name == sanitized).first()
         if existing:
             return existing
+
+        # Test access before adding
+        access_check = self.test_subreddit_access(sanitized)
+        if not access_check["accessible"]:
+            raise ValueError(access_check["message"])
 
         sub = Subreddit(
             name=sanitized,

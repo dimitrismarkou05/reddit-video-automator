@@ -231,7 +231,6 @@ function StoryCard({
                 <MessageCircle className="w-3 h-3" />
                 u/{story.author}
               </span>
-              {/* FIXED: Use created_utc with proper UTC parsing */}
               <span className="flex items-center gap-1">
                 <Calendar className="w-3 h-3" />
                 {formatUtcRelative(story.created_utc)}
@@ -349,6 +348,47 @@ function DeleteConfirmModal({
   );
 }
 
+/* Private Subreddit Confirmation Modal */
+function PrivateSubConfirmModal({
+  name,
+  message,
+  onConfirm,
+  onCancel,
+}: {
+  name: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-surface-light dark:bg-surface-dark rounded-2xl w-full max-w-md shadow-xl p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+            <Info className="w-5 h-5 text-blue-500" />
+          </div>
+          <h3 className="text-lg font-semibold">Private Subreddit: {name}</h3>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+          {message}
+        </p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+          You won't be able to fetch stories from this subreddit unless you're a
+          member. Add it anyway?
+        </p>
+        <div className="flex items-center justify-end gap-3">
+          <button onClick={onCancel} className="cursor-pointer btn-secondary">
+            Cancel
+          </button>
+          <button onClick={onConfirm} className="cursor-pointer btn-primary">
+            Add Anyway
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* Main Page */
 export function StoriesPage() {
   const [newSubreddit, setNewSubreddit] = useState("");
@@ -370,6 +410,11 @@ export function StoriesPage() {
     | { type: "all_stories" }
     | null
   >(null);
+
+  const [privateSubConfirm, setPrivateSubConfirm] = useState<{
+    name: string;
+    message: string;
+  } | null>(null);
 
   const {
     data: stories,
@@ -417,7 +462,7 @@ export function StoriesPage() {
     } catch (e) {}
   };
 
-  const handleAddSubreddit = async () => {
+  const handleAddSubreddit = async (forceAdd = false) => {
     if (!newSubreddit.trim()) return;
     setIsAdding(true);
     try {
@@ -426,7 +471,38 @@ export function StoriesPage() {
       setNewSubreddit("");
       refetchSubreddits();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail || "Failed");
+      const detail = e.response?.data?.detail;
+
+      if (
+        detail &&
+        typeof detail === "object" &&
+        detail.is_private &&
+        !forceAdd
+      ) {
+        setPrivateSubConfirm({
+          name: detail.subreddit,
+          message: detail.message,
+        });
+      } else {
+        toast.error(detail?.message || detail || "Failed to add subreddit");
+      }
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  const handleConfirmPrivateSub = async () => {
+    if (!privateSubConfirm) return;
+    setIsAdding(true);
+    setPrivateSubConfirm(null);
+
+    try {
+      await subredditApi.add(newSubreddit.trim());
+      toast.success(`Added r/${newSubreddit.trim()}`);
+      setNewSubreddit("");
+      refetchSubreddits();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail?.message || "Failed");
     } finally {
       setIsAdding(false);
     }
@@ -527,27 +603,37 @@ export function StoriesPage() {
         (r: any) => !r.error && r.fetched_count > 0,
       );
       const empty = data.filter((r: any) => !r.error && r.fetched_count === 0);
-      if (errors.length > 0)
-        toast.error(`Failed for ${errors.length} sub(s)`, {
-          id: "fetch",
-          duration: 5000,
-        });
-      else if (successes.length > 0) {
+
+      if (errors.length > 0) {
+        if (errors.length === 1) {
+          toast.error(`Failed for r/${errors[0].subreddit}`, {
+            id: "fetch",
+            duration: 5000,
+          });
+        } else {
+          toast.error(`Failed for ${errors.length} subreddits`, {
+            id: "fetch",
+            duration: 5000,
+          });
+        }
+      } else if (successes.length > 0) {
         const total = successes.reduce(
           (s: number, r: any) => s + r.fetched_count,
           0,
         );
         toast.success(`Fetched ${total} stories`, { id: "fetch" });
-      } else if (empty.length > 0)
+      } else if (empty.length > 0) {
         toast(`No new stories in ${empty.length} sub(s)`, {
           id: "fetch",
           icon: <Info className="w-5 h-5 text-blue-500" />,
         });
-      else
+      } else {
         toast("No active subreddits to fetch stories", {
           id: "fetch",
           icon: <Info className="w-5 h-5 text-blue-500" />,
         });
+      }
+
       await refreshNotifications();
       refetchStories();
     } catch (e: any) {
@@ -600,7 +686,7 @@ export function StoriesPage() {
             className="input max-w-xs"
           />
           <button
-            onClick={handleAddSubreddit}
+            onClick={() => handleAddSubreddit()}
             disabled={isAdding}
             className="cursor-pointer btn-primary flex items-center gap-2"
           >
@@ -626,7 +712,7 @@ export function StoriesPage() {
         </div>
       </div>
 
-      {/* Subreddit list - MOVED ABOVE filter and sort */}
+      {/* Subreddit list */}
       {subreddits && subreddits.length > 0 && (
         <SubredditList
           subreddits={subreddits}
@@ -728,7 +814,6 @@ export function StoriesPage() {
           </button>
         )}
 
-        {/* Delete All Stories button — opposite side */}
         <div className="flex-1 flex justify-end">
           <button
             onClick={() => setDeleteTarget({ type: "all_stories" })}
@@ -772,7 +857,7 @@ export function StoriesPage() {
         </div>
       )}
 
-      {/* Delete confirmation modals */}
+      {/* Modals */}
       {deleteTarget?.type === "single" && (
         <DeleteConfirmModal
           title="Remove Subreddit?"
@@ -823,6 +908,14 @@ export function StoriesPage() {
             setDeleteTarget(null);
           }}
           onCancel={() => setDeleteTarget(null)}
+        />
+      )}
+      {privateSubConfirm && (
+        <PrivateSubConfirmModal
+          name={privateSubConfirm.name}
+          message={privateSubConfirm.message}
+          onConfirm={handleConfirmPrivateSub}
+          onCancel={() => setPrivateSubConfirm(null)}
         />
       )}
     </div>

@@ -74,7 +74,17 @@ def add_subreddit(data: SubredditCreate, db: Session = Depends(get_db)):
     try:
         return fetcher.add_subreddit(data.name, data.fetch_settings or {})
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        error_msg = str(exc).lower()
+        is_private = "private" in error_msg
+        status_code = 403 if is_private else 400
+        raise HTTPException(
+            status_code=status_code,
+            detail={
+                "message": str(exc),
+                "is_private": is_private,
+                "subreddit": data.name,
+            },
+        )
 
 
 @router.get("/subreddits", response_model=List[SubredditResponse], tags=["Subreddits"])
