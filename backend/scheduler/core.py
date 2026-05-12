@@ -8,6 +8,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from automation.models import AutomationTemplate, TemplateStatus, TemplateRun
+from models import Story, StoryStatus, GeneratedVideo
 from reddit.fetcher import StoryFetcher
 from video.pipeline import VideoPipeline, VideoPipelineError
 from youtube.uploader import YouTubeUploader, UploadMetadata, YouTubeUploadError
@@ -157,8 +158,7 @@ class TemplateScheduler:
 
     async def _generate_videos_for_template(self, template: AutomationTemplate, run: TemplateRun) -> int:
         """Generate videos for stories ready for video generation."""
-        from models import Story, StoryStatus, GeneratedVideo
-
+        
         stories = self.db.query(Story).filter(
             Story.subreddit.in_(template.subreddit_names),
             Story.status == StoryStatus.UPDATE_LINKED.value,
@@ -194,8 +194,7 @@ class TemplateScheduler:
 
     async def _upload_videos_for_template(self, template: AutomationTemplate, run: TemplateRun) -> int:
         """Upload generated videos to YouTube."""
-        from models import GeneratedVideo, StoryStatus
-
+        
         videos = self.db.query(GeneratedVideo).filter(
             GeneratedVideo.status == "done",
             GeneratedVideo.youtube_upload_status == "not_uploaded",
