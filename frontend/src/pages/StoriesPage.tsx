@@ -466,7 +466,7 @@ export function StoriesPage() {
     if (!newSubreddit.trim()) return;
     setIsAdding(true);
     try {
-      await subredditApi.add(newSubreddit.trim());
+      await subredditApi.add(newSubreddit.trim(), undefined, forceAdd);
       toast.success(`Added r/${newSubreddit.trim()}`);
       setNewSubreddit("");
       refetchSubreddits();
@@ -492,20 +492,8 @@ export function StoriesPage() {
   };
 
   const handleConfirmPrivateSub = async () => {
-    if (!privateSubConfirm) return;
-    setIsAdding(true);
     setPrivateSubConfirm(null);
-
-    try {
-      await subredditApi.add(newSubreddit.trim());
-      toast.success(`Added r/${newSubreddit.trim()}`);
-      setNewSubreddit("");
-      refetchSubreddits();
-    } catch (e: any) {
-      toast.error(e.response?.data?.detail?.message || "Failed");
-    } finally {
-      setIsAdding(false);
-    }
+    await handleAddSubreddit(true);
   };
 
   const handleDeleteSubreddit = async (id: number) => {
@@ -690,7 +678,11 @@ export function StoriesPage() {
             disabled={isAdding}
             className="cursor-pointer btn-primary flex items-center gap-2"
           >
-            <Plus className="w-4 h-4" />
+            {isAdding ? (
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+            ) : (
+              <Plus className="w-4 h-4" />
+            )}
             Add
           </button>
         </div>

@@ -69,10 +69,10 @@ router.include_router(automation_router, prefix="/automation", tags=["Automation
 
 # Subreddits
 @router.post("/subreddits", response_model=SubredditResponse, tags=["Subreddits"])
-def add_subreddit(data: SubredditCreate, db: Session = Depends(get_db)):
+def add_subreddit(data: SubredditCreate, force: bool = False, db: Session = Depends(get_db)):
     fetcher = StoryFetcher(db)
     try:
-        return fetcher.add_subreddit(data.name, data.fetch_settings or {})
+        return fetcher.add_subreddit(data.name, data.fetch_settings or {}, force=force)
     except ValueError as exc:
         error_msg = str(exc).lower()
         is_private = "private" in error_msg

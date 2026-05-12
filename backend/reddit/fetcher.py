@@ -4,6 +4,7 @@ import re
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Tuple
 
+import httpx
 from sqlalchemy.orm import Session
 
 from models import Story, Subreddit, StoryStatus
@@ -34,59 +35,79 @@ class StoryFetcher:
         self.client = RedditClient(db)
     
     def test_subreddit_access(self, name: str) -> dict:
-        """Test if a subreddit is accessible and return status info."""
+        """Quick lightweight check if a subreddit is accessible."""
+        url = f"{self.client.BASE_URL}/r/{name}/.json"
         try:
-            # Try to fetch just 1 post to test access
-            stories = self.client.fetch_subreddit_stories(name, limit=1)
-            return {
-                "accessible": True,
-                "is_private": False,
-                "is_banned": False,
-                "message": None,
-            }
-        except RedditClientError as exc:
-            error_msg = str(exc).lower()
-            if "403" in error_msg or "access denied" in error_msg:
-                # Could be private or banned — try to determine which
+            resp = httpx.get(
+                url,
+                headers={"User-Agent": self.client._next_ua()},
+                timeout=5.0,
+                follow_redirects=True,
+            )
+            if resp.status_code == 403:
+                # Try about page to distinguish private vs banned
                 try:
-                    # Try hitting the subreddit page directly to check if it exists
-                    resp = self.client._request(
-                        "GET", f"{self.client.BASE_URL}/r/{name}/about/.json"
+                    about_url = f"{self.client.BASE_URL}/r/{name}/about/.json"
+                    about_resp = httpx.get(
+                        about_url,
+                        headers={"User-Agent": self.client._next_ua()},
+                        timeout=5.0,
+                        follow_redirects=True,
                     )
-                    about_data = resp.json()
-                    if about_data.get("data", {}).get("subreddit_type") == "private":
-                        return {
-                            "accessible": False,
-                            "is_private": True,
-                            "is_banned": False,
-                            "message": f"r/{name} is a private subreddit",
-                        }
+                    if about_resp.status_code == 200:
+                        about_data = about_resp.json()
+                        sub_type = about_data.get("data", {}).get("subreddit_type")
+                        if sub_type == "private":
+                            return {
+                                "accessible": False,
+                                "is_private": True,
+                                "message": f"r/{name} is a private subreddit",
+                            }
                 except Exception:
                     pass
                 return {
                     "accessible": False,
                     "is_private": False,
-                    "is_banned": False,
                     "message": f"r/{name} may be private, banned, or restricted",
                 }
+            elif resp.status_code == 404:
+                return {
+                    "accessible": False,
+                    "is_private": False,
+                    "message": f"r/{name} not found",
+                }
+            elif resp.status_code == 200:
+                return {"accessible": True, "is_private": False, "message": None}
+            else:
+                return {
+                    "accessible": False,
+                    "is_private": False,
+                    "message": f"r/{name} returned HTTP {resp.status_code}",
+                }
+        except httpx.TimeoutException:
             return {
                 "accessible": False,
                 "is_private": False,
-                "is_banned": False,
+                "message": f"r/{name} check timed out",
+            }
+        except Exception as exc:
+            return {
+                "accessible": False,
+                "is_private": False,
                 "message": str(exc),
             }
 
-    def add_subreddit(self, name: str, fetch_settings: Dict[str, Any] = None) -> Subreddit:
+    def add_subreddit(self, name: str, fetch_settings: Dict[str, Any] = None, force: bool = False) -> Subreddit:
         sanitized = sanitize_subreddit_name(name)
 
         existing = self.db.query(Subreddit).filter(Subreddit.name == sanitized).first()
         if existing:
             return existing
 
-        # Test access before adding
-        access_check = self.test_subreddit_access(sanitized)
-        if not access_check["accessible"]:
-            raise ValueError(access_check["message"])
+        if not force:
+            access_check = self.test_subreddit_access(sanitized)
+            if not access_check["accessible"]:
+                raise ValueError(access_check["message"])
 
         sub = Subreddit(
             name=sanitized,

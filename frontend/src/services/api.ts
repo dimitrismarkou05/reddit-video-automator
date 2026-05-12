@@ -103,8 +103,12 @@ export const sse = new SSEConnection();
 // API endpoints
 export const subredditApi = {
   list: () => api.get("/subreddits"),
-  add: (name: string, settings?: Record<string, any>) =>
-    api.post("/subreddits", { name, fetch_settings: settings }),
+  add: (name: string, settings?: Record<string, any>, force?: boolean) =>
+    api.post(
+      "/subreddits",
+      { name, fetch_settings: settings },
+      { params: { force } },
+    ),
   delete: (id: number) => api.delete(`/subreddits/${id}`),
   deleteAll: () => api.delete("/subreddits"),
   fetch: (id: number) => api.post(`/subreddits/${id}/fetch`),
