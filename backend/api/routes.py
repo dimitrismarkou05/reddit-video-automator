@@ -91,13 +91,19 @@ def delete_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
     if not sub:
         raise HTTPException(status_code=404, detail="Subreddit not found")
 
-    story_count = db.query(Story).filter(Story.subreddit == sub.name).delete()
+    story_count = db.query(Story).filter(Story.subreddit == sub.name).count()
+    db.query(Story).filter(Story.subreddit == sub.name).delete()
     db.delete(sub)
     db.commit()
 
+    if story_count == 0:
+        message = f"Deleted r/{sub.name}"
+    else:
+        message = f"Deleted r/{sub.name} and {story_count} stories"
+
     _create_notification(
         db, "subreddit", "warning",
-        f"Deleted r/{sub.name} and {story_count} associated stories",
+        message,
         {"subreddit": sub.name, "deleted_stories": story_count},
     )
     return {"deleted": True, "subreddit": sub.name, "stories_deleted": story_count}
@@ -114,12 +120,32 @@ def delete_all_subreddits(db: Session = Depends(get_db)):
     db.query(Story).delete()
     db.commit()
 
+    story_word = "story" if total_stories == 1 else "stories"
+    single_sub_name = subreddits[0].name if count == 1 and subreddits else None
+
+    if count == 1 and single_sub_name:
+        if total_stories == 0:
+            message = f"Deleted r/{single_sub_name}"
+        else:
+            message = f"Deleted r/{single_sub_name} and {total_stories} {story_word}"
+    else:
+        sub_word = "subreddits" if count != 1 else "subreddit"
+        if total_stories == 0:
+            message = f"Deleted {count} {sub_word}"
+        else:
+            message = f"Deleted {count} {sub_word} and {total_stories} {story_word}"
+
     _create_notification(
         db, "subreddit", "warning",
-        f"Deleted all {count} subreddits and {total_stories} stories",
+        message,
         {"deleted_subreddits": count, "deleted_stories": total_stories},
     )
-    return {"deleted": True, "count": count, "stories_deleted": total_stories}
+    return {
+        "deleted": True,
+        "count": count,
+        "stories_deleted": total_stories,
+        "subreddit_name": single_sub_name,
+    }
 
 
 @router.post("/subreddits/{subreddit_id}/fetch", response_model=FetchResult, tags=["Subreddits"])
@@ -263,6 +289,15 @@ def delete_story(story_id: int, db: Session = Depends(get_db)):
 def delete_all_stories(db: Session = Depends(get_db)):
     """Delete all stories (originals + updates) without touching subreddits."""
     count = db.query(Story).count()
+    
+    if count == 0:
+        _create_notification(
+            db, "story", "info",
+            "No stories available to delete",
+            {"reason": "no_stories"},
+        )
+        return {"deleted": False, "count": 0, "message": "No stories available to delete"}
+    
     db.query(Story).delete()
     db.commit()
 

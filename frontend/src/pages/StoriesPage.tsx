@@ -435,9 +435,16 @@ export function StoriesPage() {
   const handleDeleteSubreddit = async (id: number) => {
     try {
       const { data } = await subredditApi.delete(id);
-      toast.success(
-        `Deleted ${data.subreddit} + ${data.stories_deleted} stories`,
-      );
+      const displayName = `r/${data.subreddit}`;
+
+      if (data.stories_deleted === 0) {
+        toast.success(`Deleted ${displayName}`);
+      } else {
+        toast.success(
+          `Deleted ${displayName} and ${data.stories_deleted} stories`,
+        );
+      }
+
       refetchSubreddits();
       refetchStories();
       if (selectedSubreddit === data.subreddit) setSelectedSubreddit("all");
@@ -449,9 +456,25 @@ export function StoriesPage() {
   const handleDeleteAllSubreddits = async () => {
     try {
       const { data } = await subredditApi.deleteAll();
-      toast.success(
-        `Deleted ${data.count} subs + ${data.stories_deleted} stories`,
-      );
+      const storyWord = data.stories_deleted === 1 ? "story" : "stories";
+
+      let message: string;
+      if (data.count === 1 && data.subreddit_name) {
+        if (data.stories_deleted === 0) {
+          message = `Deleted r/${data.subreddit_name}`;
+        } else {
+          message = `Deleted r/${data.subreddit_name} and ${data.stories_deleted} ${storyWord}`;
+        }
+      } else {
+        const subWord = data.count === 1 ? "subreddit" : "subreddits";
+        if (data.stories_deleted === 0) {
+          message = `Deleted ${data.count} ${subWord}`;
+        } else {
+          message = `Deleted ${data.count} ${subWord} and ${data.stories_deleted} ${storyWord}`;
+        }
+      }
+
+      toast.success(message);
       refetchSubreddits();
       refetchStories();
       setSelectedSubreddit("all");
@@ -476,11 +499,22 @@ export function StoriesPage() {
   const handleDeleteAllStories = async () => {
     try {
       const { data } = await storyApi.deleteAll();
-      toast.success(`Deleted all ${data.count} stories`);
+
+      if (data.count === 0) {
+        toast("No stories available to delete", {
+          id: "delete-all",
+          icon: <Info className="w-5 h-5 text-blue-500" />,
+        });
+      } else {
+        toast.success(`Deleted all ${data.count} stories`, {
+          id: "delete-all",
+        });
+      }
+
       refetchStories();
       refreshNotifications();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail || "Failed");
+      toast.error(e.response?.data?.detail || "Failed", { id: "delete-all" });
     }
   };
 
