@@ -158,6 +158,15 @@ def fetch_all(db: Session = Depends(get_db)):
     fetcher = StoryFetcher(db)
     results, errors = fetcher.fetch_all_active()
 
+    # No active subreddits at all
+    if not results and not errors:
+        _create_notification(
+            db, "story", "info",
+            "No active subreddits to fetch stories",
+            {"reason": "no_active_subreddits"},
+        )
+        return []
+
     fetch_results = []
     for name, stories in results.items():
         error = errors.get(name)
@@ -278,17 +287,43 @@ def get_story_chain(story_id: int, db: Session = Depends(get_db)):
 def run_link_updates(subreddit: Optional[str] = None, db: Session = Depends(get_db)):
     linker = UpdateLinker(db)
     if subreddit:
+        subreddits_processed = [subreddit]
         count = linker.link_updates_for_subreddit(subreddit)
     else:
+        subreddits_processed = [name for (name,) in db.query(Story.subreddit).distinct().all()]
         count = 0
-        for (sub_name,) in db.query(Story.subreddit).distinct().all():
+        for sub_name in subreddits_processed:
             count += linker.link_updates_for_subreddit(sub_name)
-    _create_notification(
-        db, "story", "success",
-        f"Linked {count} update stories",
-        {"linked_count": count},
-    )
-    return {"linked_count": count}
+
+    if not subreddits_processed:
+        _create_notification(
+            db, "story", "info",
+            "No active subreddits to link updates",
+            {"linked_count": 0, "reason": "no_subreddits"},
+        )
+        return {
+            "linked_count": 0,
+            "reason": "no_subreddits",
+            "message": "No active subreddits to link updates",
+        }
+    elif count == 0:
+        _create_notification(
+            db, "story", "info",
+            "No update stories found to link",
+            {"linked_count": 0, "reason": "no_updates"},
+        )
+        return {
+            "linked_count": 0,
+            "reason": "no_updates",
+            "message": "No update stories found to link",
+        }
+    else:
+        _create_notification(
+            db, "story", "success",
+            f"Linked {count} update stories",
+            {"linked_count": count},
+        )
+        return {"linked_count": count, "message": f"Linked {count} update stories"}
 
 
 # Video Generation

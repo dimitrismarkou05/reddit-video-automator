@@ -20,6 +20,7 @@ import {
   ArrowUpDown,
   ArrowDownAZ,
   Trash,
+  Info,
 } from "lucide-react";
 import { storyApi, subredditApi } from "@/services/api";
 import { useNotificationStore } from "@/store";
@@ -506,9 +507,13 @@ export function StoriesPage() {
       } else if (empty.length > 0)
         toast(`No new stories in ${empty.length} sub(s)`, {
           id: "fetch",
-          icon: "ℹ️",
+          icon: <Info className="w-5 h-5 text-blue-500" />,
         });
-      else toast("No active subreddits", { id: "fetch" });
+      else
+        toast("No active subreddits to fetch stories", {
+          id: "fetch",
+          icon: <Info className="w-5 h-5 text-blue-500" />,
+        });
       await refreshNotifications();
       refetchStories();
     } catch (e: any) {
@@ -519,8 +524,25 @@ export function StoriesPage() {
   const handleLinkUpdates = async () => {
     try {
       toast.loading("Linking...", { id: "link" });
-      await storyApi.linkUpdates();
-      toast.success("Linked!", { id: "link" });
+      const { data } = await storyApi.linkUpdates();
+
+      if (data.reason === "no_subreddits") {
+        toast("No active subreddits to link updates", {
+          id: "link",
+          icon: <Info className="w-5 h-5 text-blue-500" />,
+        });
+      } else if (data.reason === "no_updates") {
+        toast("No update stories found to link", {
+          id: "link",
+          icon: <Info className="w-5 h-5 text-blue-500" />,
+        });
+      } else {
+        toast.success(
+          `Linked ${data.linked_count} update stor${data.linked_count === 1 ? "y" : "ies"}`,
+          { id: "link" },
+        );
+      }
+
       await refreshNotifications();
       refetchStories();
     } catch (e: any) {
