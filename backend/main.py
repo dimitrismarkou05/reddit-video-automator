@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from database import init_db
 from api.routes import router
-from api.sse import router as sse_router
+from api.sse import router as sse_router, signal_shutdown
 
 
 @asynccontextmanager
@@ -12,8 +12,9 @@ async def lifespan(app: FastAPI):
     # Startup
     init_db()
     yield
-    # Shutdown (if needed)
-    pass
+    
+    #Shutdown
+    signal_shutdown()
 
 
 app = FastAPI(
@@ -23,7 +24,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Lock CORS to Electron origin
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "app://rva"],

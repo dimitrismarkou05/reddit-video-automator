@@ -38,7 +38,6 @@ package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["automation*", "reddit*", "video*", "youtube*", "scheduler*", "api*"]
 
 [project.scripts]
 rva = "cli:main"
