@@ -113,6 +113,7 @@ export const subredditApi = {
   deleteAll: () => api.delete("/subreddits"),
   fetch: (id: number) => api.post(`/subreddits/${id}/fetch`),
   fetchAll: () => api.post("/fetch-all"),
+  fetchPreview: () => api.get("/fetch-preview"),
 };
 
 export const storyApi = {

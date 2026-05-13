@@ -21,7 +21,7 @@ from schemas import (
 )
 from reddit.fetcher import StoryFetcher, SubredditAccessError, sanitize_subreddit_name
 from reddit.linker import UpdateLinker
-from reddit.client import RedditClient, RedditClientError
+from reddit.client import RedditClientError, RateLimitError
 from settings_manager import SettingsManager
 from video.pipeline import VideoPipeline, VideoPipelineError
 from youtube.auth import YouTubeAuthManager, YouTubeAuthError
@@ -39,6 +39,8 @@ def _handle_error(exc: Exception, default_status: int = 500) -> HTTPException:
         return HTTPException(status_code=400, detail=str(exc))
     if isinstance(exc, VideoPipelineError):
         return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, RateLimitError):
+        return HTTPException(status_code=429, detail=str(exc))
     if isinstance(exc, ValueError):
         return HTTPException(status_code=400, detail=str(exc))
     return HTTPException(status_code=default_status, detail=f"Internal error: {exc}")
@@ -173,13 +175,20 @@ def fetch_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Subreddit not found")
 
     try:
-        stories = fetcher.fetch_stories(subreddit_id)
+        stories, metadata = fetcher.fetch_stories(subreddit_id)
         if len(stories) == 0:
-            _create_notification(
-                db, "story", "info",
-                f"No new stories found in r/{sub.name} (all already fetched)",
-                {"subreddit": sub.name, "count": 0},
-            )
+            if metadata.get("has_more"):
+                _create_notification(
+                    db, "story", "info",
+                    f"No new stories found in r/{sub.name} (all already fetched, more pages available)",
+                    {"subreddit": sub.name, "count": 0, "has_more": True},
+                )
+            else:
+                _create_notification(
+                    db, "story", "info",
+                    f"No new stories found in r/{sub.name} (all already fetched)",
+                    {"subreddit": sub.name, "count": 0},
+                )
         else:
             _create_notification(
                 db, "story", "success",
@@ -187,6 +196,8 @@ def fetch_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
                 {"subreddit": sub.name, "count": len(stories)},
             )
         return FetchResult(subreddit=sub.name, fetched_count=len(stories), error=None)
+    except RateLimitError as exc:
+        raise _handle_error(exc, 429)
     except Exception as exc:
         _create_notification(
             db, "story", "error",
@@ -196,10 +207,19 @@ def fetch_subreddit(subreddit_id: int, db: Session = Depends(get_db)):
         return FetchResult(subreddit=sub.name, fetched_count=0, error=str(exc))
 
 
+@router.get("/fetch-preview", tags=["Subreddits"])
+def fetch_preview(db: Session = Depends(get_db)):
+    """Preview rate limit impact before fetching."""
+    fetcher = StoryFetcher(db)
+    active_count = db.query(Subreddit).filter(Subreddit.is_active.is_(True)).count()
+    preview = fetcher.get_rate_limit_preview(active_count)
+    return preview
+
+
 @router.post("/fetch-all", response_model=List[FetchResult], tags=["Subreddits"])
 def fetch_all(db: Session = Depends(get_db)):
     fetcher = StoryFetcher(db)
-    results, errors = fetcher.fetch_all_active()
+    results, errors, metadata = fetcher.fetch_all_active()
 
     # No active subreddits at all
     if not results and not errors:
@@ -220,11 +240,19 @@ def fetch_all(db: Session = Depends(get_db)):
                 {"subreddit": name},
             )
         elif len(stories) == 0:
-            _create_notification(
-                db, "story", "info",
-                f"No new stories found in r/{name} (all already fetched)",
-                {"subreddit": name, "count": 0},
-            )
+            sub_meta = metadata.get(f"{name}_meta", {})
+            if sub_meta.get("has_more"):
+                _create_notification(
+                    db, "story", "info",
+                    f"No new stories found in r/{name} (all already fetched, more pages available)",
+                    {"subreddit": name, "count": 0, "has_more": True},
+                )
+            else:
+                _create_notification(
+                    db, "story", "info",
+                    f"No new stories found in r/{name} (all already fetched)",
+                    {"subreddit": name, "count": 0},
+                )
         else:
             _create_notification(
                 db, "story", "success",
@@ -306,7 +334,7 @@ def delete_story(story_id: int, db: Session = Depends(get_db)):
 def delete_all_stories(db: Session = Depends(get_db)):
     """Delete all stories (originals + updates) without touching subreddits."""
     count = db.query(Story).count()
-    
+
     if count == 0:
         _create_notification(
             db, "story", "info",
@@ -314,7 +342,7 @@ def delete_all_stories(db: Session = Depends(get_db)):
             {"reason": "no_stories"},
         )
         return {"deleted": False, "count": 0, "message": "No stories available to delete"}
-    
+
     db.query(Story).delete()
     db.commit()
 

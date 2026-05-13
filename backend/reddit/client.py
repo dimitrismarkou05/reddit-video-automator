@@ -4,8 +4,9 @@ No API keys or OAuth required. Uses httpx with polite delays and User-Agent rota
 """
 
 import time
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, timezone
+from dataclasses import dataclass, field
 
 import httpx
 from sqlalchemy.orm import Session
@@ -13,6 +14,38 @@ from sqlalchemy.orm import Session
 
 class RedditClientError(Exception):
     pass
+
+
+class RateLimitError(RedditClientError):
+    """Raised when Reddit rate-limits us."""
+    pass
+
+
+@dataclass
+class RateLimitStatus:
+    """Tracks Reddit rate limit state from response headers."""
+    remaining: int = 999
+    reset_timestamp: float = 0.0
+    used: int = 0
+    last_request_at: float = 0.0
+
+    @property
+    def is_near_limit(self, threshold: int = 5) -> bool:
+        return self.remaining <= threshold and self.remaining > 0
+
+    @property
+    def is_exhausted(self) -> bool:
+        return self.remaining <= 0
+
+    @property
+    def reset_in_seconds(self) -> float:
+        if self.reset_timestamp <= 0:
+            return 0
+        return max(0, self.reset_timestamp - time.time())
+
+    @property
+    def can_make_request(self) -> bool:
+        return self.remaining > 0
 
 
 class RedditStory:
@@ -57,6 +90,7 @@ class RedditClient:
         self._ua_index = 0
         self._last_request_time: Optional[float] = None
         self._min_delay = 2.0  # seconds between requests
+        self.rate_limit = RateLimitStatus()
 
     def _get_client(self) -> httpx.Client:
         if self._client is None or self._client.is_closed:
@@ -80,6 +114,20 @@ class RedditClient:
                 time.sleep(self._min_delay - elapsed)
         self._last_request_time = time.time()
 
+    def _update_rate_limit(self, headers: Dict[str, str]) -> None:
+        """Parse rate limit headers from Reddit response."""
+        # Reddit uses x-ratelimit-* headers
+        try:
+            if "x-ratelimit-remaining" in headers:
+                self.rate_limit.remaining = int(float(headers["x-ratelimit-remaining"]))
+            if "x-ratelimit-reset" in headers:
+                self.rate_limit.reset_timestamp = float(headers["x-ratelimit-reset"])
+            if "x-ratelimit-used" in headers:
+                self.rate_limit.used = int(headers["x-ratelimit-used"])
+            self.rate_limit.last_request_at = time.time()
+        except (ValueError, TypeError):
+            pass
+
     def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
         """Make a polite HTTP request with delay and error handling."""
         self._polite_delay()
@@ -90,10 +138,19 @@ class RedditClient:
         except httpx.RequestError as exc:
             raise RedditClientError(f"Network error: {exc}")
 
+        # Update rate limit tracking from response headers
+        self._update_rate_limit(dict(resp.headers))
+
         if resp.status_code == 429:
-            # Rate limited — back off and retry once
-            time.sleep(30)
-            resp = client.request(method, url, **kwargs)
+            # Rate limited — check if we have reset info
+            reset_in = self.rate_limit.reset_in_seconds
+            if reset_in > 0:
+                raise RateLimitError(
+                    f"Rate limited. Try again in {int(reset_in)} seconds."
+                )
+            raise RateLimitError(
+                "Rate limited by Reddit. Please wait a few minutes before retrying."
+            )
 
         if resp.status_code == 403:
             raise RedditClientError(
@@ -123,8 +180,12 @@ class RedditClient:
         sort: str = "top",
         time_filter: str = "week",
         limit: int = 25,
-    ) -> List[RedditStory]:
-        """Fetch posts from a subreddit using old.reddit.com JSON endpoints."""
+        after: Optional[str] = None,
+    ) -> Tuple[List[RedditStory], Optional[str]]:
+        """Fetch posts from a subreddit using old.reddit.com JSON endpoints.
+
+        Returns: (stories, next_after_token) where next_after_token is None when no more pages.
+        """
 
         # Build URL: /r/{sub}/{sort}/.json
         url = f"{self.BASE_URL}/r/{subreddit_name}/{sort}/.json"
@@ -133,6 +194,10 @@ class RedditClient:
         # Time filter only applies to top/controversial
         if sort in ("top", "controversial") and time_filter:
             params["t"] = time_filter
+
+        # Pagination: fetch after this story ID
+        if after:
+            params["after"] = after
 
         resp = self._request("GET", url, params=params)
 
@@ -146,6 +211,7 @@ class RedditClient:
 
         listing = data.get("data", {})
         children = listing.get("children", [])
+        next_after = listing.get("after")  # None when no more pages
 
         stories: List[RedditStory] = []
         for child in children:
@@ -154,7 +220,7 @@ class RedditClient:
                 continue
             stories.append(RedditStory(post_data))
 
-        return stories
+        return stories, next_after
 
     def fetch_post_with_comments(
         self,
@@ -176,6 +242,10 @@ class RedditClient:
         """Close the HTTP client."""
         if self._client and not self._client.is_closed:
             self._client.close()
+
+    def get_rate_limit_status(self) -> RateLimitStatus:
+        """Return current rate limit status."""
+        return self.rate_limit
 
 
 # Backwards-compatible alias for existing code

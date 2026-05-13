@@ -21,6 +21,7 @@ import {
   ArrowDownAZ,
   Trash,
   Info,
+  Zap,
 } from "lucide-react";
 import { storyApi, subredditApi } from "@/services/api";
 import { useNotificationStore } from "@/store";
@@ -348,6 +349,92 @@ function DeleteConfirmModal({
   );
 }
 
+/* Rate Limit Warning Modal */
+function RateLimitWarningModal({
+  preview,
+  onConfirm,
+  onCancel,
+}: {
+  preview: {
+    requests_remaining: number;
+    requests_needed: number;
+    partial_story_count: number;
+    reset_in_seconds: number;
+  };
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const canPartialFetch = preview.partial_story_count > 0;
+  const resetMinutes = Math.ceil(preview.reset_in_seconds / 60);
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-surface-light dark:bg-surface-dark rounded-2xl w-full max-w-md shadow-xl p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
+            <Zap className="w-5 h-5 text-yellow-600" />
+          </div>
+          <h3 className="text-lg font-semibold">Rate Limit Warning</h3>
+        </div>
+
+        <div className="space-y-3 mb-4">
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            You are close to Reddit's rate limit. This fetch will exhaust your
+            remaining requests.
+          </p>
+
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Requests remaining:</span>
+              <span className="font-medium text-yellow-600">
+                {preview.requests_remaining}
+              </span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Requests needed:</span>
+              <span className="font-medium">{preview.requests_needed}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Limit resets in:</span>
+              <span className="font-medium">
+                ~{resetMinutes} minute{resetMinutes !== 1 ? "s" : ""}
+              </span>
+            </div>
+          </div>
+
+          {canPartialFetch ? (
+            <p className="text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-lg">
+              Only <strong>{preview.partial_story_count} stories</strong> can be
+              fetched before hitting the limit. The rest will be available after
+              the rate limit resets.
+            </p>
+          ) : (
+            <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
+              This request will fully exhaust your rate limit. You will need to
+              wait ~{resetMinutes} minutes before fetching again.
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-3">
+          <button onClick={onCancel} className="cursor-pointer btn-secondary">
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="cursor-pointer btn-primary flex items-center gap-2"
+          >
+            <Zap className="w-4 h-4" />
+            {canPartialFetch
+              ? `Fetch ${preview.partial_story_count} Stories`
+              : "Fetch Anyway"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* Private Subreddit Confirmation Modal */
 function PrivateSubConfirmModal({
   name,
@@ -414,6 +501,13 @@ export function StoriesPage() {
   const [privateSubConfirm, setPrivateSubConfirm] = useState<{
     name: string;
     message: string;
+  } | null>(null);
+
+  const [rateLimitWarning, setRateLimitWarning] = useState<{
+    requests_remaining: number;
+    requests_needed: number;
+    partial_story_count: number;
+    reset_in_seconds: number;
   } | null>(null);
 
   // Pagination state
@@ -591,7 +685,31 @@ export function StoriesPage() {
     }
   };
 
-  const handleFetchAll = async () => {
+  const checkRateLimitAndFetch = async () => {
+    try {
+      // Get rate limit preview
+      const { data: preview } = await subredditApi.fetchPreview();
+
+      if (preview.will_be_exhausted) {
+        // Show warning modal
+        setRateLimitWarning({
+          requests_remaining: preview.requests_remaining,
+          requests_needed: preview.requests_needed,
+          partial_story_count: preview.partial_story_count,
+          reset_in_seconds: preview.reset_in_seconds,
+        });
+        return;
+      }
+
+      // Safe to proceed
+      await executeFetchAll();
+    } catch (e) {
+      // Preview endpoint might not exist yet, fallback to direct fetch
+      await executeFetchAll();
+    }
+  };
+
+  const executeFetchAll = async () => {
     toast.loading("Fetching...", { id: "fetch" });
     try {
       const { data } = await subredditApi.fetchAll();
@@ -602,7 +720,23 @@ export function StoriesPage() {
       const empty = data.filter((r: any) => !r.error && r.fetched_count === 0);
 
       if (errors.length > 0) {
-        if (errors.length === 1) {
+        // Check for rate limit error
+        const rateLimitError = errors.find((r: any) =>
+          r.error?.toLowerCase().includes("rate limit"),
+        );
+        if (rateLimitError) {
+          const resetMatch = rateLimitError.error.match(/(\d+) seconds/);
+          const resetMinutes = resetMatch
+            ? Math.ceil(parseInt(resetMatch[1]) / 60)
+            : "a few";
+          toast.error(
+            `Rate limit reached. Wait ~${resetMinutes} minutes before retrying.`,
+            {
+              id: "fetch",
+              duration: 8000,
+            },
+          );
+        } else if (errors.length === 1) {
           toast.error(`Failed to fetch r/${errors[0].subreddit}`, {
             id: "fetch",
             duration: 5000,
@@ -641,8 +775,29 @@ export function StoriesPage() {
       await refreshNotifications();
       refetchStories();
     } catch (e: any) {
-      toast.error(e.response?.data?.detail || "Failed", { id: "fetch" });
+      if (e.response?.status === 429) {
+        const detail = e.response?.data?.detail || "Rate limit reached";
+        const resetMatch = detail.match(/(\d+) seconds/);
+        const resetMinutes = resetMatch
+          ? Math.ceil(parseInt(resetMatch[1]) / 60)
+          : "a few";
+        toast.error(
+          `Rate limit reached. Wait ~${resetMinutes} minutes before retrying.`,
+          { id: "fetch", duration: 8000 },
+        );
+      } else {
+        toast.error(e.response?.data?.detail || "Failed", { id: "fetch" });
+      }
     }
+  };
+
+  const handleFetchAll = async () => {
+    await checkRateLimitAndFetch();
+  };
+
+  const handleConfirmRateLimitFetch = async () => {
+    setRateLimitWarning(null);
+    await executeFetchAll();
   };
 
   const handleLinkUpdates = async () => {
@@ -978,6 +1133,13 @@ export function StoriesPage() {
           message={privateSubConfirm.message}
           onConfirm={handleConfirmPrivateSub}
           onCancel={() => setPrivateSubConfirm(null)}
+        />
+      )}
+      {rateLimitWarning && (
+        <RateLimitWarningModal
+          preview={rateLimitWarning}
+          onConfirm={handleConfirmRateLimitFetch}
+          onCancel={() => setRateLimitWarning(null)}
         />
       )}
     </div>
