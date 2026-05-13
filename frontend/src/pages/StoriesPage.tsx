@@ -416,6 +416,10 @@ export function StoriesPage() {
     message: string;
   } | null>(null);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const STORIES_PER_PAGE = 10;
+
   const {
     data: stories,
     isLoading,
@@ -454,6 +458,11 @@ export function StoriesPage() {
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedSubreddit, sortBy]);
 
   const refreshNotifications = async () => {
     try {
@@ -611,10 +620,17 @@ export function StoriesPage() {
         );
         toast.success(`Fetched ${total} stories`, { id: "fetch" });
       } else if (empty.length > 0) {
-        toast(`No new stories in ${empty.length} sub(s)`, {
-          id: "fetch",
-          icon: <Info className="w-5 h-5 text-blue-500" />,
-        });
+        if (empty.length === 1) {
+          toast(`No new stories found in r/${empty[0].subreddit}`, {
+            id: "fetch",
+            icon: <Info className="w-5 h-5 text-blue-500" />,
+          });
+        } else {
+          toast(`No new stories found in ${empty.length} subreddits`, {
+            id: "fetch",
+            icon: <Info className="w-5 h-5 text-blue-500" />,
+          });
+        }
       } else {
         toast("No active subreddits to fetch stories", {
           id: "fetch",
@@ -659,6 +675,24 @@ export function StoriesPage() {
   };
 
   const activeSortLabel = SORT_OPTIONS.find((s) => s.value === sortBy)?.label;
+
+  // Pagination calculations (top-level stories only; updates are nested)
+  const totalStories = stories?.length || 0;
+  const totalPages = Math.ceil(totalStories / STORIES_PER_PAGE);
+  const paginatedStories =
+    stories?.slice(
+      (currentPage - 1) * STORIES_PER_PAGE,
+      currentPage * STORIES_PER_PAGE,
+    ) || [];
+  const showingStart =
+    totalStories === 0 ? 0 : (currentPage - 1) * STORIES_PER_PAGE + 1;
+  const showingEnd = Math.min(currentPage * STORIES_PER_PAGE, totalStories);
+
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   return (
     <div className="space-y-6">
@@ -823,9 +857,9 @@ export function StoriesPage() {
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
         </div>
-      ) : stories && stories.length > 0 ? (
+      ) : paginatedStories.length > 0 ? (
         <div className="space-y-2">
-          {stories.map((story: Story) => (
+          {paginatedStories.map((story: Story) => (
             <StoryCard
               key={story.id}
               story={story}
@@ -846,6 +880,42 @@ export function StoriesPage() {
               ? "Try another subreddit or fetch new stories"
               : "Add a subreddit and click 'Fetch All'"}
           </p>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalStories > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-border-light dark:border-border-dark">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Showing{" "}
+            <span className="font-medium text-gray-700 dark:text-gray-300">
+              {showingStart}-{showingEnd}
+            </span>{" "}
+            of{" "}
+            <span className="font-medium text-gray-700 dark:text-gray-300">
+              {totalStories}
+            </span>{" "}
+            stories
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="cursor-pointer px-3 py-1.5 rounded-lg border border-border-light dark:border-border-dark text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              Previous
+            </button>
+            <span className="text-sm font-medium px-2">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="cursor-pointer px-3 py-1.5 rounded-lg border border-border-light dark:border-border-dark text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+              Next
+            </button>
+          </div>
         </div>
       )}
 
