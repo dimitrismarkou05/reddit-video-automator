@@ -49,15 +49,23 @@ class VideoPipeline:
             callback(percent, step)
 
     def _build_narrative_text(self, story: Story, include_updates: bool) -> str:
-        parts = [f"{story.title}. {story.body or ''}"]
+        """
+        Build the full narrative text for video generation.
 
-        if include_updates and story.updates:
-            linker = UpdateLinker(self.db)
-            chain = linker.get_story_chain(story.id)
-            for update in chain[1:]:
-                parts.append(f"Update. {update.title}. {update.body or ''}")
+        Includes:
+        - Original story title and body
+        - Linked separate update posts (if include_updates=True)
+        - Inline update sections within the post body (if include_updates=True)
+        """
+        linker = UpdateLinker(self.db)
 
-        return "\n\n".join(parts)
+        # Use the linker's get_full_narrative which handles both separate posts
+        # and inline updates
+        if include_updates:
+            return linker.get_full_narrative(story.id, include_inline_updates=True)
+        else:
+            # Just return the original story without any updates
+            return f"{story.title}. {story.body or ''}"
 
     def _generate_hashtags(self, text: str) -> List[str]:
         words = text.lower().split()
