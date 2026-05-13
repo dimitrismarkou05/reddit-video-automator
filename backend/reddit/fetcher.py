@@ -136,8 +136,14 @@ class StoryFetcher:
         self.db.refresh(sub)
         return sub
 
-    def fetch_stories(self, subreddit_id: int, batch_size: int = 25) -> Tuple[List[Story], Dict[str, Any]]:
-        """Fetch new stories from a subreddit, resuming from last position.
+    def fetch_stories(
+        self,
+        subreddit_id: int,
+        sort: str = "top",
+        time_filter: str = "week",
+        limit: int = 25,
+    ) -> Tuple[List[Story], Dict[str, Any]]:
+        """Fetch new stories from a subreddit with configurable parameters.
 
         Returns: (new_stories, metadata) where metadata includes pagination info.
         """
@@ -145,12 +151,8 @@ class StoryFetcher:
         if not sub:
             raise ValueError(f"Subreddit id={subreddit_id} not found")
 
-        settings = sub.fetch_settings or {}
-        sort = settings.get("sort", "top")
-        time_filter = settings.get("time_filter", "week")
-        limit = settings.get("limit", 25)
-
         # Get the last fetched story ID for pagination (stored in fetch_settings)
+        settings = sub.fetch_settings or {}
         last_after = settings.get("last_after", None)
 
         # Check rate limit before making request
@@ -162,7 +164,7 @@ class StoryFetcher:
             )
 
         submissions, next_after = self.client.fetch_subreddit_stories(
-            sub.name, sort=sort, time_filter=time_filter, limit=batch_size, after=last_after
+            sub.name, sort=sort, time_filter=time_filter, limit=limit, after=last_after
         )
 
         stories: List[Story] = []
@@ -198,6 +200,9 @@ class StoryFetcher:
                 **settings,
                 "last_after": next_after,
                 "has_more_pages": next_after is not None,
+                "sort": sort,
+                "time_filter": time_filter,
+                "limit": limit,
             }
             self.db.commit()
             # Trigger update linking for this subreddit
@@ -209,6 +214,9 @@ class StoryFetcher:
                 **settings,
                 "last_after": next_after,
                 "has_more_pages": next_after is not None,
+                "sort": sort,
+                "time_filter": time_filter,
+                "limit": limit,
             }
             self.db.commit()
 
@@ -222,8 +230,28 @@ class StoryFetcher:
 
         return stories, metadata
 
-    def fetch_all_active(self) -> Tuple[Dict[str, List[Story]], Dict[str, str], Dict[str, Any]]:
-        """Fetch from every active subreddit. Returns (results, errors, metadata)."""
+    def fetch_single_subreddit(
+        self,
+        subreddit_id: int,
+        sort: str = "top",
+        time_filter: str = "week",
+        limit: int = 25,
+    ) -> Tuple[List[Story], Dict[str, Any]]:
+        """Fetch stories from a single subreddit with explicit parameters."""
+        return self.fetch_stories(
+            subreddit_id=subreddit_id,
+            sort=sort,
+            time_filter=time_filter,
+            limit=limit,
+        )
+
+    def fetch_all_active(
+        self,
+        sort: str = "top",
+        time_filter: str = "week",
+        limit: int = 25,
+    ) -> Tuple[Dict[str, List[Story]], Dict[str, str], Dict[str, Any]]:
+        """Fetch from every active subreddit with configurable parameters. Returns (results, errors, metadata)."""
         results: Dict[str, List[Story]] = {}
         errors: Dict[str, str] = {}
         metadata: Dict[str, Any] = {"total_fetched": 0, "rate_limit_info": {}}
@@ -243,7 +271,9 @@ class StoryFetcher:
 
         for sub in active:
             try:
-                stories, meta = self.fetch_stories(sub.id)
+                stories, meta = self.fetch_stories(
+                    sub.id, sort=sort, time_filter=time_filter, limit=limit
+                )
                 results[sub.name] = stories
                 metadata["total_fetched"] += len(stories)
                 metadata[f"{sub.name}_meta"] = meta
