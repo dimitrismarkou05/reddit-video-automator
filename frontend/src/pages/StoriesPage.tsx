@@ -21,12 +21,12 @@ import {
   ArrowDownAZ,
   Trash,
   Info,
-  Zap,
 } from "lucide-react";
 import { storyApi, subredditApi } from "@/services/api";
 import { useNotificationStore } from "@/store";
 import { notificationApi } from "@/services/api";
 import { GenerateVideoModal } from "@/components/GenerateVideoModal";
+import { FetchModal } from "@/components/FetchModal";
 import type { Story } from "@/types";
 import { formatDistanceToNow, parseISO } from "date-fns";
 import toast from "react-hot-toast";
@@ -349,92 +349,6 @@ function DeleteConfirmModal({
   );
 }
 
-/* Rate Limit Warning Modal */
-function RateLimitWarningModal({
-  preview,
-  onConfirm,
-  onCancel,
-}: {
-  preview: {
-    requests_remaining: number;
-    requests_needed: number;
-    partial_story_count: number;
-    reset_in_seconds: number;
-  };
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  const canPartialFetch = preview.partial_story_count > 0;
-  const resetMinutes = Math.ceil(preview.reset_in_seconds / 60);
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-surface-light dark:bg-surface-dark rounded-2xl w-full max-w-md shadow-xl p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center">
-            <Zap className="w-5 h-5 text-yellow-600" />
-          </div>
-          <h3 className="text-lg font-semibold">Rate Limit Warning</h3>
-        </div>
-
-        <div className="space-y-3 mb-4">
-          <p className="text-sm text-gray-600 dark:text-gray-300">
-            You are close to Reddit's rate limit. This fetch will exhaust your
-            remaining requests.
-          </p>
-
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Requests remaining:</span>
-              <span className="font-medium text-yellow-600">
-                {preview.requests_remaining}
-              </span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Requests needed:</span>
-              <span className="font-medium">{preview.requests_needed}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Limit resets in:</span>
-              <span className="font-medium">
-                ~{resetMinutes} minute{resetMinutes !== 1 ? "s" : ""}
-              </span>
-            </div>
-          </div>
-
-          {canPartialFetch ? (
-            <p className="text-sm text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-lg">
-              Only <strong>{preview.partial_story_count} stories</strong> can be
-              fetched before hitting the limit. The rest will be available after
-              the rate limit resets.
-            </p>
-          ) : (
-            <p className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
-              This request will fully exhaust your rate limit. You will need to
-              wait ~{resetMinutes} minutes before fetching again.
-            </p>
-          )}
-        </div>
-
-        <div className="flex items-center justify-end gap-3">
-          <button onClick={onCancel} className="cursor-pointer btn-secondary">
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="cursor-pointer btn-primary flex items-center gap-2"
-          >
-            <Zap className="w-4 h-4" />
-            {canPartialFetch
-              ? `Fetch ${preview.partial_story_count} Stories`
-              : "Fetch Anyway"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* Private Subreddit Confirmation Modal */
 function PrivateSubConfirmModal({
   name,
@@ -490,6 +404,8 @@ export function StoriesPage() {
   const [showSubredditDropdown, setShowSubredditDropdown] = useState(false);
   const subredditDropdownRef = useRef<HTMLDivElement>(null);
 
+  const [showFetchModal, setShowFetchModal] = useState(false);
+
   const [deleteTarget, setDeleteTarget] = useState<
     | { type: "single"; id?: number; name?: string }
     | { type: "all" }
@@ -501,13 +417,6 @@ export function StoriesPage() {
   const [privateSubConfirm, setPrivateSubConfirm] = useState<{
     name: string;
     message: string;
-  } | null>(null);
-
-  const [rateLimitWarning, setRateLimitWarning] = useState<{
-    requests_remaining: number;
-    requests_needed: number;
-    partial_story_count: number;
-    reset_in_seconds: number;
   } | null>(null);
 
   // Pagination state
@@ -607,8 +516,9 @@ export function StoriesPage() {
       if (data.stories_deleted === 0) {
         toast.success(`Deleted ${displayName}`);
       } else {
+        const storyWord = data.stories_deleted === 1 ? "story" : "stories";
         toast.success(
-          `Deleted ${displayName} and ${data.stories_deleted} stories`,
+          `Deleted ${displayName} and ${data.stories_deleted} ${storyWord}`,
         );
       }
 
@@ -653,8 +563,9 @@ export function StoriesPage() {
   const handleDeleteStory = async (story: Story) => {
     try {
       const { data } = await storyApi.delete(story.id);
+      const updateWord = data.updates_deleted === 1 ? "update" : "updates";
       toast.success(
-        `Deleted "${data.title}..." + ${data.updates_deleted} updates`,
+        `Deleted "${data.title}..." + ${data.updates_deleted} ${updateWord}`,
       );
       refetchStories();
       refreshNotifications();
@@ -673,7 +584,8 @@ export function StoriesPage() {
           icon: <Info className="w-5 h-5 text-blue-500" />,
         });
       } else {
-        toast.success(`Deleted all ${data.count} stories`, {
+        const storyWord = data.count === 1 ? "story" : "stories";
+        toast.success(`Deleted all ${data.count} ${storyWord}`, {
           id: "delete-all",
         });
       }
@@ -683,121 +595,6 @@ export function StoriesPage() {
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Failed", { id: "delete-all" });
     }
-  };
-
-  const checkRateLimitAndFetch = async () => {
-    try {
-      // Get rate limit preview
-      const { data: preview } = await subredditApi.fetchPreview();
-
-      if (preview.will_be_exhausted) {
-        // Show warning modal
-        setRateLimitWarning({
-          requests_remaining: preview.requests_remaining,
-          requests_needed: preview.requests_needed,
-          partial_story_count: preview.partial_story_count,
-          reset_in_seconds: preview.reset_in_seconds,
-        });
-        return;
-      }
-
-      // Safe to proceed
-      await executeFetchAll();
-    } catch (e) {
-      // Preview endpoint might not exist yet, fallback to direct fetch
-      await executeFetchAll();
-    }
-  };
-
-  const executeFetchAll = async () => {
-    toast.loading("Fetching...", { id: "fetch" });
-    try {
-      const { data } = await subredditApi.fetchAll();
-      const errors = data.filter((r: any) => r.error != null);
-      const successes = data.filter(
-        (r: any) => !r.error && r.fetched_count > 0,
-      );
-      const empty = data.filter((r: any) => !r.error && r.fetched_count === 0);
-
-      if (errors.length > 0) {
-        // Check for rate limit error
-        const rateLimitError = errors.find((r: any) =>
-          r.error?.toLowerCase().includes("rate limit"),
-        );
-        if (rateLimitError) {
-          const resetMatch = rateLimitError.error.match(/(\d+) seconds/);
-          const resetMinutes = resetMatch
-            ? Math.ceil(parseInt(resetMatch[1]) / 60)
-            : "a few";
-          toast.error(
-            `Rate limit reached. Wait ~${resetMinutes} minutes before retrying.`,
-            {
-              id: "fetch",
-              duration: 8000,
-            },
-          );
-        } else if (errors.length === 1) {
-          toast.error(`Failed to fetch r/${errors[0].subreddit}`, {
-            id: "fetch",
-            duration: 5000,
-          });
-        } else {
-          toast.error(`Failed to fetch ${errors.length} subreddits`, {
-            id: "fetch",
-            duration: 5000,
-          });
-        }
-      } else if (successes.length > 0) {
-        const total = successes.reduce(
-          (s: number, r: any) => s + r.fetched_count,
-          0,
-        );
-        toast.success(`Fetched ${total} stories`, { id: "fetch" });
-      } else if (empty.length > 0) {
-        if (empty.length === 1) {
-          toast(`No new stories found in r/${empty[0].subreddit}`, {
-            id: "fetch",
-            icon: <Info className="w-5 h-5 text-blue-500" />,
-          });
-        } else {
-          toast(`No new stories found in ${empty.length} subreddits`, {
-            id: "fetch",
-            icon: <Info className="w-5 h-5 text-blue-500" />,
-          });
-        }
-      } else {
-        toast("No active subreddits to fetch stories", {
-          id: "fetch",
-          icon: <Info className="w-5 h-5 text-blue-500" />,
-        });
-      }
-
-      await refreshNotifications();
-      refetchStories();
-    } catch (e: any) {
-      if (e.response?.status === 429) {
-        const detail = e.response?.data?.detail || "Rate limit reached";
-        const resetMatch = detail.match(/(\d+) seconds/);
-        const resetMinutes = resetMatch
-          ? Math.ceil(parseInt(resetMatch[1]) / 60)
-          : "a few";
-        toast.error(
-          `Rate limit reached. Wait ~${resetMinutes} minutes before retrying.`,
-          { id: "fetch", duration: 8000 },
-        );
-      } else {
-        toast.error(e.response?.data?.detail || "Failed", { id: "fetch" });
-      }
-    }
-  };
-
-  const handleFetchAll = async () => {
-    await checkRateLimitAndFetch();
-  };
-
-  const handleConfirmRateLimitFetch = async () => {
-    setRateLimitWarning(null);
-    await executeFetchAll();
   };
 
   const handleLinkUpdates = async () => {
@@ -816,10 +613,10 @@ export function StoriesPage() {
           icon: <Info className="w-5 h-5 text-blue-500" />,
         });
       } else {
-        toast.success(
-          `Linked ${data.linked_count} update stor${data.linked_count === 1 ? "y" : "ies"}`,
-          { id: "link" },
-        );
+        const storyWord = data.linked_count === 1 ? "story" : "stories";
+        toast.success(`Linked ${data.linked_count} update ${storyWord}`, {
+          id: "link",
+        });
       }
 
       await refreshNotifications();
@@ -877,11 +674,11 @@ export function StoriesPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={handleFetchAll}
+            onClick={() => setShowFetchModal(true)}
             className="cursor-pointer btn-secondary flex items-center gap-2"
           >
             <RefreshCw className="w-4 h-4" />
-            Fetch All
+            Fetch
           </button>
           <button
             onClick={handleLinkUpdates}
@@ -1033,7 +830,7 @@ export function StoriesPage() {
           <p className="text-sm text-gray-400 mt-1">
             {selectedSubreddit !== "all"
               ? "Try another subreddit or fetch new stories"
-              : "Add a subreddit and click 'Fetch All'"}
+              : "Add a subreddit and click 'Fetch' to get started"}
           </p>
         </div>
       )}
@@ -1075,6 +872,17 @@ export function StoriesPage() {
       )}
 
       {/* Modals */}
+      {showFetchModal && subreddits && (
+        <FetchModal
+          subreddits={subreddits}
+          onClose={() => setShowFetchModal(false)}
+          onFetchComplete={() => {
+            refetchStories();
+            refreshNotifications();
+          }}
+        />
+      )}
+
       {deleteTarget?.type === "single" && (
         <DeleteConfirmModal
           title="Remove Subreddit?"
@@ -1133,13 +941,6 @@ export function StoriesPage() {
           message={privateSubConfirm.message}
           onConfirm={handleConfirmPrivateSub}
           onCancel={() => setPrivateSubConfirm(null)}
-        />
-      )}
-      {rateLimitWarning && (
-        <RateLimitWarningModal
-          preview={rateLimitWarning}
-          onConfirm={handleConfirmRateLimitFetch}
-          onCancel={() => setRateLimitWarning(null)}
         />
       )}
     </div>

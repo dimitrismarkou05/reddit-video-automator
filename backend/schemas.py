@@ -69,6 +69,14 @@ class StoryChainResponse(BaseModel):
     updates: List[StoryResponse] = []
 
 
+class FetchRequest(BaseModel):
+    """Request body for fetching stories with configurable parameters."""
+    subreddit_id: Optional[int] = None  # None means fetch from all subreddits
+    sort: str = "top"  # "top" | "new"
+    time_filter: str = "week"  # "day" | "week" | "month" | "year" | "all"
+    limit: int = 25  # 5, 10, 15, 20, 25
+
+
 class FetchResult(BaseModel):
     subreddit: str
     fetched_count: int

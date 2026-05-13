@@ -114,6 +114,12 @@ export const subredditApi = {
   fetch: (id: number) => api.post(`/subreddits/${id}/fetch`),
   fetchAll: () => api.post("/fetch-all"),
   fetchPreview: () => api.get("/fetch-preview"),
+  fetchWithParams: (data: {
+    subreddit_id?: number | null;
+    sort: string;
+    time_filter: string;
+    limit: number;
+  }) => api.post("/fetch", data),
 };
 
 export const storyApi = {
