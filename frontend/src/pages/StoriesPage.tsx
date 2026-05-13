@@ -21,6 +21,7 @@ import {
   ArrowDownAZ,
   Trash,
   Info,
+  GitBranch,
 } from "lucide-react";
 import { storyApi, subredditApi } from "@/services/api";
 import { useNotificationStore } from "@/store";
@@ -172,37 +173,212 @@ function SubredditList({
   );
 }
 
-/* Story Card */
+/* ─── Update Branch Connector Line ─── */
+function UpdateBranchLine({
+  index,
+  isLast,
+}: {
+  index: number;
+  total: number;
+  isLast: boolean;
+}) {
+  // For the first update, we draw a curved connector from the parent
+  // For subsequent updates, we draw a straight vertical line
+  const isFirst = index === 0;
+
+  return (
+    <div className="absolute left-0 top-0 bottom-0 w-8 flex flex-col items-center">
+      {/* Vertical line from top — continues from parent or from previous update */}
+      <div
+        className="w-0.5 bg-gray-300 dark:bg-gray-600"
+        style={{
+          height: isFirst ? "24px" : "100%",
+          marginTop: isFirst ? "0" : "0",
+        }}
+      />
+
+      {/* Curved connector for first update */}
+      {isFirst && (
+        <div className="relative w-full h-8">
+          {/* Horizontal line from vertical to the right */}
+          <div
+            className="absolute top-6 left-3.5 h-0.5 bg-gray-300 dark:bg-gray-600"
+            style={{ width: "12px" }}
+          />
+          {/* Curved corner using border */}
+          <div
+            className="absolute top-6 left-3.5 w-3 h-3 border-b-0.5 border-r-0.5 border-gray-300 dark:border-gray-600 rounded-br-lg"
+            style={{
+              borderBottomWidth: "2px",
+              borderRightWidth: "2px",
+            }}
+          />
+          {/* Dot at the branch point */}
+          <div className="absolute top-5.5 left-2.5 w-2 h-2 rounded-full bg-primary border-2 border-white dark:border-gray-800" />
+        </div>
+      )}
+
+      {/* For non-first updates: dot on the line */}
+      {!isFirst && (
+        <div className="relative w-full flex-1">
+          <div className="absolute top-4 left-3.5 w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 border-2 border-white dark:border-gray-800" />
+        </div>
+      )}
+
+      {/* Continue vertical line down if not last */}
+      {!isLast && <div className="w-0.5 flex-1 bg-gray-300 dark:bg-gray-600" />}
+    </div>
+  );
+}
+
+/* ─── Update Card ─── */
+function UpdateCard({
+  update,
+  index,
+  totalUpdates,
+  onDelete,
+}: {
+  update: Story;
+  index: number;
+  totalUpdates: number;
+  onDelete: (story: Story) => void;
+}) {
+  const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const hasVideo = !!update.generated_video;
+  const isFirst = index === 0;
+  const isLast = index === totalUpdates - 1;
+  const updateNumber = index + 1; // 1-based for display
+
+  return (
+    <div className="relative flex">
+      {/* Branch line connector */}
+      <div className="relative w-10 shrink-0">
+        <UpdateBranchLine index={index} total={totalUpdates} isLast={isLast} />
+      </div>
+
+      {/* Update card */}
+      <div className="flex-1 pb-3">
+        <div className="card p-4 hover:shadow-md transition-shadow">
+          <div className="flex items-start gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className="px-2 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 text-xs rounded-full font-medium flex items-center gap-1">
+                  <GitBranch className="w-3 h-3" />
+                  Update
+                </span>
+                {/* Show number badge only if there are multiple updates and this isn't the first */}
+                {totalUpdates > 1 && !isFirst && (
+                  <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full font-medium">
+                    #{updateNumber}
+                  </span>
+                )}
+                {hasVideo && (
+                  <span className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-xs rounded-full font-medium flex items-center gap-1">
+                    <Film className="w-3 h-3" />
+                    Video Ready
+                  </span>
+                )}
+              </div>
+              <h3 className="font-semibold text-base mb-1">{update.title}</h3>
+              <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
+                <span className="flex items-center gap-1">
+                  <ArrowUp className="w-3 h-3" />
+                  {update.score.toLocaleString()}
+                </span>
+                <span className="flex items-center gap-1">
+                  <MessageCircle className="w-3 h-3" />
+                  u/{update.author}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Calendar className="w-3 h-3" />
+                  {formatUtcRelative(update.created_utc)}
+                </span>
+              </div>
+              {update.body && (
+                <p className="mt-2 text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
+                  {update.body.substring(0, 200)}
+                  {update.body.length > 200 ? "..." : ""}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => setShowGenerateModal(true)}
+                disabled={hasVideo}
+                className={`cursor-pointer p-2 rounded-lg transition-colors ${hasVideo ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default" : "bg-primary/10 text-primary hover:bg-primary/20"}`}
+                title={hasVideo ? "Video ready" : "Generate video"}
+              >
+                <Film className="w-5 h-5" />
+              </button>
+              <a
+                href={update.permalink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                title="View on Reddit"
+              >
+                <ExternalLink className="w-5 h-5" />
+              </a>
+              <button
+                onClick={() => onDelete(update)}
+                className="cursor-pointer p-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+                title="Delete update"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {showGenerateModal && (
+        <GenerateVideoModal
+          story={update}
+          onClose={() => setShowGenerateModal(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─── Story Card ─── */
 function StoryCard({
   story,
-  depth = 0,
   onDelete,
 }: {
   story: Story;
-  depth?: number;
   onDelete: (story: Story) => void;
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [showUpdates, setShowUpdates] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const hasUpdates = story.updates && story.updates.length > 0;
   const hasVideo = !!story.generated_video;
+  const updateCount = story.updates?.length || 0;
 
   return (
-    <div
-      className={`${depth > 0 ? "ml-8 border-l-2 border-primary/20 pl-4" : ""}`}
-    >
-      <div className="card p-4 mb-3 hover:shadow-md transition-shadow">
+    <div className="space-y-0">
+      {/* Original Story Card */}
+      <div className="card p-4 hover:shadow-md transition-shadow">
         <div className="flex items-start gap-4">
+          {/* Toggle updates button */}
           {hasUpdates && (
             <button
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="cursor-pointer mt-1 p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+              onClick={() => setShowUpdates(!showUpdates)}
+              className="cursor-pointer mt-1 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors shrink-0"
+              title={
+                showUpdates
+                  ? "Hide updates"
+                  : `Show ${updateCount} update${updateCount !== 1 ? "s" : ""}`
+              }
             >
-              {isExpanded ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronRight className="w-4 h-4" />
-              )}
+              <div className="flex items-center gap-1">
+                {showUpdates ? (
+                  <ChevronDown className="w-4 h-4" />
+                ) : (
+                  <ChevronRight className="w-4 h-4" />
+                )}
+                <GitBranch className="w-3.5 h-3.5 text-primary" />
+              </div>
             </button>
           )}
           <div className="flex-1 min-w-0">
@@ -221,6 +397,12 @@ function StoryCard({
                   Video Ready
                 </span>
               )}
+              {hasUpdates && (
+                <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs rounded-full font-medium flex items-center gap-1">
+                  <GitBranch className="w-3 h-3" />
+                  {updateCount} update{updateCount !== 1 ? "s" : ""}
+                </span>
+              )}
             </div>
             <h3 className="font-semibold text-base mb-1">{story.title}</h3>
             <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
@@ -236,13 +418,6 @@ function StoryCard({
                 <Calendar className="w-3 h-3" />
                 {formatUtcRelative(story.created_utc)}
               </span>
-              {hasUpdates && (
-                <span className="flex items-center gap-1 text-primary">
-                  <Link2 className="w-3 h-3" />
-                  {story.updates?.length} update
-                  {story.updates?.length !== 1 ? "s" : ""}
-                </span>
-              )}
             </div>
             {story.body && (
               <p className="mt-2 text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
@@ -279,18 +454,25 @@ function StoryCard({
           </div>
         </div>
       </div>
-      {isExpanded && hasUpdates && (
-        <div className="space-y-2">
-          {story.updates?.map((update) => (
-            <StoryCard
-              key={update.id}
-              story={update}
-              depth={depth + 1}
-              onDelete={onDelete}
-            />
-          ))}
+
+      {/* Updates Section — GitHub branch style */}
+      {showUpdates && hasUpdates && (
+        <div className="relative pt-2">
+          {/* Updates list with branch lines */}
+          <div className="space-y-0">
+            {story.updates?.map((update, index) => (
+              <UpdateCard
+                key={update.id}
+                update={update}
+                index={index}
+                totalUpdates={updateCount}
+                onDelete={onDelete}
+              />
+            ))}
+          </div>
         </div>
       )}
+
       {showGenerateModal && (
         <GenerateVideoModal
           story={story}
@@ -810,7 +992,7 @@ export function StoriesPage() {
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
         </div>
       ) : paginatedStories.length > 0 ? (
-        <div className="space-y-2">
+        <div className="space-y-4">
           {paginatedStories.map((story: Story) => (
             <StoryCard
               key={story.id}
