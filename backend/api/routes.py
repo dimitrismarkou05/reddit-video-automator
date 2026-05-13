@@ -19,7 +19,7 @@ from schemas import (
     YouTubeVideoStatsResponse, YouTubeUpdateMetadataRequest, YouTubeUpdatePrivacyRequest,
     NotificationResponse,
 )
-from reddit.fetcher import StoryFetcher
+from reddit.fetcher import StoryFetcher, SubredditAccessError, sanitize_subreddit_name
 from reddit.linker import UpdateLinker
 from reddit.client import RedditClient, RedditClientError
 from settings_manager import SettingsManager
@@ -73,15 +73,22 @@ def add_subreddit(data: SubredditCreate, force: bool = False, db: Session = Depe
     fetcher = StoryFetcher(db)
     try:
         return fetcher.add_subreddit(data.name, data.fetch_settings or {}, force=force)
-    except ValueError as exc:
-        error_msg = str(exc).lower()
-        is_private = "private" in error_msg
-        status_code = 403 if is_private else 400
+    except SubredditAccessError as exc:
+        status_code = 403 if exc.is_private else 400
         raise HTTPException(
             status_code=status_code,
             detail={
                 "message": str(exc),
-                "is_private": is_private,
+                "is_private": exc.is_private,
+                "subreddit": data.name,
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": str(exc),
+                "is_private": False,
                 "subreddit": data.name,
             },
         )

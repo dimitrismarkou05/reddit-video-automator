@@ -29,6 +29,11 @@ def sanitize_subreddit_name(name: str) -> str:
     return name
 
 
+class SubredditAccessError(ValueError):
+    def __init__(self, message: str, is_private: bool = False):
+        self.is_private = is_private
+        super().__init__(message)
+
 class StoryFetcher:
     def __init__(self, db: Session):
         self.db = db
@@ -107,7 +112,10 @@ class StoryFetcher:
         if not force:
             access_check = self.test_subreddit_access(sanitized)
             if not access_check["accessible"]:
-                raise ValueError(access_check["message"])
+                raise SubredditAccessError(
+                    access_check["message"],
+                    is_private=access_check.get("is_private", False),
+                )
 
         sub = Subreddit(
             name=sanitized,
