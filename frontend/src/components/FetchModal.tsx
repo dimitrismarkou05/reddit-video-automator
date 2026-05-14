@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { X, RefreshCw, ChevronDown, Zap, Info } from "lucide-react";
 import { subredditApi } from "@/services/api";
 import type { Subreddit } from "@/types";
@@ -41,13 +41,27 @@ export function FetchModal({
     partial_story_count: number;
     reset_in_seconds: number;
   } | null>(null);
+  const [showSubredditDropdown, setShowSubredditDropdown] = useState(false);
+  const subredditDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (
+        subredditDropdownRef.current &&
+        !subredditDropdownRef.current.contains(e.target as Node)
+      ) {
+        setShowSubredditDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   const isTimeFilterDisabled = sort === "new";
 
   const handleFetch = async (skipRateLimitCheck = false) => {
     if (isFetching) return;
 
-    // Check rate limit first unless skipping
     if (!skipRateLimitCheck) {
       try {
         const { data: preview } = await subredditApi.fetchPreview();
@@ -164,6 +178,12 @@ export function FetchModal({
     handleFetch(true);
   };
 
+  const selectedSubredditName =
+    selectedSubreddit === "all"
+      ? "All Subreddits"
+      : subreddits?.find((s) => s.id === parseInt(selectedSubreddit))
+          ?.display_name || selectedSubreddit;
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-surface-light dark:bg-surface-dark rounded-2xl w-full max-w-md shadow-xl">
@@ -213,25 +233,56 @@ export function FetchModal({
             />
           ) : (
             <>
-              {/* Subreddit Selection */}
+              {/* Subreddit Selection — custom dropdown matching StoryFilters style */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Subreddit
                 </label>
-                <div className="relative">
-                  <select
-                    value={selectedSubreddit}
-                    onChange={(e) => setSelectedSubreddit(e.target.value)}
-                    className="input appearance-none pr-10"
+                <div className="relative" ref={subredditDropdownRef}>
+                  <button
+                    onClick={() => setShowSubredditDropdown((v) => !v)}
+                    className="cursor-pointer w-full flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-800 border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   >
-                    <option value="all">All Subreddits</option>
-                    {subreddits.map((sub) => (
-                      <option key={sub.id} value={sub.id}>
-                        {sub.display_name}
-                      </option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    <span className="flex-1 text-left">
+                      {selectedSubredditName}
+                    </span>
+                    <ChevronDown
+                      className={`w-3 h-3 text-gray-400 transition-transform ${showSubredditDropdown ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  {showSubredditDropdown && (
+                    <div className="absolute left-0 top-full mt-1 w-full bg-surface-light dark:bg-surface-dark rounded-xl shadow-lg border border-border-light dark:border-border-dark z-50 overflow-hidden">
+                      <button
+                        onClick={() => {
+                          setSelectedSubreddit("all");
+                          setShowSubredditDropdown(false);
+                        }}
+                        className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                          selectedSubreddit === "all"
+                            ? "bg-primary/10 text-primary font-medium"
+                            : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                        }`}
+                      >
+                        All Subreddits
+                      </button>
+                      {subreddits.map((sub) => (
+                        <button
+                          key={sub.id}
+                          onClick={() => {
+                            setSelectedSubreddit(String(sub.id));
+                            setShowSubredditDropdown(false);
+                          }}
+                          className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                            selectedSubreddit === String(sub.id)
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                          }`}
+                        >
+                          {sub.display_name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
