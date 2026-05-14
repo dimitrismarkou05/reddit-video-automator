@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -12,6 +12,8 @@ import {
   Clock,
   GitBranch,
   ChevronUp,
+  Bookmark,
+  Share2,
 } from "lucide-react";
 import { storyApi } from "@/services/api";
 import { StatusBadge } from "@/components/common/StatusBadge";
@@ -23,6 +25,7 @@ import { formatUtcRelative, stripUpdatePrefix } from "@/lib/formatters";
 import type { Story } from "@/types";
 import toast from "react-hot-toast";
 
+/* ─── Meta line ─── */
 function StoryMetaLine({ story }: { story: Story }) {
   return (
     <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
@@ -42,6 +45,100 @@ function StoryMetaLine({ story }: { story: Story }) {
   );
 }
 
+/* ─── Sidebar: jump links ─── */
+function UpdateSidebar({
+  updates,
+  activeId,
+}: {
+  updates: Story[];
+  activeId: string | null;
+}) {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  return (
+    <div className="card p-4 sticky top-12">
+      <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+        <GitBranch className="w-3.5 h-3.5" />
+        Jump to Update
+      </h3>
+      <nav className="space-y-1">
+        {updates.map((update, idx) => {
+          const isActive = activeId === `update-${update.id}`;
+          const clean = stripUpdatePrefix(update.title);
+          const preview = clean.length > 40 ? clean.slice(0, 37) + "…" : clean;
+          return (
+            <button
+              key={update.id}
+              onClick={() => {
+                navigate(`${location.pathname}#update-${update.id}`, {
+                  replace: true,
+                });
+                document
+                  .getElementById(`update-${update.id}`)
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              className={`cursor-pointer w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                isActive
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+              }`}
+            >
+              <span className="text-xs text-gray-400 mr-1.5">#{idx + 1}</span>
+              {preview || `Update ${idx + 1}`}
+            </button>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
+
+/* ─── Sidebar: story info ─── */
+function StoryInfoSidebar({ story }: { story: Story }) {
+  return (
+    <div className="card p-4">
+      <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+        <Bookmark className="w-3.5 h-3.5" />
+        Story Info
+      </h3>
+      <div className="space-y-3 text-sm">
+        <div className="flex justify-between">
+          <span className="text-gray-500">Subreddit</span>
+          <span className="font-medium">r/{story.subreddit}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-500">Author</span>
+          <span className="font-medium">u/{story.author}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-500">Score</span>
+          <span className="font-medium">{story.score.toLocaleString()}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-500">Date</span>
+          <span className="font-medium">
+            {formatUtcRelative(story.created_utc)}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-500">Status</span>
+          <StatusBadge label={story.status} variant="neutral" />
+        </div>
+        {story.update_reason && (
+          <div className="pt-2 border-t border-border-light dark:border-border-dark">
+            <span className="text-gray-500 text-xs block mb-1">Note</span>
+            <span className="text-xs text-gray-600 dark:text-gray-400">
+              {story.update_reason}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Update section ─── */
 function UpdateSection({
   update,
   index,
@@ -54,11 +151,9 @@ function UpdateSection({
   const updateNumber = index + 1;
   const cleanTitle = stripUpdatePrefix(update.title);
   const hasVideo = !!update.generated_video;
-  const sectionRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div ref={sectionRef} id={`update-${update.id}`} className="scroll-mt-6">
-      {/* Update header badge */}
+    <div id={`update-${update.id}`} className="scroll-mt-20">
       <div className="flex items-center gap-2 mb-3">
         <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-full">
           <GitBranch className="w-3.5 h-3.5 text-yellow-700 dark:text-yellow-400" />
@@ -71,33 +166,30 @@ function UpdateSection({
         )}
       </div>
 
-      {/* Update title */}
       {cleanTitle && (
         <h3 className="text-lg font-semibold mb-2 text-gray-900 dark:text-gray-100">
           {cleanTitle}
         </h3>
       )}
 
-      {/* Update meta */}
       <StoryMetaLine story={update} />
 
-      {/* Update body */}
       {update.body && (
         <div className="mt-3 text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
           {update.body}
         </div>
       )}
 
-      {/* Update actions */}
       <UpdateActions update={update} />
 
       {!isLast && (
-        <div className="my-6 border-b border-border-light dark:border-border-dark" />
+        <div className="my-8 border-b border-border-light dark:border-border-dark" />
       )}
     </div>
   );
 }
 
+/* ─── Actions for an individual update ─── */
 function UpdateActions({ update }: { update: Story }) {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -107,9 +199,9 @@ function UpdateActions({ update }: { update: Story }) {
   const handleDelete = async () => {
     try {
       const { data } = await storyApi.delete(update.id);
-      const updateWord = data.updates_deleted === 1 ? "update" : "updates";
+      const word = data.updates_deleted === 1 ? "update" : "updates";
       toast.success(
-        `Deleted "${data.title}" and ${data.updates_deleted} ${updateWord}`,
+        `Deleted "${data.title}" and ${data.updates_deleted} ${word}`,
       );
       queryClient.invalidateQueries({ queryKey: ["stories"] });
       navigate("/stories");
@@ -124,7 +216,7 @@ function UpdateActions({ update }: { update: Story }) {
         <button
           onClick={() => setShowGenerateModal(true)}
           disabled={!!update.generated_video}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+          className={`cursor-pointer flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
             update.generated_video
               ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
               : "bg-primary/10 text-primary hover:bg-primary/20"
@@ -144,7 +236,7 @@ function UpdateActions({ update }: { update: Story }) {
         </a>
         <button
           onClick={() => setShowDeleteModal(true)}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
         >
           <Trash2 className="w-4 h-4" />
           Delete
@@ -173,13 +265,16 @@ function UpdateActions({ update }: { update: Story }) {
   );
 }
 
+/* ─── Main page ─── */
 export function StoryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const [activeHash, setActiveHash] = useState<string | null>(
+    location.hash ? location.hash.replace("#", "") : null,
+  );
 
   const {
     data: story,
@@ -193,25 +288,45 @@ export function StoryDetailPage() {
     },
   });
 
-  // Handle anchor scrolling after content loads
+  /* scroll to anchor on load */
   useEffect(() => {
     if (story && location.hash) {
       const targetId = location.hash.replace("#", "");
-      const el = document.getElementById(targetId);
-      if (el) {
-        setTimeout(() => {
-          el.scrollIntoView({ behavior: "smooth", block: "start" });
-        }, 100);
-      }
+      setActiveHash(targetId);
+      setTimeout(() => {
+        document
+          .getElementById(targetId)
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 120);
     }
   }, [story, location.hash]);
+
+  /* track active section while scrolling */
+  useEffect(() => {
+    if (!story?.updates?.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setActiveHash(entry.target.id);
+          }
+        });
+      },
+      { rootMargin: "-120px 0px -60% 0px", threshold: 0 },
+    );
+    story.updates.forEach((u: Story) => {
+      const el = document.getElementById(`update-${u.id}`);
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, [story]);
 
   const handleDelete = async () => {
     try {
       const { data } = await storyApi.delete(Number(id));
-      const updateWord = data.updates_deleted === 1 ? "update" : "updates";
+      const word = data.updates_deleted === 1 ? "update" : "updates";
       toast.success(
-        `Deleted "${data.title}" and ${data.updates_deleted} ${updateWord}`,
+        `Deleted "${data.title}" and ${data.updates_deleted} ${word}`,
       );
       navigate("/stories");
     } catch (e: any) {
@@ -245,107 +360,138 @@ export function StoryDetailPage() {
 
   return (
     <div className="min-h-screen bg-background-light dark:bg-background-dark">
-      {/* Top Navigation Bar */}
-      <header className="sticky top-0 z-500 bg-surface-light/80 dark:bg-surface-dark/80 backdrop-blur-md border-b border-border-light dark:border-border-dark">
-        <div className="max-w-3xl mx-auto px-4 h-14 flex items-center gap-3">
+      {/* ═══ Full-width sticky nav — breaks out of parent padding ═══ */}
+      <header className="sticky -top-6 z-50 -mx-6 -mt-6 bg-surface-light/95 dark:bg-surface-dark/95 backdrop-blur-md border-b border-border-light dark:border-border-dark">
+        <div className="max-w-6xl mx-auto h-14 px-4 sm:px-6 flex items-center gap-3">
           <button
             onClick={() => navigate("/stories")}
-            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors shrink-0"
+            title="Back to stories"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="flex items-center gap-2">
+
+          <div className="w-px h-6 bg-border-light dark:bg-border-dark shrink-0" />
+
+          <div className="flex items-center gap-2 min-w-0">
             <StatusBadge label={`r/${story.subreddit}`} variant="primary" />
             {story.is_update && (
               <StatusBadge label="Update" variant="warning" />
             )}
           </div>
+
+          <span className="hidden sm:block text-sm text-gray-500 dark:text-gray-400 truncate min-w-0">
+            {story.title}
+          </span>
+
           <div className="flex-1" />
-          {hasUpdates && (
-            <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-              <GitBranch className="w-3 h-3" />
-              {updateCount} update{updateCount !== 1 ? "s" : ""}
-            </span>
-          )}
+
+          <div className="flex items-center gap-1 shrink-0">
+            {hasUpdates && (
+              <span className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-xs text-gray-600 dark:text-gray-400">
+                <GitBranch className="w-3 h-3" />
+                {updateCount} update{updateCount !== 1 ? "s" : ""}
+              </span>
+            )}
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(story.permalink);
+                toast.success("Reddit link copied to clipboard");
+              }}
+              className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="Copy Reddit link"
+            >
+              <Share2 className="w-4 h-4 text-gray-500" />
+            </button>
+            <button
+              onClick={() => setShowDeleteModal(true)}
+              className="cursor-pointer p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+              title="Delete story"
+            >
+              <Trash2 className="w-4 h-4 text-red-500" />
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-4xl mx-auto px-4 py-6" ref={contentRef}>
-        {/* Original Story */}
-        <article className="card p-6">
-          {/* Title */}
-          <h1 className="text-2xl font-bold mb-3 text-gray-900 dark:text-gray-100 leading-tight">
-            {story.title}
-          </h1>
+      {/* ═══ Content grid ═══ */}
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+          {/* ── Main column ── */}
+          <div className="space-y-6 min-w-0">
+            {/* Original story */}
+            <article className="card p-6">
+              <h1 className="text-xl sm:text-2xl font-bold mb-3 text-gray-900 dark:text-gray-100 leading-snug">
+                {story.title}
+              </h1>
 
-          {/* Meta */}
-          <StoryMetaLine story={story} />
+              <StoryMetaLine story={story} />
 
-          {/* Body */}
-          {story.body && (
-            <div className="mt-4 text-gray-800 dark:text-gray-200 leading-relaxed whitespace-pre-wrap text-[15px]">
-              {story.body}
-            </div>
-          )}
+              {story.body && (
+                <div className="mt-4 text-gray-800 dark:text-gray-200 leading-relaxed whitespace-pre-wrap text-[15px]">
+                  {story.body}
+                </div>
+              )}
 
-          {/* Actions */}
-          <div className="flex items-center gap-2 mt-6 pt-4 border-t border-border-light dark:border-border-dark">
-            <button
-              onClick={() => setShowGenerateModal(true)}
-              disabled={hasVideo}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                hasVideo
-                  ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
-                  : "bg-primary/10 text-primary hover:bg-primary/20"
-              }`}
-            >
-              <Film className="w-4 h-4" />
-              {hasVideo ? "Video Ready" : "Generate Video"}
-            </button>
-            <a
-              href={story.permalink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-            >
-              <ExternalLink className="w-4 h-4" />
-              View on Reddit
-            </a>
-            <button
-              onClick={() => setShowDeleteModal(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
-            >
-              <Trash2 className="w-4 h-4" />
-              Delete
-            </button>
+              <div className="flex flex-wrap items-center gap-2 mt-6 pt-4 border-t border-border-light dark:border-border-dark">
+                <button
+                  onClick={() => setShowGenerateModal(true)}
+                  disabled={hasVideo}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    hasVideo
+                      ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
+                      : "bg-primary/10 text-primary hover:bg-primary/20"
+                  }`}
+                >
+                  <Film className="w-4 h-4" />
+                  {hasVideo ? "Video Ready" : "Generate Video"}
+                </button>
+                <a
+                  href={story.permalink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  View on Reddit
+                </a>
+              </div>
+            </article>
+
+            {/* Updates */}
+            {hasUpdates && (
+              <div>
+                <div className="flex items-center gap-2 mb-4 px-1">
+                  <ChevronUp className="w-4 h-4 text-primary" />
+                  <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                    Updates
+                  </h2>
+                  <div className="flex-1 h-px bg-border-light dark:bg-border-dark ml-2" />
+                </div>
+
+                <div className="card p-6 space-y-2">
+                  {story.updates?.map((update: Story, index: number) => (
+                    <UpdateSection
+                      key={update.id}
+                      update={update}
+                      index={index}
+                      isLast={index === updateCount - 1}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-        </article>
 
-        {/* Updates Section */}
-        {hasUpdates && (
-          <div className="mt-6">
-            <div className="flex items-center gap-2 mb-4 px-1">
-              <ChevronUp className="w-4 h-4 text-primary" />
-              <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                Updates
-              </h2>
-              <div className="flex-1 h-px bg-border-light dark:bg-border-dark ml-2" />
-            </div>
-
-            <div className="card p-6 space-y-2">
-              {story.updates?.map((update: Story, index: number) => (
-                <UpdateSection
-                  key={update.id}
-                  update={update}
-                  index={index}
-                  isLast={index === updateCount - 1}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-      </main>
+          {/* ── Right sidebar ── */}
+          <aside className="hidden lg:block space-y-4">
+            <StoryInfoSidebar story={story} />
+            {hasUpdates && (
+              <UpdateSidebar updates={story.updates} activeId={activeHash} />
+            )}
+          </aside>
+        </div>
+      </div>
 
       {/* Modals */}
       {showGenerateModal && (
