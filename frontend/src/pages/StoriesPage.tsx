@@ -74,6 +74,11 @@ function formatUtcRelative(dateString: string | null): string {
   }
 }
 
+/* Strip "Update:" or "Update N:" prefix from title */
+function stripUpdatePrefix(title: string): string {
+  return title.replace(/^Update\s*(?:\d+)?\s*:\s*/i, "").trim();
+}
+
 /* Subreddit Badge */
 function SubredditBadge({
   sub,
@@ -173,60 +178,76 @@ function SubredditList({
   );
 }
 
-/* ─── Update Branch Connector Line ─── */
-function UpdateBranchLine({
-  index,
-  isLast,
-}: {
-  index: number;
-  total: number;
-  isLast: boolean;
-}) {
-  // For the first update, we draw a curved connector from the parent
-  // For subsequent updates, we draw a straight vertical line
+/* ─── Branch Connector Line ─── */
+function BranchConnector({ index, total }: { index: number; total: number }) {
   const isFirst = index === 0;
+  const isLast = index === total - 1;
 
   return (
-    <div className="absolute left-0 top-0 bottom-0 w-8 flex flex-col items-center">
-      {/* Vertical line from top — continues from parent or from previous update */}
-      <div
-        className="w-0.5 bg-gray-300 dark:bg-gray-600"
-        style={{
-          height: isFirst ? "24px" : "100%",
-          marginTop: isFirst ? "0" : "0",
-        }}
-      />
-
-      {/* Curved connector for first update */}
-      {isFirst && (
-        <div className="relative w-full h-8">
-          {/* Horizontal line from vertical to the right */}
+    <div
+      className="relative flex flex-col items-center"
+      style={{ width: "32px", minWidth: "32px" }}
+    >
+      {isFirst ? (
+        <>
+          {/* Vertical stub from original story */}
+          <div className="w-px h-5 bg-gray-300 dark:bg-gray-600" />
+          {/* Curved corner: ├ shape */}
+          <div className="relative w-full" style={{ height: "24px" }}>
+            {/* Vertical line going down */}
+            <div
+              className="absolute left-4 top-0 w-px bg-gray-300 dark:bg-gray-600"
+              style={{ height: isLast ? "12px" : "100%" }}
+            />
+            {/* Horizontal line to the right */}
+            <div
+              className="absolute left-4 top-3 h-px bg-gray-300 dark:bg-gray-600"
+              style={{ width: "16px" }}
+            />
+            {/* Curved corner using border */}
+            <div className="absolute left-4 top-3 w-3 h-3 border-b border-r border-gray-300 dark:border-gray-600 rounded-br-md" />
+            {/* Primary dot at branch point */}
+            <div
+              className="absolute w-2.5 h-2.5 rounded-full bg-primary border-2 border-white dark:border-gray-800 z-10"
+              style={{ left: "11px", top: "9px" }}
+            />
+          </div>
+          {/* Continue vertical line if not last */}
+          {!isLast && (
+            <div className="w-px flex-1 bg-gray-300 dark:bg-gray-600" />
+          )}
+        </>
+      ) : (
+        <>
+          {/* Vertical line from above */}
+          <div className="w-px h-5 bg-gray-300 dark:bg-gray-600" />
+          {/* Dot on the line */}
           <div
-            className="absolute top-6 left-3.5 h-0.5 bg-gray-300 dark:bg-gray-600"
-            style={{ width: "12px" }}
-          />
-          {/* Curved corner using border */}
-          <div
-            className="absolute top-6 left-3.5 w-3 h-3 border-b-0.5 border-r-0.5 border-gray-300 dark:border-gray-600 rounded-br-lg"
-            style={{
-              borderBottomWidth: "2px",
-              borderRightWidth: "2px",
-            }}
-          />
-          {/* Dot at the branch point */}
-          <div className="absolute top-5.5 left-2.5 w-2 h-2 rounded-full bg-primary border-2 border-white dark:border-gray-800" />
-        </div>
+            className="relative w-full flex items-center justify-center"
+            style={{ height: "24px" }}
+          >
+            {/* Vertical line continues */}
+            <div
+              className="absolute left-4 top-0 w-px bg-gray-300 dark:bg-gray-600"
+              style={{ height: isLast ? "12px" : "100%" }}
+            />
+            {/* Horizontal connector */}
+            <div
+              className="absolute left-4 top-3 h-px bg-gray-300 dark:bg-gray-600"
+              style={{ width: "16px" }}
+            />
+            {/* Gray dot */}
+            <div
+              className="absolute w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 border-2 border-white dark:border-gray-800 z-10"
+              style={{ left: "12px", top: "10px" }}
+            />
+          </div>
+          {/* Continue vertical line if not last */}
+          {!isLast && (
+            <div className="w-px flex-1 bg-gray-300 dark:bg-gray-600" />
+          )}
+        </>
       )}
-
-      {/* For non-first updates: dot on the line */}
-      {!isFirst && (
-        <div className="relative w-full flex-1">
-          <div className="absolute top-4 left-3.5 w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 border-2 border-white dark:border-gray-800" />
-        </div>
-      )}
-
-      {/* Continue vertical line down if not last */}
-      {!isLast && <div className="w-0.5 flex-1 bg-gray-300 dark:bg-gray-600" />}
     </div>
   );
 }
@@ -245,30 +266,28 @@ function UpdateCard({
 }) {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const hasVideo = !!update.generated_video;
-  const isFirst = index === 0;
-  const isLast = index === totalUpdates - 1;
-  const updateNumber = index + 1; // 1-based for display
+  const showNumberBadge = totalUpdates > 1;
+  const updateNumber = index + 1;
+  const cleanTitle = stripUpdatePrefix(update.title);
 
   return (
-    <div className="relative flex">
-      {/* Branch line connector */}
-      <div className="relative w-10 shrink-0">
-        <UpdateBranchLine index={index} total={totalUpdates} isLast={isLast} />
-      </div>
+    <div className="flex">
+      {/* Branch connector */}
+      <BranchConnector index={index} total={totalUpdates} />
 
-      {/* Update card */}
+      {/* Update card — same style as story */}
       <div className="flex-1 pb-3">
         <div className="card p-4 hover:shadow-md transition-shadow">
           <div className="flex items-start gap-4">
             <div className="flex-1 min-w-0">
+              {/* Badges */}
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <span className="px-2 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 text-xs rounded-full font-medium flex items-center gap-1">
                   <GitBranch className="w-3 h-3" />
                   Update
                 </span>
-                {/* Show number badge only if there are multiple updates and this isn't the first */}
-                {totalUpdates > 1 && !isFirst && (
-                  <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full font-medium">
+                {showNumberBadge && (
+                  <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs rounded-full font-medium">
                     #{updateNumber}
                   </span>
                 )}
@@ -279,7 +298,11 @@ function UpdateCard({
                   </span>
                 )}
               </div>
-              <h3 className="font-semibold text-base mb-1">{update.title}</h3>
+
+              {/* Title — stripped of "Update:" prefix */}
+              <h3 className="font-semibold text-base mb-1">{cleanTitle}</h3>
+
+              {/* Meta */}
               <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
                 <span className="flex items-center gap-1">
                   <ArrowUp className="w-3 h-3" />
@@ -294,6 +317,8 @@ function UpdateCard({
                   {formatUtcRelative(update.created_utc)}
                 </span>
               </div>
+
+              {/* Body */}
               {update.body && (
                 <p className="mt-2 text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
                   {update.body.substring(0, 200)}
@@ -301,6 +326,8 @@ function UpdateCard({
                 </p>
               )}
             </div>
+
+            {/* Actions */}
             <div className="flex flex-col gap-2">
               <button
                 onClick={() => setShowGenerateModal(true)}
@@ -455,10 +482,9 @@ function StoryCard({
         </div>
       </div>
 
-      {/* Updates Section — GitHub branch style */}
+      {/* Updates Section — indented with branch lines */}
       {showUpdates && hasUpdates && (
-        <div className="relative pt-2">
-          {/* Updates list with branch lines */}
+        <div className="pl-4 pt-1">
           <div className="space-y-0">
             {story.updates?.map((update, index) => (
               <UpdateCard
