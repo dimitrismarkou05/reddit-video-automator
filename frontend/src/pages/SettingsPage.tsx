@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Key,
@@ -14,30 +14,8 @@ import {
   Mic,
 } from "lucide-react";
 import { useThemeStore, useAuthStore } from "@/store";
-import { settingsApi } from "@/services/api";
-import toast from "react-hot-toast";
-
-function Section({
-  title,
-  icon: Icon,
-  children,
-}: {
-  title: string;
-  icon: any;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="card p-6 mb-6">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-          <Icon className="w-5 h-5 text-primary" />
-        </div>
-        <h3 className="text-lg font-semibold">{title}</h3>
-      </div>
-      {children}
-    </div>
-  );
-}
+import { SettingsSection } from "@/components/settings/SettingsSection";
+import { ApiKeyInput } from "@/components/settings/ApiKeyInput";
 
 export function SettingsPage() {
   const { isDark, toggle } = useThemeStore();
@@ -50,7 +28,6 @@ export function SettingsPage() {
   const { data: ffmpegInfo } = useQuery({
     queryKey: ["ffmpeg"],
     queryFn: async () => {
-      // This would be an actual API call to check FFmpeg
       return {
         installed: true,
         path: "/usr/bin/ffmpeg",
@@ -60,40 +37,11 @@ export function SettingsPage() {
     staleTime: Infinity,
   });
 
-  const handleSaveOpenAI = async () => {
-    if (!ttsKey.trim()) {
-      toast.error("Please enter an API key");
-      return;
-    }
-    try {
-      await settingsApi.set("openai_api_key", ttsKey, true);
-      toast.success("OpenAI API key saved securely");
-      setTtsKey("");
-    } catch (e) {
-      toast.error("Failed to save API key");
-    }
-  };
-
-  const handleSaveElevenLabs = async () => {
-    if (!elevenLabsKey.trim()) {
-      toast.error("Please enter an API key");
-      return;
-    }
-    try {
-      await settingsApi.set("elevenlabs_api_key", elevenLabsKey, true);
-      toast.success("ElevenLabs API key saved securely");
-      setElevenLabsKey("");
-    } catch (e) {
-      toast.error("Failed to save API key");
-    }
-  };
-
   const handleSelectOutputDir = async () => {
     if (window.electronAPI) {
       const path = await window.electronAPI.selectDirectory();
       if (path) {
         setOutputDir(path);
-        toast.success("Output directory selected");
       }
     }
   };
@@ -110,79 +58,30 @@ export function SettingsPage() {
     <div className="max-w-3xl mx-auto space-y-6">
       <h2 className="text-2xl font-bold mb-6">Settings</h2>
 
-      {/* TTS API Keys */}
-      <Section title="Text-to-Speech APIs" icon={Mic}>
-        {/* OpenAI */}
-        <div className="space-y-4 mb-6">
-          <div className="flex items-center justify-between">
-            <h4 className="font-medium">OpenAI (Default)</h4>
-            <button
-              onClick={() =>
-                openExternal("https://platform.openai.com/api-keys")
-              }
-              className="cursor-pointer text-sm text-primary flex items-center gap-1 hover:underline"
-            >
-              <ExternalLink className="w-3 h-3" />
-              Get API Key
-            </button>
-          </div>
-          <div className="flex gap-3">
-            <input
-              type="password"
-              placeholder="sk-..."
-              value={ttsKey}
-              onChange={(e) => setTtsKey(e.target.value)}
-              className="input flex-1"
-            />
-            <button
-              onClick={handleSaveOpenAI}
-              className="cursor-pointer btn-primary"
-            >
-              Save
-            </button>
-          </div>
-          <p className="text-xs text-gray-500">
-            Used for voice narration. Your key is encrypted at rest.
-          </p>
+      <SettingsSection title="Text-to-Speech APIs" icon={Mic}>
+        <ApiKeyInput
+          label="OpenAI (Default)"
+          placeholder="sk-..."
+          getUrl="https://platform.openai.com/api-keys"
+          settingKey="openai_api_key"
+          value={ttsKey}
+          onChange={setTtsKey}
+          hint="Used for voice narration. Your key is encrypted at rest."
+        />
+        <div className="border-t border-border-light dark:border-border-dark pt-4 mt-4">
+          <ApiKeyInput
+            label="ElevenLabs (Optional)"
+            placeholder="ElevenLabs API key..."
+            getUrl="https://elevenlabs.io/app/settings/api-keys"
+            settingKey="elevenlabs_api_key"
+            value={elevenLabsKey}
+            onChange={setElevenLabsKey}
+            hint="Higher quality voices. Optional — falls back to OpenAI if not set."
+          />
         </div>
+      </SettingsSection>
 
-        {/* ElevenLabs */}
-        <div className="space-y-4 border-t border-border-light dark:border-border-dark pt-4">
-          <div className="flex items-center justify-between">
-            <h4 className="font-medium">ElevenLabs (Optional)</h4>
-            <button
-              onClick={() =>
-                openExternal("https://elevenlabs.io/app/settings/api-keys")
-              }
-              className="cursor-pointer text-sm text-primary flex items-center gap-1 hover:underline"
-            >
-              <ExternalLink className="w-3 h-3" />
-              Get API Key
-            </button>
-          </div>
-          <div className="flex gap-3">
-            <input
-              type="password"
-              placeholder="ElevenLabs API key..."
-              value={elevenLabsKey}
-              onChange={(e) => setElevenLabsKey(e.target.value)}
-              className="input flex-1"
-            />
-            <button
-              onClick={handleSaveElevenLabs}
-              className="cursor-pointer btn-primary"
-            >
-              Save
-            </button>
-          </div>
-          <p className="text-xs text-gray-500">
-            Higher quality voices. Optional — falls back to OpenAI if not set.
-          </p>
-        </div>
-      </Section>
-
-      {/* YouTube Auth Status */}
-      <Section title="YouTube Account" icon={Key}>
+      <SettingsSection title="YouTube Account" icon={Key}>
         {authStatus?.is_authenticated && authStatus.user_info ? (
           <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
             {authStatus.user_info.picture ? (
@@ -212,10 +111,9 @@ export function SettingsPage() {
             </p>
           </div>
         )}
-      </Section>
+      </SettingsSection>
 
-      {/* FFmpeg */}
-      <Section title="FFmpeg Settings" icon={Film}>
+      <SettingsSection title="FFmpeg Settings" icon={Film}>
         {ffmpegInfo ? (
           <div className="space-y-3">
             <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
@@ -254,10 +152,9 @@ export function SettingsPage() {
             </div>
           </div>
         )}
-      </Section>
+      </SettingsSection>
 
-      {/* Theme */}
-      <Section title="Appearance" icon={Palette}>
+      <SettingsSection title="Appearance" icon={Palette}>
         <div className="flex items-center gap-4">
           <button
             onClick={toggle}
@@ -284,10 +181,9 @@ export function SettingsPage() {
             <div className="text-xs text-gray-500">Dark slate tones</div>
           </button>
         </div>
-      </Section>
+      </SettingsSection>
 
-      {/* Output */}
-      <Section title="Output Settings" icon={FolderOpen}>
+      <SettingsSection title="Output Settings" icon={FolderOpen}>
         <div className="space-y-3">
           <div>
             <label className="block text-sm font-medium mb-1">
@@ -328,7 +224,7 @@ export function SettingsPage() {
             </div>
           </div>
         </div>
-      </Section>
+      </SettingsSection>
     </div>
   );
 }
