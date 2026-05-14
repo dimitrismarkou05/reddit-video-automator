@@ -8,6 +8,7 @@ import { StoriesPage } from "@/pages/StoriesPage";
 import { VideosPage } from "@/pages/VideosPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { AutomationPage } from "@/pages/AutomationPage";
+import { StoryDetailPage } from "@/pages/StoryDetailPage";
 import { youtubeApi } from "@/services/api";
 import { PublicSettingsPage } from "@/pages/PublicSettingsPage";
 
@@ -74,6 +75,7 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>
             <Route path="/stories" element={<StoriesPage />} />
+            <Route path="/stories/:id" element={<StoryDetailPage />} />
             <Route path="/videos" element={<VideosPage />} />
             <Route path="/automation" element={<AutomationPage />} />
             <Route path="/settings" element={<SettingsPage />} />

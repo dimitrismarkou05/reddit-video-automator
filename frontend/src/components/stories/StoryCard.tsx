@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronRight, GitBranch, Clock } from "lucide-react";
 import { StoryMeta } from "./StoryMeta";
 import { StoryActions } from "./StoryActions";
@@ -14,15 +15,32 @@ interface StoryCardProps {
 }
 
 export function StoryCard({ story, onDelete }: StoryCardProps) {
+  const navigate = useNavigate();
   const [showUpdates, setShowUpdates] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const hasUpdates = story.updates && story.updates.length > 0;
   const hasVideo = !!story.generated_video;
   const updateCount = story.updates?.length || 0;
 
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Don't navigate if clicking on action buttons or the updates toggle
+    const target = e.target as HTMLElement;
+    if (
+      target.closest("button") ||
+      target.closest("a") ||
+      target.closest("[data-no-nav]")
+    ) {
+      return;
+    }
+    navigate(`/stories/${story.id}`);
+  };
+
   return (
     <div className="space-y-0">
-      <div className="card p-4 hover:shadow-md transition-shadow">
+      <div
+        onClick={handleCardClick}
+        className="card p-4 hover:shadow-md transition-all cursor-pointer"
+      >
         <div className="flex items-start gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
@@ -45,7 +63,11 @@ export function StoryCard({ story, onDelete }: StoryCardProps) {
                     variant="warning"
                   />
                   <button
-                    onClick={() => setShowUpdates(!showUpdates)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowUpdates(!showUpdates);
+                    }}
+                    data-no-nav
                     className="cursor-pointer -ml-0.5 p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors shrink-0 inline-flex items-center gap-0.5"
                     title={
                       showUpdates
@@ -67,12 +89,14 @@ export function StoryCard({ story, onDelete }: StoryCardProps) {
             <StoryMeta story={story} />
             <StoryBody body={story.body} />
           </div>
-          <StoryActions
-            hasVideo={hasVideo}
-            permalink={story.permalink}
-            onGenerate={() => setShowGenerateModal(true)}
-            onDelete={() => onDelete(story)}
-          />
+          <div onClick={(e) => e.stopPropagation()} data-no-nav>
+            <StoryActions
+              hasVideo={hasVideo}
+              permalink={story.permalink}
+              onGenerate={() => setShowGenerateModal(true)}
+              onDelete={() => onDelete(story)}
+            />
+          </div>
         </div>
       </div>
 
@@ -86,6 +110,7 @@ export function StoryCard({ story, onDelete }: StoryCardProps) {
                 index={index}
                 totalUpdates={updateCount}
                 onDelete={onDelete}
+                parentStoryId={story.id}
               />
             ))}
           </div>
