@@ -163,7 +163,7 @@ export function StoriesPage() {
       const { data } = await storyApi.delete(story.id);
       const updateWord = data.updates_deleted === 1 ? "update" : "updates";
       toast.success(
-        `Deleted "${data.title}..." + ${data.updates_deleted} ${updateWord}`,
+        `Deleted "${data.title}" and ${data.updates_deleted} ${updateWord}`,
       );
       refetchStories();
       refreshNotifications();
