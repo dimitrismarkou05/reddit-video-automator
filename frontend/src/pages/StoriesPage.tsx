@@ -22,6 +22,7 @@ import {
   Trash,
   Info,
   GitBranch,
+  Clock,
 } from "lucide-react";
 import { storyApi, subredditApi } from "@/services/api";
 import { useNotificationStore } from "@/store";
@@ -178,81 +179,57 @@ function SubredditList({
   );
 }
 
-/* ─── Branch Connector Line ─── */
 function BranchConnector({ index, total }: { index: number; total: number }) {
-  const isFirst = index === 0;
   const isLast = index === total - 1;
 
   return (
     <div
-      className="relative flex flex-col items-center"
-      style={{ width: "32px", minWidth: "32px" }}
+      className="relative flex flex-col items-start"
+      style={{ width: "36px", minWidth: "36px" }}
     >
-      {isFirst ? (
-        <>
-          {/* Vertical stub from original story */}
-          <div className="w-px h-5 bg-gray-300 dark:bg-gray-600" />
-          {/* Curved corner: ├ shape */}
-          <div className="relative w-full" style={{ height: "24px" }}>
-            {/* Vertical line going down */}
-            <div
-              className="absolute left-4 top-0 w-px bg-gray-300 dark:bg-gray-600"
-              style={{ height: isLast ? "12px" : "100%" }}
-            />
-            {/* Horizontal line to the right */}
-            <div
-              className="absolute left-4 top-3 h-px bg-gray-300 dark:bg-gray-600"
-              style={{ width: "16px" }}
-            />
-            {/* Curved corner using border */}
-            <div className="absolute left-4 top-3 w-3 h-3 border-b border-r border-gray-300 dark:border-gray-600 rounded-br-md" />
-            {/* Primary dot at branch point */}
-            <div
-              className="absolute w-2.5 h-2.5 rounded-full bg-primary border-2 border-white dark:border-gray-800 z-10"
-              style={{ left: "11px", top: "9px" }}
-            />
-          </div>
-          {/* Continue vertical line if not last */}
-          {!isLast && (
-            <div className="w-px flex-1 bg-gray-300 dark:bg-gray-600" />
-          )}
-        </>
-      ) : (
-        <>
-          {/* Vertical line from above */}
-          <div className="w-px h-5 bg-gray-300 dark:bg-gray-600" />
-          {/* Dot on the line */}
-          <div
-            className="relative w-full flex items-center justify-center"
-            style={{ height: "24px" }}
-          >
-            {/* Vertical line continues */}
-            <div
-              className="absolute left-4 top-0 w-px bg-gray-300 dark:bg-gray-600"
-              style={{ height: isLast ? "12px" : "100%" }}
-            />
-            {/* Horizontal connector */}
-            <div
-              className="absolute left-4 top-3 h-px bg-gray-300 dark:bg-gray-600"
-              style={{ width: "16px" }}
-            />
-            {/* Gray dot */}
-            <div
-              className="absolute w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-500 border-2 border-white dark:border-gray-800 z-10"
-              style={{ left: "12px", top: "10px" }}
-            />
-          </div>
-          {/* Continue vertical line if not last */}
-          {!isLast && (
-            <div className="w-px flex-1 bg-gray-300 dark:bg-gray-600" />
-          )}
-        </>
+      {/* Top vertical line */}
+      <div
+        className="absolute w-0.5 bg-gray-400 dark:bg-gray-500"
+        style={{
+          left: "11px",
+          height: index === 0 ? "82px" : "70px",
+          top: index === 0 ? "-12px" : "0",
+        }}
+      />
+
+      {/* Rounded elbow + horizontal stub */}
+      <div
+        className="relative w-full"
+        style={{ height: "20px", marginTop: "68px" }}
+      >
+        <svg
+          className="absolute"
+          style={{ left: "11px", top: "0px", width: "24px", height: "16px" }}
+          viewBox="0 0 24 16"
+          fill="none"
+        >
+          <path
+            d="M 1 0 L 1 4 C 1 8, 4 10, 8 10 L 24 10"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            className="text-gray-400 dark:text-gray-500"
+          />
+        </svg>
+      </div>
+
+      {/* Bottom vertical line */}
+      {!isLast && (
+        <div
+          className="w-0.5 flex-1 bg-gray-400 dark:bg-gray-500"
+          style={{ marginLeft: "11px", marginTop: "2px" }}
+        />
       )}
     </div>
   );
 }
 
-/* ─── Update Card ─── */
+/* Update Card */
 function UpdateCard({
   update,
   index,
@@ -275,7 +252,7 @@ function UpdateCard({
       {/* Branch connector */}
       <BranchConnector index={index} total={totalUpdates} />
 
-      {/* Update card — same style as story */}
+      {/* Update card */}
       <div className="flex-1 pb-3">
         <div className="card p-4 hover:shadow-md transition-shadow">
           <div className="flex items-start gap-4">
@@ -283,7 +260,7 @@ function UpdateCard({
               {/* Badges */}
               <div className="flex items-center gap-2 mb-1 flex-wrap">
                 <span className="px-2 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 text-xs rounded-full font-medium flex items-center gap-1">
-                  <GitBranch className="w-3 h-3" />
+                  <Clock className="w-3 h-3" />
                   Update
                 </span>
                 {showNumberBadge && (
@@ -368,7 +345,7 @@ function UpdateCard({
   );
 }
 
-/* ─── Story Card ─── */
+/* Story Card */
 function StoryCard({
   story,
   onDelete,
@@ -387,27 +364,6 @@ function StoryCard({
       {/* Original Story Card */}
       <div className="card p-4 hover:shadow-md transition-shadow">
         <div className="flex items-start gap-4">
-          {/* Toggle updates button */}
-          {hasUpdates && (
-            <button
-              onClick={() => setShowUpdates(!showUpdates)}
-              className="cursor-pointer mt-1 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors shrink-0"
-              title={
-                showUpdates
-                  ? "Hide updates"
-                  : `Show ${updateCount} update${updateCount !== 1 ? "s" : ""}`
-              }
-            >
-              <div className="flex items-center gap-1">
-                {showUpdates ? (
-                  <ChevronDown className="w-4 h-4" />
-                ) : (
-                  <ChevronRight className="w-4 h-4" />
-                )}
-                <GitBranch className="w-3.5 h-3.5 text-primary" />
-              </div>
-            </button>
-          )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1 flex-wrap">
               <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full font-medium">
@@ -425,10 +381,28 @@ function StoryCard({
                 </span>
               )}
               {hasUpdates && (
-                <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs rounded-full font-medium flex items-center gap-1">
-                  <GitBranch className="w-3 h-3" />
-                  {updateCount} update{updateCount !== 1 ? "s" : ""}
-                </span>
+                <>
+                  <span className="px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-xs rounded-full font-medium flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {updateCount} update{updateCount !== 1 ? "s" : ""}
+                  </span>
+                  <button
+                    onClick={() => setShowUpdates(!showUpdates)}
+                    className="cursor-pointer -ml-0.5 p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors shrink-0 inline-flex items-center gap-0.5"
+                    title={
+                      showUpdates
+                        ? "Hide updates"
+                        : `Show ${updateCount} update${updateCount !== 1 ? "s" : ""}`
+                    }
+                  >
+                    {showUpdates ? (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    )}
+                    <GitBranch className="w-3 h-3 text-primary" />
+                  </button>
+                </>
               )}
             </div>
             <h3 className="font-semibold text-base mb-1">{story.title}</h3>
@@ -482,9 +456,9 @@ function StoryCard({
         </div>
       </div>
 
-      {/* Updates Section — indented with branch lines */}
+      {/* Updates Section indented with branch lines */}
       {showUpdates && hasUpdates && (
-        <div className="pl-4 pt-1">
+        <div className="pl-4 pt-3">
           <div className="space-y-0">
             {story.updates?.map((update, index) => (
               <UpdateCard
@@ -837,13 +811,13 @@ export function StoriesPage() {
   const activeSortLabel = SORT_OPTIONS.find((s) => s.value === sortBy)?.label;
 
   // Pagination calculations (top-level stories only; updates are nested)
-  const totalStories = stories?.length || 0;
+  const topLevelStories = stories?.filter((s: Story) => !s.is_update) || [];
+  const totalStories = topLevelStories.length;
   const totalPages = Math.ceil(totalStories / STORIES_PER_PAGE);
-  const paginatedStories =
-    stories?.slice(
-      (currentPage - 1) * STORIES_PER_PAGE,
-      currentPage * STORIES_PER_PAGE,
-    ) || [];
+  const paginatedStories = topLevelStories.slice(
+    (currentPage - 1) * STORIES_PER_PAGE,
+    currentPage * STORIES_PER_PAGE,
+  );
   const showingStart =
     totalStories === 0 ? 0 : (currentPage - 1) * STORIES_PER_PAGE + 1;
   const showingEnd = Math.min(currentPage * STORIES_PER_PAGE, totalStories);

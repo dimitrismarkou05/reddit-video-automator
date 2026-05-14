@@ -5,7 +5,8 @@ from typing import List, Optional
 from pathlib import Path
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, joinedload
 from starlette.responses import RedirectResponse
 
 from database import get_db
@@ -383,7 +384,6 @@ def fetch_all(db: Session = Depends(get_db)):
 
     return fetch_results
 
-
 # Stories
 @router.get("/stories", response_model=List[StoryResponse], tags=["Stories"])
 def list_stories(
@@ -393,26 +393,28 @@ def list_stories(
     sort_by: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    q = db.query(Story)
+    stmt = select(Story).options(joinedload(Story.updates))
+    
     if subreddit:
-        q = q.filter(Story.subreddit == subreddit)
+        stmt = stmt.where(Story.subreddit == subreddit)
     if status:
-        q = q.filter(Story.status == status)
+        stmt = stmt.where(Story.status == status)
     if is_update is not None:
-        q = q.filter(Story.is_update == is_update)
+        stmt = stmt.where(Story.is_update == is_update)
 
     if sort_by == "date_asc":
-        q = q.order_by(Story.created_utc.asc())
+        stmt = stmt.order_by(Story.created_utc.asc())
     elif sort_by == "score_desc":
-        q = q.order_by(Story.score.desc())
+        stmt = stmt.order_by(Story.score.desc())
     elif sort_by == "score_asc":
-        q = q.order_by(Story.score.asc())
+        stmt = stmt.order_by(Story.score.asc())
     elif sort_by == "title_asc":
-        q = q.order_by(Story.title.asc())
+        stmt = stmt.order_by(Story.title.asc())
     else:
-        q = q.order_by(Story.created_utc.desc())
+        stmt = stmt.order_by(Story.created_utc.desc())
 
-    return q.all()
+    result = db.execute(stmt)
+    return result.unique().scalars().all()
 
 
 @router.get("/stories/{story_id}", response_model=StoryDetailResponse, tags=["Stories"])

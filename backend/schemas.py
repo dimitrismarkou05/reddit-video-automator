@@ -49,6 +49,7 @@ class StoryResponse(StoryBase):
     id: int
     fetched_at: datetime
     parent_story_id: Optional[int] = None
+    updates: List["StoryResponse"] = []
 
     @field_serializer('created_utc', 'fetched_at')
     def serialize_datetime(self, value: datetime) -> str:
