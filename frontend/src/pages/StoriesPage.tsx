@@ -612,7 +612,7 @@ export function StoriesPage() {
   } = useQuery({
     queryKey: ["stories", selectedSubreddit, sortBy],
     queryFn: async () => {
-      const params: Record<string, any> = { is_update: false, sort_by: sortBy };
+      const params: Record<string, any> = { sort_by: sortBy };
       if (selectedSubreddit !== "all") params.subreddit = selectedSubreddit;
       const { data } = await storyApi.list(params);
       return data;
@@ -661,7 +661,7 @@ export function StoriesPage() {
     setIsAdding(true);
     try {
       await subredditApi.add(newSubreddit.trim(), undefined, forceAdd);
-      toast.success(`Added r/${newSubreddit.trim()}`);
+      toast.success(`Added ${newSubreddit.trim()}`);
       setNewSubreddit("");
       refetchSubreddits();
     } catch (e: any) {

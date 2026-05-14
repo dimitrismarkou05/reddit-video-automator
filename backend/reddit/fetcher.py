@@ -43,73 +43,102 @@ class StoryFetcher:
 
     def test_subreddit_access(self, name: str) -> dict:
         """Quick lightweight check if a subreddit is accessible."""
-        url = f"{self.client.BASE_URL}/r/{name}/.json"
+        # Use the main client's polite request method with full headers
         try:
-            resp = httpx.get(
-                url,
-                headers={"User-Agent": self.client._next_ua()},
-                timeout=5.0,
-                follow_redirects=True,
-            )
-            if resp.status_code == 403:
-                # Try about page to distinguish private vs banned
+            # First try the JSON endpoint through the main client (respects rate limits, UA rotation, delays)
+            resp = self.client._request("GET", f"{self.client.BASE_URL}/r/{name}/.json", params={"limit": 1})
+            return {"accessible": True, "is_private": False, "message": None}
+        except RateLimitError:
+            return {
+                "accessible": False,
+                "is_private": False,
+                "message": f"r/{name} check blocked by rate limit. Wait and retry.",
+            }
+        except RedditClientError as exc:
+            error_str = str(exc).lower()
+            
+            # Check if it's actually a private subreddit via about page
+            if "403" in error_str or "access denied" in error_str:
                 try:
-                    about_url = f"{self.client.BASE_URL}/r/{name}/about/.json"
                     about_resp = httpx.get(
-                        about_url,
-                        headers={"User-Agent": self.client._next_ua()},
-                        timeout=5.0,
+                        f"{self.client.BASE_URL}/r/{name}/about/.json",
+                        headers={
+                            "User-Agent": self.client._next_ua(),
+                            "Accept": "application/json",
+                            "Accept-Language": "en-US,en;q=0.9",
+                            "Accept-Encoding": "gzip, deflate, br",
+                            "DNT": "1",
+                            "Connection": "keep-alive",
+                            "Upgrade-Insecure-Requests": "1",
+                            "Sec-Fetch-Dest": "document",
+                            "Sec-Fetch-Mode": "navigate",
+                            "Sec-Fetch-Site": "none",
+                            "Sec-Fetch-User": "?1",
+                            "Cache-Control": "max-age=0",
+                        },
+                        timeout=8.0,
                         follow_redirects=True,
                     )
                     if about_resp.status_code == 200:
-                        about_data = about_resp.json()
-                        sub_type = about_data.get("data", {}).get("subreddit_type")
-                        if sub_type == "private":
-                            return {
-                                "accessible": False,
-                                "is_private": True,
-                                "message": f"r/{name} is a private subreddit",
-                            }
+                        try:
+                            about_data = about_resp.json()
+                            sub_type = about_data.get("data", {}).get("subreddit_type")
+                            if sub_type == "private":
+                                return {
+                                    "accessible": False,
+                                    "is_private": True,
+                                    "message": f"r/{name} is a private subreddit",
+                                }
+                            elif sub_type == "restricted":
+                                return {
+                                    "accessible": False,
+                                    "is_private": False,
+                                    "message": f"r/{name} is a restricted subreddit",
+                                }
+                            elif sub_type == "public":
+                                # It's public but main request got 403 — probably Reddit blocking
+                                return {
+                                    "accessible": True,  # Allow adding anyway
+                                    "is_private": False,
+                                    "message": None,
+                                }
+                        except (ValueError, KeyError):
+                            pass
+                    elif about_resp.status_code == 404:
+                        return {
+                            "accessible": False,
+                            "is_private": False,
+                            "message": f"r/{name} not found",
+                        }
                 except Exception:
                     pass
+                
+                # If about page also fails, assume Reddit is blocking but sub might exist
                 return {
-                    "accessible": False,
+                    "accessible": True,  # Changed: allow adding when Reddit blocks check
                     "is_private": False,
-                    "message": f"r/{name} may be private, banned, or restricted",
+                    "message": None,
                 }
-            elif resp.status_code == 404:
+            
+            elif "404" in error_str:
                 return {
                     "accessible": False,
                     "is_private": False,
                     "message": f"r/{name} not found",
                 }
-            elif resp.status_code == 429:
-                return {
-                    "accessible": False,
-                    "is_private": False,
-                    "message": f"r/{name} check blocked by rate limit. Wait and retry.",
-                }
-            elif resp.status_code == 200:
-                return {"accessible": True, "is_private": False, "message": None}
             else:
                 return {
                     "accessible": False,
                     "is_private": False,
-                    "message": f"r/{name} returned HTTP {resp.status_code}",
+                    "message": f"r/{name} check failed: {exc}",
                 }
-        except httpx.TimeoutException:
-            return {
-                "accessible": False,
-                "is_private": False,
-                "message": f"r/{name} check timed out",
-            }
         except Exception as exc:
             return {
                 "accessible": False,
                 "is_private": False,
                 "message": str(exc),
             }
-
+    
     def add_subreddit(self, name: str, fetch_settings: Dict[str, Any] = None, force: bool = False) -> Subreddit:
         sanitized = sanitize_subreddit_name(name)
 
