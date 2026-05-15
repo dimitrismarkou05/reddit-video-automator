@@ -187,7 +187,7 @@ export function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          Reddit Video Automator v0.4.0 • Phase 4
+          Reddit Video Automator v0.4.0
         </p>
       </div>
     </div>
