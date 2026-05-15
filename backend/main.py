@@ -12,8 +12,7 @@ async def lifespan(app: FastAPI):
     # Startup
     init_db()
     yield
-    
-    #Shutdown
+    # Shutdown
     signal_shutdown()
 
 
@@ -35,6 +34,7 @@ app.add_middleware(
 app.include_router(router, prefix="/api/v1")
 app.include_router(sse_router, prefix="/api/v1")
 
+
 @app.get("/")
 def root():
     return {
@@ -43,6 +43,7 @@ def root():
         "docs": "/docs",
         "health": "/health",
     }
+
 
 @app.get("/health")
 def health():

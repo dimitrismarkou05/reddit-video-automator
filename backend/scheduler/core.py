@@ -67,14 +67,13 @@ class TemplateScheduler:
         for template in templates:
             try:
                 if template.schedule_type == "manual":
-                    continue  # Manual templates don't auto-run
+                    continue
 
                 if template.next_run_at and template.next_run_at > now:
                     continue
 
                 await self._execute_template(template)
 
-                # Update next run time
                 if template.schedule_type == "interval":
                     minutes = template.schedule_config.get("minutes", 60)
                     template.next_run_at = now + timedelta(minutes=minutes)
@@ -98,37 +97,24 @@ class TemplateScheduler:
         )
 
         try:
-            # 1. Fetch stories from monitored subreddits
-            fetcher = StoryFetcher(self.db)
-            total_fetched = 0
-
-            for sub_name in template.subreddit_names:
-                sub = fetcher.add_subreddit(sub_name, template.fetch_settings)
-                stories = fetcher.fetch_stories(sub.id)
-                total_fetched += len(stories)
-
+            total_fetched = await self._fetch_stories(template)
             run.stories_fetched = total_fetched
-
             await notification_queue.broadcast(
                 "automation",
                 {"type": "fetch_complete", "template_id": template.id, "count": total_fetched}
             )
 
-            # 2. Generate videos for new stories
             if total_fetched > 0:
-                videos_generated = await self._generate_videos_for_template(template, run)
+                videos_generated = await self._generate_videos(template, run)
                 run.videos_generated = videos_generated
-
                 await notification_queue.broadcast(
                     "automation",
                     {"type": "generation_complete", "template_id": template.id, "count": videos_generated}
                 )
 
-            # 3. Auto-upload to YouTube if enabled
             if template.auto_upload and run.videos_generated > 0:
-                videos_uploaded = await self._upload_videos_for_template(template, run)
+                videos_uploaded = await self._upload_videos(template, run)
                 run.videos_uploaded = videos_uploaded
-
                 await notification_queue.broadcast(
                     "automation",
                     {"type": "upload_complete", "template_id": template.id, "count": videos_uploaded}
@@ -156,9 +142,20 @@ class TemplateScheduler:
 
         self.db.commit()
 
-    async def _generate_videos_for_template(self, template: AutomationTemplate, run: TemplateRun) -> int:
+    async def _fetch_stories(self, template: AutomationTemplate) -> int:
+        """Fetch stories from monitored subreddits."""
+        fetcher = StoryFetcher(self.db)
+        total_fetched = 0
+
+        for sub_name in template.subreddit_names:
+            sub = fetcher.add_subreddit(sub_name, template.fetch_settings)
+            stories, _ = fetcher.fetch_stories(sub.id)
+            total_fetched += len(stories)
+
+        return total_fetched
+
+    async def _generate_videos(self, template: AutomationTemplate, run: TemplateRun) -> int:
         """Generate videos for stories ready for video generation."""
-        
         stories = self.db.query(Story).filter(
             Story.subreddit.in_(template.subreddit_names),
             Story.status == StoryStatus.UPDATE_LINKED.value,
@@ -192,9 +189,8 @@ class TemplateScheduler:
 
         return count
 
-    async def _upload_videos_for_template(self, template: AutomationTemplate, run: TemplateRun) -> int:
+    async def _upload_videos(self, template: AutomationTemplate, run: TemplateRun) -> int:
         """Upload generated videos to YouTube."""
-        
         videos = self.db.query(GeneratedVideo).filter(
             GeneratedVideo.status == "done",
             GeneratedVideo.youtube_upload_status == "not_uploaded",
@@ -246,11 +242,13 @@ class TemplateScheduler:
 # Global scheduler instance
 _scheduler: Optional[TemplateScheduler] = None
 
+
 async def start_scheduler(db: Session):
     """Start the global scheduler."""
     global _scheduler
     _scheduler = TemplateScheduler(db)
     await _scheduler.start()
+
 
 async def stop_scheduler():
     """Stop the global scheduler."""
