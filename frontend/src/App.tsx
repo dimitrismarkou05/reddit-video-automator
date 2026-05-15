@@ -24,10 +24,6 @@ function ProtectedRoute() {
   }
 
   if (!authStatus?.is_authenticated) {
-    if (window.location.pathname !== "/") {
-      window.location.href = "/#/login";
-      return null;
-    }
     return <Navigate to="/login" replace />;
   }
 
