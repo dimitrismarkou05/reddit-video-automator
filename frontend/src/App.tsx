@@ -30,6 +30,24 @@ function ProtectedRoute() {
   return <Outlet />;
 }
 
+function PublicOnlyRoute() {
+  const { authStatus, isLoading } = useAuthStore();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (authStatus?.is_authenticated) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <Outlet />;
+}
+
 function StoryDetailWrapper() {
   const { id } = useParams();
   return <StoryDetailPage key={id} />;
@@ -71,8 +89,10 @@ function App() {
         }}
       />
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/setup" element={<PublicSettingsPage />} />
+        <Route element={<PublicOnlyRoute />}>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/setup" element={<PublicSettingsPage />} />
+        </Route>
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>
             <Route path="/stories" element={<StoriesPage />} />
