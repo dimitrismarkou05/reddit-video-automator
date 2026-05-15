@@ -6,6 +6,7 @@ let mainWindow;
 let backendProcess;
 
 const isDev = process.env.NODE_ENV === "development";
+const isMac = process.platform === "darwin";
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -13,7 +14,8 @@ function createWindow() {
     height: 900,
     minWidth: 1000,
     minHeight: 600,
-    titleBarStyle: "hiddenInset",
+    titleBarStyle: isMac ? "hiddenInset" : undefined,
+    frame: isMac,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -113,3 +115,11 @@ ipcMain.handle("select-file", async (_, filters) => {
   });
   return result.canceled ? null : result.filePaths[0];
 });
+
+ipcMain.handle("window-minimize", () => mainWindow?.minimize());
+ipcMain.handle("window-maximize", () => {
+  if (mainWindow?.isMaximized()) mainWindow?.unmaximize();
+  else mainWindow?.maximize();
+});
+ipcMain.handle("window-close", () => mainWindow?.close());
+ipcMain.handle("window-is-maximized", () => mainWindow?.isMaximized() ?? false);

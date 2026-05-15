@@ -11,6 +11,7 @@ import { AutomationPage } from "@/pages/AutomationPage";
 import { StoryDetailPage } from "@/pages/StoryDetailPage";
 import { youtubeApi } from "@/services/api";
 import { PublicSettingsPage } from "@/pages/PublicSettingsPage";
+import { TitleBar } from "@/components/TitleBar";
 
 function ProtectedRoute() {
   const { authStatus, isLoading } = useAuthStore();
@@ -42,7 +43,7 @@ function PublicOnlyRoute() {
   }
 
   if (authStatus?.is_authenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/stories" replace />;
   }
 
   return <Outlet />;
@@ -56,6 +57,7 @@ function StoryDetailWrapper() {
 function App() {
   const { isDark } = useThemeStore();
   const { setAuthStatus, setLoading } = useAuthStore();
+  const isElectron = !!window.electronAPI;
 
   useEffect(() => {
     if (isDark) {
@@ -80,7 +82,12 @@ function App() {
   }, [setAuthStatus, setLoading]);
 
   return (
-    <div className="min-h-screen bg-background-light dark:bg-background-dark text-gray-900 dark:text-gray-100 transition-colors duration-200">
+    <div
+      className={`bg-background-light dark:bg-background-dark text-gray-900 dark:text-gray-100 transition-colors duration-200 ${
+        isElectron ? "h-screen flex flex-col overflow-hidden" : "min-h-screen"
+      }`}
+    >
+      {isElectron && <TitleBar />}
       <Toaster
         position="bottom-right"
         toastOptions={{
@@ -88,22 +95,24 @@ function App() {
           duration: 4000,
         }}
       />
-      <Routes>
-        <Route element={<PublicOnlyRoute />}>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/setup" element={<PublicSettingsPage />} />
-        </Route>
-        <Route element={<ProtectedRoute />}>
-          <Route element={<Layout />}>
-            <Route path="/stories" element={<StoriesPage />} />
-            <Route path="/stories/:id" element={<StoryDetailWrapper />} />
-            <Route path="/videos" element={<VideosPage />} />
-            <Route path="/automation" element={<AutomationPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/" element={<Navigate to="/stories" replace />} />
+      <div className={isElectron ? "flex-1 overflow-hidden" : ""}>
+        <Routes>
+          <Route element={<PublicOnlyRoute />}>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/setup" element={<PublicSettingsPage />} />
           </Route>
-        </Route>
-      </Routes>
+          <Route element={<ProtectedRoute />}>
+            <Route element={<Layout />}>
+              <Route path="/stories" element={<StoriesPage />} />
+              <Route path="/stories/:id" element={<StoryDetailWrapper />} />
+              <Route path="/videos" element={<VideosPage />} />
+              <Route path="/automation" element={<AutomationPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/" element={<Navigate to="/stories" replace />} />
+            </Route>
+          </Route>
+        </Routes>
+      </div>
     </div>
   );
 }

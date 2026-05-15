@@ -336,7 +336,7 @@ export function StoryDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark">
+      <div className="h-full flex items-center justify-center bg-background-light dark:bg-background-dark">
         <LoadingSpinner size="lg" />
       </div>
     );
@@ -344,7 +344,7 @@ export function StoryDetailPage() {
 
   if (error || !story) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark p-4">
+      <div className="h-full flex items-center justify-center bg-background-light dark:bg-background-dark p-4">
         <EmptyState
           icon={MessageCircle}
           title="Story not found"
@@ -359,7 +359,7 @@ export function StoryDetailPage() {
   const hasUpdates = updateCount > 0;
 
   return (
-    <div className="min-h-screen bg-background-light dark:bg-background-dark">
+    <div className="h-full bg-background-light dark:bg-background-dark">
       {/* ═══ Full-width sticky nav — breaks out of parent padding ═══ */}
       <header className="sticky -top-6 z-50 -mx-6 -mt-6 bg-surface-light/95 dark:bg-surface-dark/95 backdrop-blur-md border-b border-border-light dark:border-border-dark">
         <div className="max-w-6xl mx-auto h-14 px-4 sm:px-6 flex items-center gap-3">
