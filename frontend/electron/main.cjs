@@ -15,44 +15,51 @@ const SPLASH_WIDTH = 420;
 const SPLASH_HEIGHT = 520;
 const BACKEND_PORT = 8000;
 const BACKEND_HOST = "127.0.0.1";
+const STAGGER_DELAY_MS = 200;
 
 // ─── Progress State ───
-let bootProgress = { step: 0, progress: 5, message: "Initializing..." };
-let progressTimer = null;
+let progressHistory = [];
 let splashReady = false;
-let pendingSplashMessages = [];
+let nextFlushIndex = 0;
+let staggerTimer = null;
 
-function setProgress(step, progress, message) {
-  bootProgress = { step, progress, message };
-  sendSplashProgress({ step, progress, message });
+function pushProgress(step, progress, message) {
+  const last = progressHistory[progressHistory.length - 1];
+  if (last && step <= last.step) return;
+
+  progressHistory.push({ step, progress, message });
+
+  if (splashReady) {
+    startStaggeredFlush();
+  }
 }
 
-function animateProgressTo(
-  targetStep,
-  targetProgress,
-  message,
-  durationMs = 800,
-) {
-  const startProgress = bootProgress.progress;
-  const startTime = Date.now();
+// Send one entry every STAGGER_DELAY_MS so CSS transitions play out visibly
+function startStaggeredFlush() {
+  if (staggerTimer) return;
 
-  if (progressTimer) clearInterval(progressTimer);
-
-  progressTimer = setInterval(() => {
-    const elapsed = Date.now() - startTime;
-    const ratio = Math.min(1, elapsed / durationMs);
-    const eased = 1 - Math.pow(1 - ratio, 3);
-    const current = Math.round(
-      startProgress + (targetProgress - startProgress) * eased,
-    );
-
-    setProgress(targetStep, current, message);
-
-    if (ratio >= 1) {
-      clearInterval(progressTimer);
-      progressTimer = null;
+  const tick = () => {
+    if (!splashWindow || splashWindow.isDestroyed()) {
+      staggerTimer = null;
+      return;
     }
-  }, 16);
+
+    if (nextFlushIndex >= progressHistory.length) {
+      staggerTimer = null;
+      return;
+    }
+
+    const entry = progressHistory[nextFlushIndex];
+    splashWindow.webContents.send("splash-progress", entry);
+    nextFlushIndex++;
+
+    staggerTimer = setTimeout(() => {
+      staggerTimer = null;
+      tick();
+    }, STAGGER_DELAY_MS);
+  };
+
+  tick();
 }
 
 function resolveSplashPath() {
@@ -70,8 +77,13 @@ function resolveSplashPath() {
 // ─── Splash Screen ───
 function createSplashWindow() {
   const splashPath = resolveSplashPath();
+  progressHistory = [];
   splashReady = false;
-  pendingSplashMessages = [];
+  nextFlushIndex = 0;
+  if (staggerTimer) {
+    clearTimeout(staggerTimer);
+    staggerTimer = null;
+  }
 
   splashWindow = new BrowserWindow({
     width: SPLASH_WIDTH,
@@ -97,41 +109,20 @@ function createSplashWindow() {
 
   splashWindow.loadFile(splashPath);
 
-  // Single did-finish-load listener — flush queue when ready
   splashWindow.webContents.once("did-finish-load", () => {
     splashReady = true;
-    // Send all queued messages
-    for (const msg of pendingSplashMessages) {
-      splashWindow.webContents.send("splash-progress", msg);
-    }
-    pendingSplashMessages = [];
+    startStaggeredFlush();
   });
 
   splashWindow.once("ready-to-show", () => {
     splashWindow.center();
     splashWindow.show();
-    // If already loaded, send current state
-    if (splashReady) {
-      splashWindow.webContents.send("splash-progress", bootProgress);
-    }
   });
 
   splashWindow.on("closed", () => {
     splashWindow = null;
     splashReady = false;
   });
-}
-
-function sendSplashProgress(data) {
-  if (!splashWindow || splashWindow.isDestroyed()) return;
-
-  if (!splashReady) {
-    // Queue message instead of adding more listeners
-    pendingSplashMessages.push(data);
-    return;
-  }
-
-  splashWindow.webContents.send("splash-progress", data);
 }
 
 // ─── Main Window ───
@@ -203,17 +194,18 @@ function checkBackendHealth(maxRetries = 60, intervalMs = 500) {
 
 // ─── Parse uvicorn output to drive progress ───
 function handleBackendOutput(text) {
-  const t = text.toString();
-  console.log(`[Backend] ${t.trim()}`);
+  const lines = text.toString().split(/\r?\n/);
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) continue;
 
-  if (t.includes("Application startup complete")) {
-    animateProgressTo(3, 85, "Warming up API routes...", 600);
-  } else if (t.includes("Uvicorn running on")) {
-    animateProgressTo(2, 60, "Initializing database...", 500);
-  } else if (t.includes("Started server process")) {
-    animateProgressTo(1, 35, "Loading Python environment...", 500);
-  } else if (t.includes("Waiting for application startup")) {
-    animateProgressTo(1, 25, "Loading Python environment...", 400);
+    if (t.includes("Application startup complete")) {
+      pushProgress(3, 75, "Warming up API routes...");
+    } else if (t.includes("Waiting for application startup")) {
+      pushProgress(2, 50, "Initializing database...");
+    } else if (t.includes("Started server process")) {
+      pushProgress(1, 30, "Loading Python environment...");
+    }
   }
 }
 
@@ -226,7 +218,7 @@ function startBackend() {
       ? path.join(backendDir, ".venv", "Scripts", "python.exe")
       : path.join(backendDir, ".venv", "bin", "python");
 
-  animateProgressTo(0, 15, "Starting backend server...", 400);
+  pushProgress(0, 10, "Starting backend server...");
 
   backendProcess = spawn(
     python,
@@ -264,22 +256,28 @@ async function bootSequence() {
       await checkBackendHealth(60, 500);
     } catch (err) {
       console.error("Backend failed to start:", err);
-      animateProgressTo(4, 100, "Backend failed to start. Check logs.", 300);
+      pushProgress(4, 100, "Backend failed to start. Check logs.");
       await new Promise((r) => setTimeout(r, 3000));
     }
 
-    if (bootProgress.step < 4 || bootProgress.progress < 100) {
-      animateProgressTo(4, 100, "Ready to launch!", 400);
-      await new Promise((r) => setTimeout(r, 600));
+    const last = progressHistory[progressHistory.length - 1];
+    if (!last || last.step < 4) {
+      pushProgress(4, 100, "Ready to launch...");
     }
+
+    // Wait for staggered flush to finish + let user see 100%
+    while (staggerTimer) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await new Promise((r) => setTimeout(r, 600));
   } else {
-    animateProgressTo(0, 20, "Connecting to development server...", 300);
+    pushProgress(0, 20, "Connecting to development server...");
     try {
       await checkBackendHealth(20, 300);
-      animateProgressTo(4, 100, "Ready to launch!", 400);
-      await new Promise((r) => setTimeout(r, 400));
+      pushProgress(4, 100, "Ready to launch...");
+      await new Promise((r) => setTimeout(r, 800));
     } catch {
-      animateProgressTo(4, 100, "Backend not detected — proceed to setup", 300);
+      pushProgress(4, 100, "Backend not detected — proceed to setup");
       await new Promise((r) => setTimeout(r, 1500));
     }
   }
@@ -294,10 +292,6 @@ async function bootSequence() {
     }
     if (splashWindow && !splashWindow.isDestroyed()) {
       splashWindow.destroy();
-    }
-    if (progressTimer) {
-      clearInterval(progressTimer);
-      progressTimer = null;
     }
   };
 
