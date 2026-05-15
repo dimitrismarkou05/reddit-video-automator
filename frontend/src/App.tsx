@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { Routes, Route, Navigate, Outlet, useParams } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { useThemeStore, useAuthStore } from "@/store";
 import { Layout } from "@/components/Layout";
@@ -32,6 +32,11 @@ function ProtectedRoute() {
   }
 
   return <Outlet />;
+}
+
+function StoryDetailWrapper() {
+  const { id } = useParams();
+  return <StoryDetailPage key={id} />;
 }
 
 function App() {
@@ -75,7 +80,7 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<Layout />}>
             <Route path="/stories" element={<StoriesPage />} />
-            <Route path="/stories/:id" element={<StoryDetailPage />} />
+            <Route path="/stories/:id" element={<StoryDetailWrapper />} />
             <Route path="/videos" element={<VideosPage />} />
             <Route path="/automation" element={<AutomationPage />} />
             <Route path="/settings" element={<SettingsPage />} />

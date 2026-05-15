@@ -12,6 +12,7 @@ import {
 import { useThemeStore, useAuthStore, useNotificationStore } from "@/store";
 import { NotificationDropdown } from "@/components/NotificationDropdown";
 import { youtubeApi } from "@/services/api";
+import { useEffect } from "react";
 
 const navItems = [
   { path: "/stories", label: "Stories", icon: BookOpen },
@@ -26,6 +27,11 @@ export function Layout() {
   const {} = useNotificationStore();
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const main = document.querySelector("main");
+    if (main) main.scrollTop = 0;
+  }, [location.pathname]);
 
   const handleLogout = async () => {
     try {
