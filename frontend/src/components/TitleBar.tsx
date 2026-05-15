@@ -1,4 +1,3 @@
-// frontend/src/components/TitleBar.tsx
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation, useNavigationType } from "react-router-dom";
 import {

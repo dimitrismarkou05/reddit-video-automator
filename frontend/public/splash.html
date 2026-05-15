@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reddit Video Automator</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-family:
+          "Inter",
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background: #1a1a1a;
+        color: #ffffff;
+        overflow: hidden;
+        user-select: none;
+        -webkit-app-region: drag;
+      }
+
+      .logo-container {
+        position: relative;
+        width: 80px;
+        height: 80px;
+        margin-bottom: 24px;
+      }
+
+      .logo-bg {
+        width: 80px;
+        height: 80px;
+        border-radius: 20px;
+        background: linear-gradient(135deg, #ff4500 0%, #cc3700 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 8px 32px rgba(255, 69, 0, 0.3);
+      }
+
+      .logo-bg svg {
+        width: 40px;
+        height: 40px;
+        color: white;
+      }
+
+      .spinner-ring {
+        position: absolute;
+        top: -6px;
+        left: -6px;
+        width: 92px;
+        height: 92px;
+        border-radius: 26px;
+        border: 2px solid transparent;
+        border-top-color: #ff4500;
+        border-right-color: #ff4500;
+        animation: spin 1.2s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .title {
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin-bottom: 6px;
+      }
+
+      .subtitle {
+        font-size: 13px;
+        color: #888888;
+        margin-bottom: 32px;
+      }
+
+      .status-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        min-height: 48px;
+      }
+
+      .status-text {
+        font-size: 12px;
+        color: #666666;
+        transition: color 0.3s ease;
+      }
+
+      .status-text.active {
+        color: #ff6b3d;
+      }
+
+      .progress-bar {
+        width: 200px;
+        height: 3px;
+        background: #333333;
+        border-radius: 2px;
+        overflow: hidden;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+
+      .progress-bar.visible {
+        opacity: 1;
+      }
+
+      .progress-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #ff4500, #ff6b3d);
+        border-radius: 2px;
+        transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .version {
+        position: absolute;
+        bottom: 16px;
+        font-size: 11px;
+        color: #444444;
+      }
+
+      /* Light mode support via class */
+      body.light {
+        background: #f9f9f9;
+        color: #1a1a1a;
+      }
+
+      body.light .subtitle {
+        color: #888888;
+      }
+
+      body.light .status-text {
+        color: #999999;
+      }
+
+      body.light .status-text.active {
+        color: #cc3700;
+      }
+
+      body.light .progress-bar {
+        background: #e5e5e5;
+      }
+
+      body.light .version {
+        color: #aaaaaa;
+      }
+    </style>
+    <base target="_blank" />
+  </head>
+  <body>
+    <div class="logo-container">
+      <div class="spinner-ring"></div>
+      <div class="logo-bg">
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="m22 8-6 6-6-6" />
+          <path d="m22 16-6-6-6 6" />
+          <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
+          <path d="M6 12h12" />
+          <path d="M12 6v12" />
+        </svg>
+      </div>
+    </div>
+
+    <div class="title">Reddit Video Automator</div>
+    <div class="subtitle">Transform Reddit stories into YouTube videos</div>
+
+    <div class="status-container">
+      <div class="status-text" id="status">Initializing...</div>
+      <div class="progress-bar" id="progress-bar">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+    </div>
+
+    <div class="version">v0.4.0 · Phase 4</div>
+
+    <script>
+      // Check for light mode preference
+      if (
+        window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches
+      ) {
+        document.body.classList.add("light");
+      }
+
+      const statusEl = document.getElementById("status");
+      const progressBar = document.getElementById("progress-bar");
+      const progressFill = document.getElementById("progress-fill");
+
+      const STEPS = [
+        { text: "Starting backend server...", progress: 15 },
+        { text: "Loading Python environment...", progress: 35 },
+        { text: "Initializing database...", progress: 55 },
+        { text: "Warming up API routes...", progress: 75 },
+        { text: "Ready to launch.", progress: 100 },
+      ];
+
+      let currentStep = 0;
+
+      function updateStatus(stepIndex) {
+        if (stepIndex >= STEPS.length) return;
+        const step = STEPS[stepIndex];
+        statusEl.textContent = step.text;
+        statusEl.classList.add("active");
+        progressBar.classList.add("visible");
+        progressFill.style.width = step.progress + "%";
+
+        setTimeout(() => {
+          statusEl.classList.remove("active");
+        }, 300);
+      }
+
+      // Listen for progress updates from main process
+      if (window.electronAPI) {
+        window.electronAPI.onSplashProgress((data) => {
+          if (data.step !== undefined) {
+            updateStatus(data.step);
+          }
+          if (data.message) {
+            statusEl.textContent = data.message;
+            statusEl.classList.add("active");
+            progressBar.classList.add("visible");
+            if (data.progress !== undefined) {
+              progressFill.style.width = data.progress + "%";
+            }
+          }
+        });
+      }
+
+      // Start animation
+      updateStatus(0);
+    </script>
+  </body>
+</html>

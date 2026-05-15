@@ -5,7 +5,9 @@ declare global {
     electronAPI: {
       openExternal: (url: string) => Promise<void>;
       selectDirectory: () => Promise<string | null>;
-      selectFile: (filters?: Array<{ name: string; extensions: string[] }>) => Promise<string | null>;
+      selectFile: (
+        filters?: Array<{ name: string; extensions: string[] }>,
+      ) => Promise<string | null>;
       platform: string;
       windowControls?: {
         minimize: () => Promise<void>;
@@ -13,6 +15,14 @@ declare global {
         close: () => Promise<void>;
         isMaximized: () => Promise<boolean>;
       };
+      /** Listen for splash screen progress updates (splash.html only) */
+      onSplashProgress?: (
+        callback: (data: {
+          step?: number;
+          progress?: number;
+          message?: string;
+        }) => void,
+      ) => void;
     };
   }
 }
