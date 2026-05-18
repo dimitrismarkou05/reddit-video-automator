@@ -47,7 +47,6 @@ export function Layout() {
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar */}
       <aside className="w-64 bg-surface-light dark:bg-surface-dark border-r border-border-light dark:border-border-dark flex flex-col">
-        {/* Logo */}
         <div className="p-4 border-b border-border-light dark:border-border-dark">
           <button
             onClick={() => navigate("/stories")}
