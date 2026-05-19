@@ -203,7 +203,7 @@ export function FetchModal({
           <button
             onClick={onClose}
             disabled={isFetching}
-            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
+            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 "
           >
             <X className="w-5 h-5" />
           </button>
@@ -241,7 +241,7 @@ export function FetchModal({
                 <div className="relative" ref={subredditDropdownRef}>
                   <button
                     onClick={() => setShowSubredditDropdown((v) => !v)}
-                    className="cursor-pointer w-full flex items-center gap-2 px-3 py-2 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+                    className="cursor-pointer w-full flex items-center gap-2 px-3 py-2 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 "
                   >
                     <span className="flex-1 text-left">
                       {selectedSubredditName}
@@ -257,7 +257,7 @@ export function FetchModal({
                           setSelectedSubreddit("all");
                           setShowSubredditDropdown(false);
                         }}
-                        className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                        className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm  ${
                           selectedSubreddit === "all"
                             ? "bg-primary/10 text-primary font-medium"
                             : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
@@ -272,7 +272,7 @@ export function FetchModal({
                             setSelectedSubreddit(String(sub.id));
                             setShowSubredditDropdown(false);
                           }}
-                          className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                          className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm  ${
                             selectedSubreddit === String(sub.id)
                               ? "bg-primary/10 text-primary font-medium"
                               : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
@@ -296,7 +296,7 @@ export function FetchModal({
                     <button
                       key={num}
                       onClick={() => setLimit(num)}
-                      className={`cursor-pointer py-2 rounded-lg text-sm font-medium transition-colors ${
+                      className={`cursor-pointer py-2 rounded-lg text-sm font-medium  ${
                         limit === num
                           ? "bg-primary text-white"
                           : "bg-gray-100 dark:bg-[#2a2a2a] text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-border-dark"

@@ -107,7 +107,7 @@ export function StatsModal({ videoId, onClose }: StatsModalProps) {
           <h2 className="text-lg font-semibold">YouTube Studio</h2>
           <button
             onClick={onClose}
-            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
+            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 "
           >
             <X className="w-5 h-5" />
           </button>
@@ -267,7 +267,7 @@ export function StatsModal({ videoId, onClose }: StatsModalProps) {
                   <button
                     key={privacy}
                     onClick={() => handlePrivacyChange(privacy)}
-                    className={`cursor-pointer px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${
+                    className={`cursor-pointer px-4 py-2 rounded-lg text-sm font-medium capitalize  ${
                       isActive
                         ? "bg-primary text-white"
                         : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark hover:bg-gray-200 dark:hover:bg-white/5"
@@ -284,7 +284,7 @@ export function StatsModal({ videoId, onClose }: StatsModalProps) {
           <div className="border-t border-red-200 dark:border-red-800 pt-4">
             <button
               onClick={handleDelete}
-              className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+              className="cursor-pointer flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 "
             >
               <Trash2 className="w-4 h-4" />
               Delete from YouTube

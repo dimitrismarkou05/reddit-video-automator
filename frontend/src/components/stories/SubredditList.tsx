@@ -52,7 +52,7 @@ export function SubredditList({
         {subreddits.length > 0 && (
           <button
             onClick={() => setExpanded((v) => !v)}
-            className="cursor-pointer shrink-0 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 text-gray-500 transition-colors"
+            className="cursor-pointer shrink-0 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 text-gray-500 "
             title={expanded ? "Collapse" : "Expand"}
           >
             {expanded ? (
@@ -65,7 +65,7 @@ export function SubredditList({
         {subreddits.length > 0 && (
           <button
             onClick={onDeleteAll}
-            className="cursor-pointer shrink-0 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 transition-colors"
+            className="cursor-pointer shrink-0 p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 "
             title="Delete all subreddits"
           >
             <Trash2 className="w-4 h-4" />

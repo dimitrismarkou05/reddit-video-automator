@@ -61,7 +61,7 @@ export function VideoCard({ video }: VideoCardProps) {
         {video.status === "processing" && (
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-700">
             <div
-              className="h-full bg-primary transition-all duration-300"
+              className="h-full bg-primary  "
               style={{ width: `${video.progress_percent}%` }}
             />
           </div>
@@ -128,7 +128,7 @@ export function VideoCard({ video }: VideoCardProps) {
               href={`https://youtube.com/watch?v=${video.youtube_video_id}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-2 rounded-lg bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark hover:bg-gray-200 dark:hover:bg-white/5 transition-colors"
+              className="p-2 rounded-lg bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark hover:bg-gray-200 dark:hover:bg-white/5 "
               title="Open on YouTube"
             >
               <ExternalLink className="w-4 h-4" />

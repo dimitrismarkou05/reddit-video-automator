@@ -60,7 +60,7 @@ export function StoryFilters({
       <div className="relative" ref={subredditDropdownRef}>
         <button
           onClick={onToggleSubredditDropdown}
-          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 "
         >
           <Filter className="w-4 h-4" />
           {selectedSubreddit === "all"
@@ -75,7 +75,7 @@ export function StoryFilters({
               onClick={() => {
                 onSelectSubreddit("all");
               }}
-              className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+              className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm  ${
                 selectedSubreddit === "all"
                   ? "bg-primary/10 text-primary font-medium"
                   : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
@@ -90,7 +90,7 @@ export function StoryFilters({
                 onClick={() => {
                   onSelectSubreddit(sub.name);
                 }}
-                className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm  ${
                   selectedSubreddit === sub.name
                     ? "bg-primary/10 text-primary font-medium"
                     : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
@@ -109,7 +109,7 @@ export function StoryFilters({
       <div className="relative" ref={sortDropdownRef}>
         <button
           onClick={onToggleSortDropdown}
-          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 "
         >
           <ArrowUpDown className="w-4 h-4" />
           {activeSortLabel}
@@ -125,7 +125,7 @@ export function StoryFilters({
                   onClick={() => {
                     onSelectSort(option.value);
                   }}
-                  className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                  className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm  ${
                     sortBy === option.value
                       ? "bg-primary/10 text-primary font-medium"
                       : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
@@ -152,7 +152,7 @@ export function StoryFilters({
       <div className="flex-1 flex justify-end">
         <button
           onClick={onDeleteAllStories}
-          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 text-sm text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 text-sm text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg "
           title="Delete all stories"
         >
           <Trash className="w-4 h-4" />

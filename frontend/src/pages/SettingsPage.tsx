@@ -158,7 +158,7 @@ export function SettingsPage() {
         <div className="flex items-center gap-4">
           <button
             onClick={toggle}
-            className={`cursor-pointer flex-1 p-4 rounded-xl border-2 transition-colors ${
+            className={`cursor-pointer flex-1 p-4 rounded-xl border-2  ${
               !isDark
                 ? "border-primary bg-primary/5"
                 : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5"
@@ -170,7 +170,7 @@ export function SettingsPage() {
           </button>
           <button
             onClick={toggle}
-            className={`cursor-pointer flex-1 p-4 rounded-xl border-2 transition-colors ${
+            className={`cursor-pointer flex-1 p-4 rounded-xl border-2  ${
               isDark
                 ? "border-primary bg-primary/5"
                 : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5"
@@ -217,7 +217,7 @@ export function SettingsPage() {
                   Vertical mobile format
                 </div>
               </button>
-              <button className="cursor-pointer flex-1 p-3 rounded-lg border-2 border-border-light dark:border-border-dark text-center hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+              <button className="cursor-pointer flex-1 p-3 rounded-lg border-2 border-border-light dark:border-border-dark text-center hover:bg-gray-50 dark:hover:bg-white/5 ">
                 <div className="text-sm font-medium">Normal (16:9)</div>
                 <div className="text-xs text-gray-500">Standard horizontal</div>
               </button>

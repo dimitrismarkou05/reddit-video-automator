@@ -78,7 +78,7 @@ function UpdateSidebar({
                   .getElementById(`update-${update.id}`)
                   ?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
-              className={`cursor-pointer w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+              className={`cursor-pointer w-full text-left px-3 py-2 rounded-lg text-sm  ${
                 isActive
                   ? "bg-primary/10 text-primary font-medium"
                   : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5"
@@ -216,7 +216,7 @@ function UpdateActions({ update }: { update: Story }) {
         <button
           onClick={() => setShowGenerateModal(true)}
           disabled={!!update.generated_video}
-          className={`cursor-pointer flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+          className={`cursor-pointer flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium  ${
             update.generated_video
               ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
               : "bg-primary/10 text-primary hover:bg-primary/20"
@@ -229,14 +229,14 @@ function UpdateActions({ update }: { update: Story }) {
           href={update.permalink}
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-white/5 transition-colors"
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-white/5 "
         >
           <ExternalLink className="w-4 h-4" />
           View on Reddit
         </a>
         <button
           onClick={() => setShowDeleteModal(true)}
-          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 "
         >
           <Trash2 className="w-4 h-4" />
           Delete
@@ -372,7 +372,7 @@ export function StoryDetailPage() {
         <div className="max-w-6xl mx-auto h-14 px-4 sm:px-6 flex items-center gap-3">
           <button
             onClick={() => navigate("/stories")}
-            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors shrink-0"
+            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5  shrink-0"
             title="Back to stories"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -405,14 +405,14 @@ export function StoryDetailPage() {
                 navigator.clipboard.writeText(story.permalink);
                 toast.success("Reddit link copied to clipboard");
               }}
-              className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
+              className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 "
               title="Copy Reddit link"
             >
               <Share2 className="w-4 h-4 text-gray-500" />
             </button>
             <button
               onClick={() => setShowDeleteModal(true)}
-              className="cursor-pointer p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+              className="cursor-pointer p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 "
               title="Delete story"
             >
               <Trash2 className="w-4 h-4 text-red-500" />
@@ -444,7 +444,7 @@ export function StoryDetailPage() {
                 <button
                   onClick={() => setShowGenerateModal(true)}
                   disabled={hasVideo}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium  ${
                     hasVideo
                       ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
                       : "bg-primary/10 text-primary hover:bg-primary/20"
@@ -457,7 +457,7 @@ export function StoryDetailPage() {
                   href={story.permalink}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-white/5 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-white/5 "
                 >
                   <ExternalLink className="w-4 h-4" />
                   View on Reddit

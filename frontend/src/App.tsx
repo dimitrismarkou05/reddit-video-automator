@@ -89,7 +89,7 @@ function App() {
 
   return (
     <div
-      className={`${isElectron ? "h-screen" : "min-h-screen"} bg-background-light dark:bg-background-dark text-gray-900 dark:text-gray-100 transition-colors duration-200 ${
+      className={`${isElectron ? "h-screen" : "min-h-screen"} bg-background-light dark:bg-background-dark text-gray-900 dark:text-gray-100   ${
         isElectron ? "flex flex-col overflow-hidden" : ""
       }`}
     >

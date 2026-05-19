@@ -51,7 +51,7 @@ export function TemplateCard({
         <div className="flex items-center gap-2">
           <button
             onClick={onToggle}
-            className={`cursor-pointer p-2 rounded-lg transition-colors ${
+            className={`cursor-pointer p-2 rounded-lg  ${
               template.is_active
                 ? "bg-green-100 dark:bg-green-900/30 text-green-600 hover:bg-green-200"
                 : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-500 hover:bg-gray-200 dark:hover:bg-white/5"
@@ -66,14 +66,14 @@ export function TemplateCard({
           </button>
           <button
             onClick={onRun}
-            className="cursor-pointer p-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+            className="cursor-pointer p-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 "
             title="Run now"
           >
             <Play className="w-4 h-4" />
           </button>
           <button
             onClick={onDelete}
-            className="cursor-pointer p-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors"
+            className="cursor-pointer p-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 "
             title="Delete template"
           >
             <Trash2 className="w-4 h-4" />

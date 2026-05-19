@@ -39,7 +39,7 @@ export function StoryCard({ story, onDelete }: StoryCardProps) {
     <div className="space-y-0">
       <div
         onClick={handleCardClick}
-        className="card p-4 hover:shadow-md transition-all cursor-pointer"
+        className="card p-4 hover:shadow-md  cursor-pointer"
       >
         <div className="flex items-start gap-4">
           <div className="flex-1 min-w-0">
@@ -68,7 +68,7 @@ export function StoryCard({ story, onDelete }: StoryCardProps) {
                       setShowUpdates(!showUpdates);
                     }}
                     data-no-nav
-                    className="cursor-pointer -ml-0.5 p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors shrink-0 inline-flex items-center gap-0.5"
+                    className="cursor-pointer -ml-0.5 p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700  shrink-0 inline-flex items-center gap-0.5"
                     title={
                       showUpdates
                         ? "Hide updates"

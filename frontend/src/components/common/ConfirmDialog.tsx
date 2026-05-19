@@ -55,7 +55,7 @@ export function ConfirmDialog({
           </button>
           <button
             onClick={onConfirm}
-            className={`cursor-pointer px-4 py-2 rounded-lg font-medium transition-colors flex items-center gap-2 ${
+            className={`cursor-pointer px-4 py-2 rounded-lg font-medium  flex items-center gap-2 ${
               isDanger
                 ? "bg-red-500 text-white hover:bg-red-600"
                 : "btn-primary"

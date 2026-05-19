@@ -150,7 +150,7 @@ export function LoginPage() {
           <button
             onClick={handleLogin}
             disabled={isLoading}
-            className="cursor-pointer w-full flex items-center justify-center gap-3 px-4 py-3 bg-white dark:bg-surface-dark border border-gray-300 dark:border-border-dark rounded-lg font-medium hover:bg-gray-50 dark:hover:bg-white/5 transition-colors disabled:opacity-50"
+            className="cursor-pointer w-full flex items-center justify-center gap-3 px-4 py-3 bg-white dark:bg-surface-dark border border-gray-300 dark:border-border-dark rounded-lg font-medium hover:bg-gray-50 dark:hover:bg-white/5  disabled:opacity-50"
           >
             {isLoading ? (
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
