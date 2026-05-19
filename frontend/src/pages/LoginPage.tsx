@@ -11,6 +11,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const { setAuthStatus } = useAuthStore();
   const [searchParams] = useSearchParams();
+  const isElectron = !!window.electronAPI;
 
   useEffect(() => {
     const hasAuthSuccess =
@@ -117,7 +118,9 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark">
+    <div
+      className={`${isElectron ? "h-full" : "min-h-screen"} flex items-center justify-center bg-background-light dark:bg-background-dark`}
+    >
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">

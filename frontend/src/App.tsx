@@ -15,10 +15,13 @@ import { TitleBar } from "@/components/TitleBar";
 
 function ProtectedRoute() {
   const { authStatus, isLoading } = useAuthStore();
+  const electron = !!window.electronAPI;
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark">
+      <div
+        className={`${electron ? "h-full" : "min-h-screen"} flex items-center justify-center bg-background-light dark:bg-background-dark`}
+      >
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     );
@@ -33,10 +36,13 @@ function ProtectedRoute() {
 
 function PublicOnlyRoute() {
   const { authStatus, isLoading } = useAuthStore();
+  const electron = !!window.electronAPI;
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background-light dark:bg-background-dark">
+      <div
+        className={`${electron ? "h-full" : "min-h-screen"} flex items-center justify-center bg-background-light dark:bg-background-dark`}
+      >
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
       </div>
     );
@@ -83,7 +89,7 @@ function App() {
 
   return (
     <div
-      className={`min-h-screen bg-background-light dark:bg-background-dark text-gray-900 dark:text-gray-100 transition-colors duration-200 ${
+      className={`${isElectron ? "h-screen" : "min-h-screen"} bg-background-light dark:bg-background-dark text-gray-900 dark:text-gray-100 transition-colors duration-200 ${
         isElectron ? "flex flex-col overflow-hidden" : ""
       }`}
     >

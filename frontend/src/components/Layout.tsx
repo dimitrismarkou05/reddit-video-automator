@@ -27,6 +27,7 @@ export function Layout() {
   const {} = useNotificationStore();
   const location = useLocation();
   const navigate = useNavigate();
+  const isElectron = !!window.electronAPI;
 
   useEffect(() => {
     const main = document.querySelector("main");
@@ -44,7 +45,9 @@ export function Layout() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div
+      className={`flex ${isElectron ? "h-full" : "h-screen"} overflow-hidden`}
+    >
       {/* Sidebar */}
       <aside className="w-64 bg-surface-light dark:bg-surface-dark border-r border-border-light dark:border-border-dark flex flex-col">
         <div className="p-4 border-b border-border-light dark:border-border-dark">

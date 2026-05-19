@@ -8,6 +8,7 @@ export function PublicSettingsPage() {
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const navigate = useNavigate();
+  const isElectron = !!window.electronAPI;
 
   const handleSave = async () => {
     try {
@@ -23,7 +24,9 @@ export function PublicSettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background-light dark:bg-background-dark flex items-center justify-center p-4">
+    <div
+      className={`${isElectron ? "h-full" : "min-h-screen"} bg-background-light dark:bg-background-dark flex items-center justify-center p-4`}
+    >
       <div className="w-full max-w-md">
         <div className="text-center mb-6">
           <Settings className="w-10 h-10 text-primary mx-auto mb-2" />
