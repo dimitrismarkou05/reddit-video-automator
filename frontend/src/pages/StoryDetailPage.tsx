@@ -24,6 +24,7 @@ import { DeleteConfirmModal } from "@/components/modals/DeleteConfirmModal";
 import { formatUtcRelative, stripUpdatePrefix } from "@/lib/formatters";
 import type { Story } from "@/types";
 import toast from "react-hot-toast";
+import { renderMarkdownLinks } from "@/lib/renderMarkdownLinks";
 
 /* ─── Meta line ─── */
 function StoryMetaLine({ story }: { story: Story }) {
@@ -176,7 +177,7 @@ function UpdateSection({
 
       {update.body && (
         <div className="mt-3 text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
-          {update.body}
+          {renderMarkdownLinks(update.body)}
         </div>
       )}
 
@@ -436,7 +437,7 @@ export function StoryDetailPage() {
 
               {story.body && (
                 <div className="mt-4 text-gray-800 dark:text-gray-200 leading-relaxed whitespace-pre-wrap text-[15px]">
-                  {story.body}
+                  {renderMarkdownLinks(story.body)}
                 </div>
               )}
 
