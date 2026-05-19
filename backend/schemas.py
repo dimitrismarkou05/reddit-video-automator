@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
+
+T = TypeVar("T")
 
 
 class SubredditCreate(BaseModel):
@@ -68,6 +70,20 @@ class StoryDetailResponse(StoryResponse):
 class StoryChainResponse(BaseModel):
     original: StoryResponse
     updates: List[StoryResponse] = []
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Generic paginated response wrapper."""
+    items: List[T]
+    total: int
+    page: int
+    pages: int
+    limit: int
+
+
+class StoryListResponse(PaginatedResponse[StoryResponse]):
+    """Paginated list of stories."""
+    pass
 
 
 class FetchRequest(BaseModel):

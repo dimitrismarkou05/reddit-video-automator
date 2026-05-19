@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from enum import Enum as PyEnum
 from typing import Optional, List
 
-from sqlalchemy import String, Text, Integer, DateTime, Boolean, ForeignKey, JSON, Float
+from sqlalchemy import String, Text, Integer, DateTime, Boolean, ForeignKey, JSON, Float, Index
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -67,6 +67,12 @@ class Story(Base):
     generated_video: Mapped[Optional["GeneratedVideo"]] = relationship(
         back_populates="story",
         uselist=False,
+    )
+
+    __table_args__ = (
+        Index("ix_stories_is_update_created_utc", "is_update", "created_utc"),
+        Index("ix_stories_is_update_score", "is_update", "score"),
+        Index("ix_stories_is_update_subreddit_created_utc", "is_update", "subreddit", "created_utc"),
     )
 
     def __repr__(self) -> str:

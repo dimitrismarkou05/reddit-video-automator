@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, RefreshCw, Link2, BookOpen, Info } from "lucide-react";
 import { storyApi, subredditApi } from "@/services/api";
@@ -46,14 +46,20 @@ export function StoriesPage() {
     setAllStories,
   } = useDeleteTarget();
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   const {
-    data: stories,
+    data: storiesData,
     isLoading,
     refetch: refetchStories,
   } = useQuery({
-    queryKey: ["stories", selectedSubreddit, sortBy],
+    queryKey: ["stories", selectedSubreddit, sortBy, currentPage],
     queryFn: async () => {
-      const params: Record<string, any> = { sort_by: sortBy };
+      const params: Record<string, any> = { 
+        page: currentPage, 
+        limit: STORIES_PER_PAGE,
+        sort_by: sortBy 
+      };
       if (selectedSubreddit !== "all") params.subreddit = selectedSubreddit;
       const { data } = await storyApi.list(params);
       return data;
@@ -68,9 +74,17 @@ export function StoriesPage() {
     },
   });
 
+  // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [selectedSubreddit, sortBy]);
+
+  // Scroll to top on page change
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+    }
+  }, [currentPage]);
 
   const refreshNotifications = async () => {
     try {
@@ -220,134 +234,131 @@ export function StoriesPage() {
     }
   };
 
-  const topLevelStories = stories?.filter((s: Story) => !s.is_update) || [];
-  const totalStories = topLevelStories.length;
-  const totalPages = Math.ceil(totalStories / STORIES_PER_PAGE);
-  const paginatedStories = topLevelStories.slice(
-    (currentPage - 1) * STORIES_PER_PAGE,
-    currentPage * STORIES_PER_PAGE,
-  );
-  const showingStart =
-    totalStories === 0 ? 0 : (currentPage - 1) * STORIES_PER_PAGE + 1;
+  // Extract from paginated response
+  const paginatedStories = storiesData?.items || [];
+  const totalStories = storiesData?.total || 0;
+  const totalPages = storiesData?.pages || 1;
+  const showingStart = totalStories === 0 ? 0 : (currentPage - 1) * STORIES_PER_PAGE + 1;
   const showingEnd = Math.min(currentPage * STORIES_PER_PAGE, totalStories);
 
-  useEffect(() => {
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
-
   return (
-    <div className="space-y-6">
-      {/* Controls Row */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex-1 min-w-0 flex items-center gap-2">
-          <input
-            type="text"
-            value={newSubreddit}
-            onChange={(e) => setNewSubreddit(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleAddSubreddit()}
-            placeholder="Add subreddit (e.g., AskReddit)"
-            className="input max-w-xs"
+    <div className="flex flex-col h-full gap-6">
+      {/* ═══ Pinned Top: Controls, Subreddits, Filters ═══ */}
+      <div className="shrink-0 space-y-6">
+        {/* Controls Row */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-0 flex items-center gap-2">
+            <input
+              type="text"
+              value={newSubreddit}
+              onChange={(e) => setNewSubreddit(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAddSubreddit()}
+              placeholder="Add subreddit (e.g., AskReddit)"
+              className="input max-w-xs"
+            />
+            <button
+              onClick={() => handleAddSubreddit()}
+              disabled={isAdding}
+              className="cursor-pointer btn-primary flex items-center gap-2"
+            >
+              {isAdding ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+              ) : (
+                <Plus className="w-4 h-4" />
+              )}
+              Add
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowFetchModal(true)}
+              className="cursor-pointer btn-secondary flex items-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Fetch
+            </button>
+            <button
+              onClick={handleLinkUpdates}
+              className="cursor-pointer btn-secondary flex items-center gap-2"
+            >
+              <Link2 className="w-4 h-4" />
+              Link Updates
+            </button>
+          </div>
+        </div>
+
+        {/* Subreddit list */}
+        {subreddits && subreddits.length > 0 && (
+          <SubredditList
+            subreddits={subreddits}
+            onDelete={(id, name) => setSingle(id, name)}
+            onDeleteAll={() => setAll()}
           />
-          <button
-            onClick={() => handleAddSubreddit()}
-            disabled={isAdding}
-            className="cursor-pointer btn-primary flex items-center gap-2"
-          >
-            {isAdding ? (
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-            ) : (
-              <Plus className="w-4 h-4" />
-            )}
-            Add
-          </button>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowFetchModal(true)}
-            className="cursor-pointer btn-secondary flex items-center gap-2"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Fetch
-          </button>
-          <button
-            onClick={handleLinkUpdates}
-            className="cursor-pointer btn-secondary flex items-center gap-2"
-          >
-            <Link2 className="w-4 h-4" />
-            Link Updates
-          </button>
-        </div>
+        )}
+
+        {/* Filter & Sort Bar */}
+        <StoryFilters
+          subreddits={subreddits || []}
+          selectedSubreddit={selectedSubreddit}
+          onSelectSubreddit={setSelectedSubreddit}
+          sortBy={sortBy}
+          onSelectSort={setSortBy}
+          showSubredditDropdown={showSubredditDropdown}
+          onToggleSubredditDropdown={() => setShowSubredditDropdown((v) => !v)}
+          showSortDropdown={showSortDropdown}
+          onToggleSortDropdown={() => setShowSortDropdown((v) => !v)}
+          onDeleteAllStories={() => setAllStories()}
+          setShowSubredditDropdown={setShowSubredditDropdown}
+          setShowSortDropdown={setShowSortDropdown}
+        />
       </div>
 
-      {/* Subreddit list */}
-      {subreddits && subreddits.length > 0 && (
-        <SubredditList
-          subreddits={subreddits}
-          onDelete={(id, name) => setSingle(id, name)}
-          onDeleteAll={() => setAll()}
+      {/* ═══ Scrollable Middle: Stories List ═══ */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 pr-1">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <LoadingSpinner size="md" />
+          </div>
+        ) : paginatedStories.length > 0 ? (
+          <div className="space-y-4 pb-2">
+            {paginatedStories.map((story: Story) => (
+              <StoryCard
+                key={story.id}
+                story={story}
+                onDelete={(s) => setStory(s)}
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon={BookOpen}
+            title={
+              selectedSubreddit !== "all"
+                ? `No stories in r/${selectedSubreddit}`
+                : "No stories yet"
+            }
+            subtitle={
+              selectedSubreddit !== "all"
+                ? "Try another subreddit or fetch new stories"
+                : "Add a subreddit and click 'Fetch' to get started"
+            }
+          />
+        )}
+      </div>
+
+      {/* ═══ Pinned Bottom: Pagination ═══ */}
+      <div className="shrink-0">
+        <StoryPagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          showingStart={showingStart}
+          showingEnd={showingEnd}
+          totalStories={totalStories}
+          onPageChange={setCurrentPage}
         />
-      )}
+      </div>
 
-      {/* Filter & Sort Bar */}
-      <StoryFilters
-        subreddits={subreddits || []}
-        selectedSubreddit={selectedSubreddit}
-        onSelectSubreddit={setSelectedSubreddit}
-        sortBy={sortBy}
-        onSelectSort={setSortBy}
-        showSubredditDropdown={showSubredditDropdown}
-        onToggleSubredditDropdown={() => setShowSubredditDropdown((v) => !v)}
-        showSortDropdown={showSortDropdown}
-        onToggleSortDropdown={() => setShowSortDropdown((v) => !v)}
-        onDeleteAllStories={() => setAllStories()}
-        setShowSubredditDropdown={setShowSubredditDropdown}
-        setShowSortDropdown={setShowSortDropdown}
-      />
-
-      {/* Stories */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <LoadingSpinner size="md" />
-        </div>
-      ) : paginatedStories.length > 0 ? (
-        <div className="space-y-4">
-          {paginatedStories.map((story: Story) => (
-            <StoryCard
-              key={story.id}
-              story={story}
-              onDelete={(s) => setStory(s)}
-            />
-          ))}
-        </div>
-      ) : (
-        <EmptyState
-          icon={BookOpen}
-          title={
-            selectedSubreddit !== "all"
-              ? `No stories in r/${selectedSubreddit}`
-              : "No stories yet"
-          }
-          subtitle={
-            selectedSubreddit !== "all"
-              ? "Try another subreddit or fetch new stories"
-              : "Add a subreddit and click 'Fetch' to get started"
-          }
-        />
-      )}
-
-      {/* Pagination */}
-      <StoryPagination
-        currentPage={currentPage}
-        totalPages={totalPages}
-        showingStart={showingStart}
-        showingEnd={showingEnd}
-        totalStories={totalStories}
-        onPageChange={setCurrentPage}
-      />
-
-      {/* Modals */}
+      {/* ═══ Modals ═══ */}
       {showFetchModal && subreddits && (
         <FetchModal
           subreddits={subreddits}

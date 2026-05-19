@@ -1,49 +1,73 @@
 """Story management and update linking routes."""
 
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session, joinedload
 
 from database import get_db
 from models import Story
-from schemas import StoryResponse, StoryDetailResponse, StoryChainResponse
+from schemas import StoryResponse, StoryDetailResponse, StoryChainResponse, StoryListResponse
 from services.notification_service import NotificationService
 from reddit.linker import UpdateLinker
 
 router = APIRouter(tags=["Stories"])
 
 
-@router.get("/stories", response_model=List[StoryResponse])
+@router.get("/stories", response_model=StoryListResponse)
 def list_stories(
+    page: int = Query(1, ge=1, description="1-based page index"),
+    limit: int = Query(10, ge=1, le=100, description="Items per page"),
     subreddit: Optional[str] = None,
     status: Optional[str] = None,
     is_update: Optional[bool] = None,
-    sort_by: Optional[str] = None,
+    sort_by: Optional[str] = Query(None, pattern="^(date_desc|date_asc|score_desc|score_asc|title_asc)$"),
     db: Session = Depends(get_db),
 ):
-    stmt = select(Story).options(joinedload(Story.updates))
+    # Build base query - only parent stories by default for pagination
+    if is_update is None:
+        is_update = False
+
+    base_query = db.query(Story).filter(Story.is_update == is_update)
 
     if subreddit:
-        stmt = stmt.where(Story.subreddit == subreddit)
+        base_query = base_query.filter(Story.subreddit == subreddit)
     if status:
-        stmt = stmt.where(Story.status == status)
-    if is_update is not None:
-        stmt = stmt.where(Story.is_update == is_update)
+        base_query = base_query.filter(Story.status == status)
 
+    # Apply sorting
     if sort_by == "date_asc":
-        stmt = stmt.order_by(Story.created_utc.asc())
+        base_query = base_query.order_by(Story.created_utc.asc())
     elif sort_by == "score_desc":
-        stmt = stmt.order_by(Story.score.desc())
+        base_query = base_query.order_by(Story.score.desc())
     elif sort_by == "score_asc":
-        stmt = stmt.order_by(Story.score.asc())
+        base_query = base_query.order_by(Story.score.asc())
     elif sort_by == "title_asc":
-        stmt = stmt.order_by(Story.title.asc())
+        base_query = base_query.order_by(Story.title.asc())
     else:
-        stmt = stmt.order_by(Story.created_utc.desc())
+        base_query = base_query.order_by(Story.created_utc.desc())
 
-    result = db.execute(stmt)
-    return result.unique().scalars().all()
+    # Get total count
+    total = base_query.with_entities(func.count()).scalar()
+
+    # Apply pagination
+    stories = (
+        base_query
+        .options(joinedload(Story.updates))
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+
+    pages = (total + limit - 1) // limit
+
+    return StoryListResponse(
+        items=stories,
+        total=total,
+        page=page,
+        pages=max(1, pages),
+        limit=limit,
+    )
 
 
 @router.get("/stories/{story_id}", response_model=StoryDetailResponse)
