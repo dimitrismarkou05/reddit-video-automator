@@ -55,7 +55,7 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <h2 className="text-2xl font-bold mb-6">Settings</h2>
 
       <SettingsSection title="Text-to-Speech APIs" icon={Mic}>
