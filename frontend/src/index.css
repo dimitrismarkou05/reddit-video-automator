@@ -25,6 +25,14 @@
   }
 }
 
+@layer base {
+  * {
+    transition-property: background-color, color, border-color;
+    transition-duration: 120ms;
+    transition-timing-function: ease-out;
+  }
+}
+
 @layer components {
   .card {
     @apply bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark shadow-sm;
