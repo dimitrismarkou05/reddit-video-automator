@@ -84,10 +84,7 @@ export function VideoCard({ video }: VideoCardProps) {
             <span className="flex items-center gap-1">
               <Play className="w-3 h-3" />
               {Math.floor(video.duration_seconds / 60)}:
-              {String(Math.floor(video.duration_seconds % 60)).padStart(
-                2,
-                "0",
-              )}
+              {String(Math.floor(video.duration_seconds % 60)).padStart(2, "0")}
             </span>
           )}
         </div>
@@ -131,7 +128,7 @@ export function VideoCard({ video }: VideoCardProps) {
               href={`https://youtube.com/watch?v=${video.youtube_video_id}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+              className="p-2 rounded-lg bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark hover:bg-gray-200 dark:hover:bg-white/5 transition-colors"
               title="Open on YouTube"
             >
               <ExternalLink className="w-4 h-4" />

@@ -119,7 +119,7 @@ export function NotificationDropdown() {
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="cursor-pointer relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+        className="cursor-pointer relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
@@ -150,7 +150,7 @@ export function NotificationDropdown() {
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => setShowDeleteConfirm(false)}
-                        className="cursor-pointer text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                        className="cursor-pointer text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
                       >
                         Cancel
                       </button>
@@ -187,7 +187,7 @@ export function NotificationDropdown() {
               notifications.map((notification) => (
                 <div
                   key={notification.id}
-                  className={`p-3 border-b border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${
+                  className={`p-3 border-b border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5 transition-colors ${
                     !notification.is_read
                       ? "bg-primary/5 dark:bg-primary/10"
                       : ""
@@ -217,7 +217,7 @@ export function NotificationDropdown() {
                       {!notification.is_read && (
                         <button
                           onClick={(e) => handleMarkRead(notification.id, e)}
-                          className="cursor-pointer p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+                          className="cursor-pointer p-1 rounded hover:bg-gray-200 dark:hover:bg-white/10 transition-colors"
                           title="Mark as read"
                         >
                           <Check className="w-3 h-3" />
@@ -225,7 +225,7 @@ export function NotificationDropdown() {
                       )}
                       <button
                         onClick={(e) => handleDelete(notification.id, e)}
-                        className="cursor-pointer p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400"
+                        className="cursor-pointer p-1 rounded hover:bg-gray-200 dark:hover:bg-white/10 text-gray-400 transition-colors"
                         title="Delete"
                       >
                         <Trash2 className="w-3 h-3" />

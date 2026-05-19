@@ -67,7 +67,7 @@ export function PublicSettingsPage() {
             </li>
             <li>
               Add{" "}
-              <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-xs">
+              <code className="bg-gray-100 dark:bg-surface-dark/50 px-1.5 py-0.5 rounded text-xs">
                 http://localhost:8080/callback
               </code>{" "}
               as a redirect URI

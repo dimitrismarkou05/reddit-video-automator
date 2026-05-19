@@ -52,7 +52,7 @@ export function SubredditList({
         {subreddits.length > 0 && (
           <button
             onClick={() => setExpanded((v) => !v)}
-            className="cursor-pointer shrink-0 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 transition-colors"
+            className="cursor-pointer shrink-0 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 text-gray-500 transition-colors"
             title={expanded ? "Collapse" : "Expand"}
           >
             {expanded ? (

@@ -60,7 +60,7 @@ export function StoryFilters({
       <div className="relative" ref={subredditDropdownRef}>
         <button
           onClick={onToggleSubredditDropdown}
-          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-800 border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
         >
           <Filter className="w-4 h-4" />
           {selectedSubreddit === "all"
@@ -78,7 +78,7 @@ export function StoryFilters({
               className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
                 selectedSubreddit === "all"
                   ? "bg-primary/10 text-primary font-medium"
-                  : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
               }`}
             >
               <Filter className="w-4 h-4" />
@@ -93,7 +93,7 @@ export function StoryFilters({
                 className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
                   selectedSubreddit === sub.name
                     ? "bg-primary/10 text-primary font-medium"
-                    : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                    : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
                 }`}
               >
                 <span className="w-4 h-4 flex items-center justify-center text-xs font-medium text-gray-500">
@@ -109,7 +109,7 @@ export function StoryFilters({
       <div className="relative" ref={sortDropdownRef}>
         <button
           onClick={onToggleSortDropdown}
-          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-gray-800 border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
         >
           <ArrowUpDown className="w-4 h-4" />
           {activeSortLabel}
@@ -128,7 +128,7 @@ export function StoryFilters({
                   className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
                     sortBy === option.value
                       ? "bg-primary/10 text-primary font-medium"
-                      : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+                      : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
                   }`}
                 >
                   <Icon className="w-4 h-4" />

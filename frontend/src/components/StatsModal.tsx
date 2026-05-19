@@ -107,7 +107,7 @@ export function StatsModal({ videoId, onClose }: StatsModalProps) {
           <h2 className="text-lg font-semibold">YouTube Studio</h2>
           <button
             onClick={onClose}
-            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -236,7 +236,7 @@ export function StatsModal({ videoId, onClose }: StatsModalProps) {
                     {stats.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 rounded text-xs"
+                        className="px-2 py-0.5 bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark rounded text-xs"
                       >
                         {tag}
                       </span>
@@ -270,7 +270,7 @@ export function StatsModal({ videoId, onClose }: StatsModalProps) {
                     className={`cursor-pointer px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${
                       isActive
                         ? "bg-primary text-white"
-                        : "bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600"
+                        : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark hover:bg-gray-200 dark:hover:bg-white/5"
                     }`}
                   >
                     {privacy}

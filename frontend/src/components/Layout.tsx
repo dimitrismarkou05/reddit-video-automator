@@ -79,7 +79,7 @@ export function Layout() {
                 className={`cursor-pointer w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   isActive
                     ? "bg-primary/10 text-primary dark:bg-primary/20"
-                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                    : "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5"
                 }`}
               >
                 <Icon className="w-5 h-5" />
@@ -93,7 +93,7 @@ export function Layout() {
         <div className="p-3 border-t border-border-light dark:border-border-dark space-y-2">
           <button
             onClick={toggle}
-            className="cursor-pointer w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            className="cursor-pointer w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
           >
             {isDark ? (
               <Sun className="w-5 h-5" />
@@ -126,7 +126,7 @@ export function Layout() {
               </div>
               <button
                 onClick={handleLogout}
-                className="cursor-pointer p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
+                className="cursor-pointer p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 text-gray-500 transition-colors"
                 title="Logout"
               >
                 <LogOut className="w-4 h-4" />

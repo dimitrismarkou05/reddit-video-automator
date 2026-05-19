@@ -114,7 +114,7 @@ export function GenerateVideoModal({
           <button
             onClick={onClose}
             disabled={isGenerating}
-            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -228,7 +228,7 @@ export function GenerateVideoModal({
                     className={`cursor-pointer flex-1 p-3 rounded-lg border-2 transition-colors ${
                       settings.video_format === "shorts"
                         ? "border-primary bg-primary/5"
-                        : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700"
+                        : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5"
                     }`}
                   >
                     <div className="text-sm font-medium">Shorts</div>
@@ -241,7 +241,7 @@ export function GenerateVideoModal({
                     className={`cursor-pointer flex-1 p-3 rounded-lg border-2 transition-colors ${
                       settings.video_format === "normal"
                         ? "border-primary bg-primary/5"
-                        : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700"
+                        : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5"
                     }`}
                   >
                     <div className="text-sm font-medium">Normal</div>

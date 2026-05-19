@@ -137,7 +137,7 @@ export function TitleBar() {
         <button
           onClick={handleBack}
           disabled={!canGoBack}
-          className="h-7 w-7 flex items-center justify-center rounded-md text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+          className="h-7 w-7 flex items-center justify-center rounded-md text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
           title="Back"
         >
           <ChevronLeft className="w-4.5 h-4.5" />
@@ -145,7 +145,7 @@ export function TitleBar() {
         <button
           onClick={handleForward}
           disabled={!canGoForward}
-          className="h-7 w-7 flex items-center justify-center rounded-md text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+          className="h-7 w-7 flex items-center justify-center rounded-md text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
           title="Forward"
         >
           <ChevronRight className="w-4.5 h-4.5" />
@@ -170,13 +170,13 @@ export function TitleBar() {
       <div className="flex items-center no-drag">
         <button
           onClick={() => controls?.minimize()}
-          className="h-9 w-10 flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          className="h-9 w-10 flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
         >
           <Minus className="w-4 h-4" />
         </button>
         <button
           onClick={() => controls?.maximize()}
-          className="h-9 w-10 flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+          className="h-9 w-10 flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors"
         >
           {isMaximized ? (
             <svg

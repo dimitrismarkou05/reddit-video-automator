@@ -34,7 +34,7 @@ export function TemplateCard({
             className={`w-10 h-10 rounded-xl flex items-center justify-center ${
               template.is_active
                 ? "bg-green-100 dark:bg-green-900/30"
-                : "bg-gray-100 dark:bg-gray-700"
+                : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark"
             }`}
           >
             <Bot
@@ -54,7 +54,7 @@ export function TemplateCard({
             className={`cursor-pointer p-2 rounded-lg transition-colors ${
               template.is_active
                 ? "bg-green-100 dark:bg-green-900/30 text-green-600 hover:bg-green-200"
-                : "bg-gray-100 dark:bg-gray-700 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-600"
+                : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-500 hover:bg-gray-200 dark:hover:bg-white/5"
             }`}
             title={template.is_active ? "Pause template" : "Activate template"}
           >
@@ -90,10 +90,10 @@ export function TemplateCard({
             r/{name}
           </span>
         ))}
-        <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs rounded-md">
+        <span className="px-2 py-1 bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-600 dark:text-gray-400 text-xs rounded-md">
           {template.video_format === "shorts" ? "9:16" : "16:9"}
         </span>
-        <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs rounded-md">
+        <span className="px-2 py-1 bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-600 dark:text-gray-400 text-xs rounded-md">
           {template.tts_provider}
         </span>
       </div>
@@ -154,7 +154,7 @@ export function TemplateCard({
           {template.youtube_title_template && (
             <div>
               <span className="text-gray-500">Title Template:</span>{" "}
-              <code className="text-xs bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+              <code className="text-xs bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark px-2 py-1 rounded">
                 {template.youtube_title_template}
               </code>
             </div>

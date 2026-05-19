@@ -24,7 +24,7 @@ export function ModalShell({
         <button
           onClick={onClose}
           disabled={disabled}
-          className="cursor-pointer absolute top-4 right-4 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors z-10"
+          className="cursor-pointer absolute top-4 right-4 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors z-10"
         >
           <X className="w-5 h-5" />
         </button>

@@ -161,7 +161,7 @@ export function SettingsPage() {
             className={`cursor-pointer flex-1 p-4 rounded-xl border-2 transition-colors ${
               !isDark
                 ? "border-primary bg-primary/5"
-                : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700"
+                : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5"
             }`}
           >
             <Sun className="w-6 h-6 mx-auto mb-2 text-yellow-500" />
@@ -173,7 +173,7 @@ export function SettingsPage() {
             className={`cursor-pointer flex-1 p-4 rounded-xl border-2 transition-colors ${
               isDark
                 ? "border-primary bg-primary/5"
-                : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-gray-700"
+                : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5"
             }`}
           >
             <Moon className="w-6 h-6 mx-auto mb-2 text-blue-400" />
@@ -217,7 +217,7 @@ export function SettingsPage() {
                   Vertical mobile format
                 </div>
               </button>
-              <button className="cursor-pointer flex-1 p-3 rounded-lg border-2 border-border-light dark:border-border-dark text-center hover:bg-gray-50 dark:hover:bg-gray-700">
+              <button className="cursor-pointer flex-1 p-3 rounded-lg border-2 border-border-light dark:border-border-dark text-center hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
                 <div className="text-sm font-medium">Normal (16:9)</div>
                 <div className="text-xs text-gray-500">Standard horizontal</div>
               </button>
