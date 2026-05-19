@@ -116,7 +116,7 @@ export function NotificationDropdown() {
   };
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative z-1000" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="cursor-pointer relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 "

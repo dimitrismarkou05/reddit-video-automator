@@ -25,29 +25,62 @@
   }
 }
 
-@layer base {
-  * {
-    transition-property: background-color, color, border-color;
-    transition-duration: 120ms;
-    transition-timing-function: ease-out;
-  }
-}
-
 @layer components {
   .card {
     @apply bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark shadow-sm;
   }
 
   .btn-primary {
-    @apply px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-primary-dark;
+    @apply px-4 py-2 bg-primary text-white rounded-lg font-medium;
+    transition: background-color 150ms ease;
+  }
+
+  .btn-primary:hover {
+    @apply bg-primary-dark;
   }
 
   .btn-secondary {
-    @apply px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] text-gray-900 dark:text-gray-100 rounded-lg font-medium hover:bg-gray-200 dark:hover:bg-border-dark;
+    @apply px-4 py-2 bg-gray-100 dark:bg-[#2a2a2a] text-gray-900 dark:text-gray-100 rounded-lg font-medium;
+    transition: background-color 150ms ease;
+  }
+
+  .btn-secondary:hover {
+    @apply bg-gray-200 dark:hover:bg-border-dark;
   }
 
   .input {
     @apply w-full px-3 py-2 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 dark:text-white placeholder-gray-400 dark:placeholder-gray-500;
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  .input:hover {
+    @apply border-gray-400 dark:border-gray-500;
+  }
+
+  .input:focus {
+    @apply ring-2 ring-primary/50;
+  }
+
+  /* Global smooth transitions for all interactive elements */
+  button,
+  a,
+  [role="button"],
+  .cursor-pointer {
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease,
+      opacity 150ms ease;
+  }
+
+  input,
+  select,
+  textarea {
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease;
   }
 }
 
@@ -62,6 +95,12 @@
 
 ::-webkit-scrollbar-thumb {
   @apply bg-gray-300 dark:bg-gray-600 rounded-full;
+  transition: background-color 150ms ease;
+}
+
+.disable-transitions,
+.disable-transitions * {
+  transition: none !important;
 }
 
 ::-webkit-scrollbar-thumb:hover {
