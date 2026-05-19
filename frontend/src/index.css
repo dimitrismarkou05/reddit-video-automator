@@ -19,10 +19,6 @@
   --radius-2xl: 16px;
 }
 
-* {
-  @apply transition-colors duration-200;
-}
-
 @layer base {
   body {
     @apply antialiased;
