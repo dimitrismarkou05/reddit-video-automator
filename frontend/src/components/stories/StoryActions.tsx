@@ -31,14 +31,14 @@ export function StoryActions({
         href={permalink}
         target="_blank"
         rel="noopener noreferrer"
-        className="p-2 rounded-lg bg-gray-100 dark:bg-surface-dark text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-white/5 "
+        className="p-2 rounded-lg bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-white/5"
         title="View on Reddit"
       >
         <ExternalLink className="w-5 h-5" />
       </a>
       <button
         onClick={onDelete}
-        className="cursor-pointer p-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 "
+        className="cursor-pointer p-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/35 "
         title="Delete"
       >
         <Trash2 className="w-5 h-5" />
