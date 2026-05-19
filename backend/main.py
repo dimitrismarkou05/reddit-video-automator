@@ -2,9 +2,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from database import init_db
-from api.routes import router
-from api.sse import router as sse_router, signal_shutdown
+from core.database import init_db
+from api_router import api_router
+from notifications.sse import signal_shutdown
 
 
 @asynccontextmanager
@@ -31,8 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(router, prefix="/api/v1")
-app.include_router(sse_router, prefix="/api/v1")
+app.include_router(api_router, prefix="/api/v1")
 
 
 @app.get("/")
@@ -47,4 +46,4 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "phase": 4, "sse": True}
+    return {"status": "ok", "sse": True}

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from googleapiclient.errors import HttpError
 from sqlalchemy.orm import Session
 
-from models import GeneratedVideo
+from video.models import GeneratedVideo
 from youtube.auth import YouTubeAuthManager, YouTubeAuthError
 
 

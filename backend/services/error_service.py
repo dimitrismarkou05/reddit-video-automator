@@ -5,8 +5,8 @@ from fastapi import HTTPException
 from youtube.auth import YouTubeAuthError
 from youtube.uploader import YouTubeUploadError
 from youtube.manager import YouTubeManagerError
-from video.pipeline import VideoPipelineError
-from reddit.client import RateLimitError
+from video.engine.pipeline import VideoPipelineError
+from subreddits.client.client import RateLimitError
 
 
 class ErrorService:

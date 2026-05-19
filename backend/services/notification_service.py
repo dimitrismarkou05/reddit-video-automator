@@ -5,8 +5,8 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from models import Notification
-from api.sse import notification_queue
+from notifications.models import Notification
+from notifications.sse import notification_queue
 
 
 class NotificationService:

@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 from sqlalchemy import String, Text, Integer, DateTime, Boolean, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from models import Base
+from core.database import Base
 
 
 class TemplateStatus(str, PyEnum):

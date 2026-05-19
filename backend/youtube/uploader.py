@@ -10,7 +10,8 @@ from googleapiclient.http import MediaFileUpload
 
 from sqlalchemy.orm import Session
 
-from models import GeneratedVideo, StoryStatus
+from video.models import GeneratedVideo
+from stories.models import StoryStatus
 from youtube.auth import YouTubeAuthManager, YouTubeAuthError
 
 

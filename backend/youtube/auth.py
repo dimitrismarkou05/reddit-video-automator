@@ -12,8 +12,8 @@ from google.oauth2.credentials import Credentials
 
 from sqlalchemy.orm import Session
 
-from models import Setting
-from settings_manager import SettingsManager
+from settings.models import Setting
+from core.settings_manager import SettingsManager
 
 
 YOUTUBE_SCOPES = [
