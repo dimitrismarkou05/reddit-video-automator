@@ -31,7 +31,7 @@ export function StoryActions({
         href={permalink}
         target="_blank"
         rel="noopener noreferrer"
-        className="p-2 rounded-lg bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-white/5 transition-colors"
+        className="p-2 rounded-lg bg-gray-100 dark:bg-surface-dark text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-white/5 transition-colors"
         title="View on Reddit"
       >
         <ExternalLink className="w-5 h-5" />
