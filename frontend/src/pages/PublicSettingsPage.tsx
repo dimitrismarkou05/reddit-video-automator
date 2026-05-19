@@ -10,7 +10,8 @@ export function PublicSettingsPage() {
   const navigate = useNavigate();
   const isElectron = !!window.electronAPI;
 
-  const handleSave = async () => {
+  const handleSave = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     try {
       await settingsApi.set("youtube_client_id", clientId, true);
       await settingsApi.set("youtube_client_secret", clientSecret, true);
@@ -62,20 +63,30 @@ export function PublicSettingsPage() {
               <strong>YouTube Data API v3</strong>
             </li>
             <li>
+              Open the <strong>OAuth consent screen</strong>, choose{" "}
+              <strong>External</strong>, and leave it in{" "}
+              <strong>Testing</strong> (unverified) — this is what Google
+              Console allows for personal use
+            </li>
+            <li>
+              Under <strong>Test users</strong>, add the Google email address
+              you will use to log in
+            </li>
+            <li>
               Create an <strong>OAuth 2.0 Client ID</strong> (Web application
               type)
             </li>
             <li>
               Add{" "}
               <code className="bg-gray-100 dark:bg-surface-dark/50 px-1.5 py-0.5 rounded text-xs">
-                http://localhost:8080/callback
+                http://localhost:8000/api/v1/youtube/auth/callback
               </code>{" "}
               as a redirect URI
             </li>
             <li>Copy the Client ID and Client Secret below</li>
           </ol>
 
-          <div className="space-y-3">
+          <form onSubmit={handleSave} className="space-y-3">
             <input
               type="password"
               placeholder="OAuth Client ID"
@@ -90,13 +101,10 @@ export function PublicSettingsPage() {
               onChange={(e) => setClientSecret(e.target.value)}
               className="input"
             />
-            <button
-              onClick={handleSave}
-              className="cursor-pointer btn-primary w-full"
-            >
+            <button type="submit" className="cursor-pointer btn-primary w-full">
               Save & Go to Login
             </button>
-          </div>
+          </form>
         </div>
 
         <div className="text-center mt-6">

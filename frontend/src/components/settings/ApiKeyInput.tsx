@@ -21,7 +21,8 @@ export function ApiKeyInput({
   onChange,
   hint,
 }: ApiKeyInputProps) {
-  const handleSave = async () => {
+  const handleSave = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!value.trim()) {
       toast.error("Please enter an API key");
       return;
@@ -55,7 +56,7 @@ export function ApiKeyInput({
           Get API Key
         </button>
       </div>
-      <div className="flex gap-3">
+      <form onSubmit={handleSave} className="flex gap-3">
         <input
           type="password"
           placeholder={placeholder}
@@ -63,10 +64,10 @@ export function ApiKeyInput({
           onChange={(e) => onChange(e.target.value)}
           className="input flex-1"
         />
-        <button onClick={handleSave} className="cursor-pointer btn-primary">
+        <button type="submit" className="cursor-pointer btn-primary">
           Save
         </button>
-      </div>
+      </form>
       {hint && <p className="text-xs text-gray-500">{hint}</p>}
     </div>
   );
