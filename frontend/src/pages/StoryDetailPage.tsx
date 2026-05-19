@@ -445,7 +445,7 @@ export function StoryDetailPage() {
                 <button
                   onClick={() => setShowGenerateModal(true)}
                   disabled={hasVideo}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium  ${
+                  className={`cursor-pointer flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium  ${
                     hasVideo
                       ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
                       : "bg-primary/10 text-primary hover:bg-primary/20"
