@@ -31,6 +31,7 @@ export function StoriesPage() {
   const [showSubredditDropdown, setShowSubredditDropdown] = useState(false);
   const [showFetchModal, setShowFetchModal] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [privateSubConfirm, setPrivateSubConfirm] = useState<{
     name: string;
@@ -53,14 +54,15 @@ export function StoriesPage() {
     isLoading,
     refetch: refetchStories,
   } = useQuery({
-    queryKey: ["stories", selectedSubreddit, sortBy, currentPage],
+    queryKey: ["stories", selectedSubreddit, sortBy, currentPage, searchQuery],
     queryFn: async () => {
-      const params: Record<string, any> = { 
-        page: currentPage, 
+      const params: Record<string, any> = {
+        page: currentPage,
         limit: STORIES_PER_PAGE,
-        sort_by: sortBy 
+        sort_by: sortBy,
       };
       if (selectedSubreddit !== "all") params.subreddit = selectedSubreddit;
+      if (searchQuery.trim()) params.search = searchQuery.trim();
       const { data } = await storyApi.list(params);
       return data;
     },
@@ -74,10 +76,10 @@ export function StoriesPage() {
     },
   });
 
-  // Reset to page 1 when filters change
+  // Reset to page 1 when filters or search change
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedSubreddit, sortBy]);
+  }, [selectedSubreddit, sortBy, searchQuery]);
 
   // Scroll to top on page change
   useEffect(() => {
@@ -238,7 +240,8 @@ export function StoriesPage() {
   const paginatedStories = storiesData?.items || [];
   const totalStories = storiesData?.total || 0;
   const totalPages = storiesData?.pages || 1;
-  const showingStart = totalStories === 0 ? 0 : (currentPage - 1) * STORIES_PER_PAGE + 1;
+  const showingStart =
+    totalStories === 0 ? 0 : (currentPage - 1) * STORIES_PER_PAGE + 1;
   const showingEnd = Math.min(currentPage * STORIES_PER_PAGE, totalStories);
 
   return (
@@ -310,6 +313,8 @@ export function StoriesPage() {
           onDeleteAllStories={() => setAllStories()}
           setShowSubredditDropdown={setShowSubredditDropdown}
           setShowSortDropdown={setShowSortDropdown}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
         />
       </div>
 
@@ -335,12 +340,16 @@ export function StoriesPage() {
             title={
               selectedSubreddit !== "all"
                 ? `No stories in r/${selectedSubreddit}`
-                : "No stories yet"
+                : searchQuery
+                  ? `No stories matching "${searchQuery}"`
+                  : "No stories yet"
             }
             subtitle={
               selectedSubreddit !== "all"
                 ? "Try another subreddit or fetch new stories"
-                : "Add a subreddit and click 'Fetch' to get started"
+                : searchQuery
+                  ? "Try a different search term"
+                  : "Add a subreddit and click 'Fetch' to get started"
             }
           />
         )}

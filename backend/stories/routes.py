@@ -1,8 +1,8 @@
 """Story management and update linking routes."""
 
-from typing import Optional, List
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from core.database import get_db
@@ -10,6 +10,7 @@ from stories.models import Story
 from stories.schemas import StoryResponse, StoryDetailResponse, StoryChainResponse, StoryListResponse
 from services.notification_service import NotificationService
 from stories.linker.core import UpdateLinker
+from stories.search import build_search_filter, build_search_rank
 
 router = APIRouter()
 
@@ -22,6 +23,7 @@ def list_stories(
     status: Optional[str] = None,
     is_update: Optional[bool] = None,
     sort_by: Optional[str] = Query(None, pattern="^(date_desc|date_asc|score_desc|score_asc|title_asc)$"),
+    search: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     # Build base query - only parent stories by default for pagination
@@ -35,17 +37,38 @@ def list_stories(
     if status:
         base_query = base_query.filter(Story.status == status)
 
-    # Apply sorting
-    if sort_by == "date_asc":
-        base_query = base_query.order_by(Story.created_utc.asc())
-    elif sort_by == "score_desc":
-        base_query = base_query.order_by(Story.score.desc())
-    elif sort_by == "score_asc":
-        base_query = base_query.order_by(Story.score.asc())
-    elif sort_by == "title_asc":
-        base_query = base_query.order_by(Story.title.asc())
+    # Apply search filter
+    if search and search.strip():
+        search_filter = build_search_filter(search)
+        if search_filter is not None:
+            base_query = base_query.filter(search_filter)
+
+        rank_score = build_search_rank(search)
+
+        if sort_by is None:
+            base_query = base_query.order_by(rank_score.desc(), Story.created_utc.desc())
+        else:
+            if sort_by == "date_asc":
+                base_query = base_query.order_by(Story.created_utc.asc(), rank_score.desc())
+            elif sort_by == "score_desc":
+                base_query = base_query.order_by(Story.score.desc(), rank_score.desc())
+            elif sort_by == "score_asc":
+                base_query = base_query.order_by(Story.score.asc(), rank_score.desc())
+            elif sort_by == "title_asc":
+                base_query = base_query.order_by(Story.title.asc(), rank_score.desc())
+            else:
+                base_query = base_query.order_by(Story.created_utc.desc(), rank_score.desc())
     else:
-        base_query = base_query.order_by(Story.created_utc.desc())
+        if sort_by == "date_asc":
+            base_query = base_query.order_by(Story.created_utc.asc())
+        elif sort_by == "score_desc":
+            base_query = base_query.order_by(Story.score.desc())
+        elif sort_by == "score_asc":
+            base_query = base_query.order_by(Story.score.asc())
+        elif sort_by == "title_asc":
+            base_query = base_query.order_by(Story.title.asc())
+        else:
+            base_query = base_query.order_by(Story.created_utc.desc())
 
     # Get total count
     total = base_query.with_entities(func.count()).scalar()
