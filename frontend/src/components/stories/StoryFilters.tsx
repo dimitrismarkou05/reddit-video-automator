@@ -1,5 +1,12 @@
-import { useRef, useEffect } from "react";
-import { Filter, ArrowUpDown, ChevronDown, Trash } from "lucide-react";
+import { useRef, useEffect, useState } from "react";
+import {
+  Filter,
+  ArrowUpDown,
+  ChevronDown,
+  Trash,
+  Search,
+  X,
+} from "lucide-react";
 import { SORT_OPTIONS, type SortOption } from "@/config/sortOptions";
 
 interface StoryFiltersProps {
@@ -15,6 +22,8 @@ interface StoryFiltersProps {
   onDeleteAllStories: () => void;
   setShowSubredditDropdown: (value: boolean) => void;
   setShowSortDropdown: (value: boolean) => void;
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
 }
 
 export function StoryFilters({
@@ -30,9 +39,19 @@ export function StoryFilters({
   onDeleteAllStories,
   setShowSubredditDropdown,
   setShowSortDropdown,
+  searchQuery,
+  onSearchChange,
 }: StoryFiltersProps) {
   const subredditDropdownRef = useRef<HTMLDivElement>(null);
   const sortDropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [inputValue, setInputValue] = useState(searchQuery);
+  const [isFocused, setIsFocused] = useState(false);
+
+  // Keep local input in sync when parent clears/resets search
+  useEffect(() => {
+    setInputValue(searchQuery);
+  }, [searchQuery]);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -55,12 +74,63 @@ export function StoryFilters({
 
   const activeSortLabel = SORT_OPTIONS.find((s) => s.value === sortBy)?.label;
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      onSearchChange(inputValue.trim());
+    }
+  };
+
+  const handleClear = () => {
+    setInputValue("");
+    onSearchChange("");
+    inputRef.current?.focus();
+  };
+
+  const containerClasses = [
+    "flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-surface-dark",
+    "border border-border-light dark:border-border-dark rounded-full text-sm",
+    "transition-all",
+    isFocused || inputValue
+      ? "ring-2 ring-primary/50 border-primary w-64"
+      : "w-48",
+  ].join(" ");
+
   return (
     <div className="flex flex-wrap items-center gap-3">
+      {/* Search */}
+      <div className="relative">
+        <div className={containerClasses}>
+          <Search className="w-4 h-4 text-gray-400 shrink-0" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            placeholder="Search stories..."
+            className="bg-transparent border-none outline-none text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 w-full"
+          />
+          {inputValue && (
+            <button
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleClear();
+              }}
+              className="cursor-pointer p-0.5 rounded-full hover:bg-gray-100 dark:hover:bg-white/10 text-gray-400 shrink-0"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="relative" ref={subredditDropdownRef}>
         <button
           onClick={onToggleSubredditDropdown}
-          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 "
+          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5"
         >
           <Filter className="w-4 h-4" />
           {selectedSubreddit === "all"
@@ -75,7 +145,7 @@ export function StoryFilters({
               onClick={() => {
                 onSelectSubreddit("all");
               }}
-              className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm  ${
+              className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm ${
                 selectedSubreddit === "all"
                   ? "bg-primary/10 text-primary font-medium"
                   : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
@@ -90,7 +160,7 @@ export function StoryFilters({
                 onClick={() => {
                   onSelectSubreddit(sub.name);
                 }}
-                className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm  ${
+                className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm ${
                   selectedSubreddit === sub.name
                     ? "bg-primary/10 text-primary font-medium"
                     : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
@@ -109,7 +179,7 @@ export function StoryFilters({
       <div className="relative" ref={sortDropdownRef}>
         <button
           onClick={onToggleSortDropdown}
-          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5 "
+          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-surface-dark border border-border-light dark:border-border-dark rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-white/5"
         >
           <ArrowUpDown className="w-4 h-4" />
           {activeSortLabel}
@@ -125,7 +195,7 @@ export function StoryFilters({
                   onClick={() => {
                     onSelectSort(option.value);
                   }}
-                  className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm  ${
+                  className={`cursor-pointer w-full flex items-center gap-3 px-4 py-2.5 text-sm ${
                     sortBy === option.value
                       ? "bg-primary/10 text-primary font-medium"
                       : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-white/5"
@@ -152,7 +222,7 @@ export function StoryFilters({
       <div className="flex-1 flex justify-end">
         <button
           onClick={onDeleteAllStories}
-          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 text-sm text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg "
+          className="cursor-pointer flex items-center gap-2 px-3 py-1.5 text-sm text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
           title="Delete all stories"
         >
           <Trash className="w-4 h-4" />
