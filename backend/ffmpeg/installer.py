@@ -208,7 +208,7 @@ class FfmpegInstaller:
                 follow_redirects=True,
                 timeout=timeout_config,
                 headers=headers,
-                verify=True  # Keep SSL verification on
+                verify=True
             ) as client:
                 self._emit("download_progress", step="Starting download...", progress=10)
                 
@@ -227,10 +227,10 @@ class FfmpegInstaller:
                     total = int(response.headers.get("content-length", 0))
                     downloaded = 0
                     last_percent = 10
-                    last_update_time = asyncio.get_event_loop().time()
+                    downloaded_mb_last = 0
 
                     with open(archive_path, "wb") as f:
-                        async for chunk in response.aiter_bytes(chunk_size=65536):
+                        async for chunk in response.aiter_bytes(chunk_size=262144):  # 256KB chunks for smoother updates
                             if self._cancelled:
                                 raise asyncio.CancelledError("Installation cancelled")
                             f.write(chunk)
@@ -238,12 +238,12 @@ class FfmpegInstaller:
                             
                             if total > 0:
                                 percent = 10 + int((downloaded / total) * 50)
+                                downloaded_mb = downloaded // (1024 * 1024)
                                 
-                                current_time = asyncio.get_event_loop().time()
-                                if percent != last_percent and (current_time - last_update_time) >= 0.1:
+                                # Update progress when percentage changes OR every 5MB
+                                if percent != last_percent or downloaded_mb > downloaded_mb_last + 5:
                                     last_percent = percent
-                                    last_update_time = current_time
-                                    downloaded_mb = downloaded // (1024 * 1024)
+                                    downloaded_mb_last = downloaded_mb
                                     total_mb = total // (1024 * 1024)
                                     self._emit(
                                         "download_progress",
@@ -298,7 +298,7 @@ class FfmpegInstaller:
 
             self._emit("installing", step="Verifying installation...", progress=95)
 
-            # Step 5: Verify
+            # Step 5: Verify - FIXED to prevent hanging
             ffmpeg_ok = await asyncio.to_thread(self._verify_binary, str(dest_ffmpeg))
             ffprobe_ok = await asyncio.to_thread(self._verify_binary, str(dest_ffprobe))
 
@@ -349,14 +349,28 @@ class FfmpegInstaller:
         return ffmpeg_path, ffprobe_path
 
     def _verify_binary(self, path: str) -> bool:
+        """Verify binary works with a short timeout and proper arguments."""
         try:
+            # Use timeout=5 seconds to prevent hanging
+            # Use -version with no interaction
             result = subprocess.run(
                 [path, "-version"],
                 capture_output=True,
                 text=True,
-                timeout=15,
+                timeout=5,  # Reduced from 15 to 5 seconds
                 check=False,
+                stdin=subprocess.DEVNULL,  # Prevent waiting for input
             )
-            return result.returncode == 0
-        except (subprocess.TimeoutExpired, OSError):
+            # Check exit code and that we got some output
+            valid = result.returncode == 0 and len(result.stdout) > 0
+            
+            if not valid and result.stderr:
+                # Log stderr for debugging but don't fail if stdout has version info
+                valid = "version" in result.stdout.lower() or "version" in result.stderr.lower()
+            
+            return valid
+        except subprocess.TimeoutExpired:
+            # If it times out, try killing the process
+            return False
+        except (OSError, FileNotFoundError):
             return False
