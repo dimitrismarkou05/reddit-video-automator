@@ -16,6 +16,7 @@ interface TemplateCardProps {
   onToggle: () => void;
   onDelete: () => void;
   onRun: () => void;
+  canGenerate?: boolean;
 }
 
 export function TemplateCard({
@@ -23,6 +24,7 @@ export function TemplateCard({
   onToggle,
   onDelete,
   onRun,
+  canGenerate = true,
 }: TemplateCardProps) {
   const [showDetails, setShowDetails] = useState(false);
 
@@ -42,7 +44,14 @@ export function TemplateCard({
             />
           </div>
           <div>
-            <h3 className="font-semibold">{template.name}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold">{template.name}</h3>
+              {!canGenerate && (
+                <span className="px-1.5 py-0.5 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 text-xs rounded font-medium">
+                  FFmpeg Missing
+                </span>
+              )}
+            </div>
             <p className="text-xs text-gray-500">
               {template.description || "No description"}
             </p>
@@ -66,8 +75,13 @@ export function TemplateCard({
           </button>
           <button
             onClick={onRun}
-            className="cursor-pointer p-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 "
-            title="Run now"
+            disabled={!canGenerate}
+            className={`p-2 rounded-lg  ${
+              canGenerate
+                ? "cursor-pointer bg-primary/10 text-primary hover:bg-primary/20"
+                : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
+            }`}
+            title={canGenerate ? "Run now" : "FFmpeg not installed"}
           >
             <Play className="w-4 h-4" />
           </button>

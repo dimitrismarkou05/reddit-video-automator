@@ -118,3 +118,24 @@ export interface SubtitleStyle {
   outline_width: number;
   max_width_percent: number;
 }
+
+// ─── FFmpeg Types ───
+
+export interface FfmpegStatus {
+  ffmpeg_installed: boolean;
+  ffprobe_installed: boolean;
+  ffmpeg_path: string | null;
+  ffprobe_path: string | null;
+  ffmpeg_version: string | null;
+  ffprobe_version: string | null;
+  can_generate_videos: boolean;
+}
+
+export interface FfmpegInstallProgress {
+  event_type: string;
+  progress_percent: number;
+  step: string;
+  mirror: string | null;
+  retry_count: number;
+  error: string | null;
+}
