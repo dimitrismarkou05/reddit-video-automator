@@ -3,6 +3,7 @@
 import asyncio
 import os
 import platform
+import random
 import shutil
 import subprocess
 import tempfile
@@ -20,12 +21,30 @@ from ffmpeg.sse import update_install_state
 class FfmpegInstaller:
     """Handles downloading and installing FFmpeg/FFprobe."""
 
+    # Rotating user agents - same as Reddit client
+    USER_AGENTS = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:126.0) Gecko/20100101 Firefox/126.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+    ]
+
     def __init__(self, progress_callback: Optional[Callable[[dict], None]] = None):
         self.progress_callback = progress_callback
         self._cancelled = False
         self.system = platform.system().lower()
         self.ffmpeg_dir = APP_DIR / "ffmpeg"
         self.ffmpeg_dir.mkdir(parents=True, exist_ok=True)
+        self._ua_index = 0
+
+    def _next_ua(self) -> str:
+        """Rotate through user agents."""
+        ua = self.USER_AGENTS[self._ua_index % len(self.USER_AGENTS)]
+        self._ua_index += 1
+        return ua
 
     def cancel(self) -> None:
         self._cancelled = True
@@ -40,7 +59,6 @@ class FfmpegInstaller:
             "retry_count": kwargs.get("retry", 0),
             "error": kwargs.get("error"),
         }
-        # Update global SSE state (thread-safe via GIL)
         update_install_state(
             event_type=event_type,
             progress=kwargs.get("progress", 0),
@@ -51,7 +69,6 @@ class FfmpegInstaller:
         )
         if self.progress_callback:
             self.progress_callback(payload)
-
 
     async def install(self) -> dict:
         """Download and install FFmpeg. Returns status dict."""
@@ -67,13 +84,17 @@ class FfmpegInstaller:
                 self._emit("cancelled", step="Installation cancelled by user")
                 return {"success": False, "error": "Installation cancelled"}
 
+            # Reset UA index for each mirror to try fresh user agents
+            self._ua_index = mirror_idx * 3
+
             self._emit(
                 "mirror_switch",
                 step=f"Trying mirror {mirror_idx + 1}/{len(mirrors)}...",
                 mirror=mirror_url,
+                progress=0,
             )
 
-            for attempt in range(1, 4):  # 3 retries per mirror
+            for attempt in range(1, 4):
                 if self._cancelled:
                     self._emit("cancelled", step="Installation cancelled by user")
                     return {"success": False, "error": "Installation cancelled"}
@@ -84,11 +105,13 @@ class FfmpegInstaller:
                         step=f"Retrying download (attempt {attempt}/3)...",
                         mirror=mirror_url,
                         retry=attempt,
+                        progress=5,
                     )
-                    await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    # Exponential backoff with jitter
+                    await asyncio.sleep(random.uniform(1, 2 ** attempt))
 
                 try:
-                    result = await self._download_and_install(mirror_url)
+                    result = await self._download_and_install(mirror_url, attempt)
                     if result["success"]:
                         self._emit(
                             "complete",
@@ -98,68 +121,150 @@ class FfmpegInstaller:
                         )
                         return result
                 except Exception as exc:
-                    error_msg = str(exc)
-                    self._emit(
-                        "retry",
-                        step=f"Download failed: {error_msg}",
-                        mirror=mirror_url,
-                        retry=attempt,
-                        error=error_msg,
-                    )
-                    continue
+                    error_msg = str(exc).lower()
+                    
+                    # Check error types for faster failover
+                    is_404 = "404" in error_msg
+                    is_403 = "403" in error_msg or "forbidden" in error_msg
+                    is_timeout = any(x in error_msg for x in ["timeout", "timed out"])
+                    is_connection = any(x in error_msg for x in ["connect", "connection", "network"])
+                    
+                    if is_404:
+                        # URL doesn't exist, move to next mirror immediately
+                        self._emit(
+                            "mirror_switch",
+                            step=f"Mirror URL not found, trying next...",
+                            mirror=mirror_url,
+                            error=error_msg,
+                            progress=0,
+                        )
+                        break
+                    elif is_403 and attempt == 1:
+                        # Access denied, try different user agent on next attempt
+                        self._emit(
+                            "retry",
+                            step=f"Access denied, trying with different user agent...",
+                            mirror=mirror_url,
+                            retry=attempt,
+                            progress=5,
+                        )
+                        continue
+                    elif (is_timeout or is_connection) and attempt == 1:
+                        # Connection issue, try next mirror
+                        self._emit(
+                            "mirror_switch",
+                            step=f"Connection issue, trying next mirror...",
+                            mirror=mirror_url,
+                            error=error_msg,
+                            progress=0,
+                        )
+                        break
+                    else:
+                        self._emit(
+                            "retry",
+                            step=f"Download failed: {error_msg[:100]}",
+                            mirror=mirror_url,
+                            retry=attempt,
+                            error=error_msg,
+                            progress=5,
+                        )
+                        continue
 
         self._emit(
             "failed",
             step="All mirrors exhausted. Installation failed.",
-            error="All download mirrors failed after retries.",
+            error="All download mirrors failed after retries. Please install FFmpeg manually.",
+            progress=0,
         )
         return {
             "success": False,
             "error": "All download mirrors failed after retries. Please install FFmpeg manually.",
         }
 
-    async def _download_and_install(self, url: str) -> dict:
+    async def _download_and_install(self, url: str, attempt: int = 1) -> dict:
         """Download from a single mirror and install."""
         temp_dir = Path(tempfile.mkdtemp(dir=TEMP_DIR))
         archive_path = temp_dir / "ffmpeg_archive"
 
         try:
-            # Download with progress
-            self._emit("download_progress", step="Downloading FFmpeg...", progress=0)
+            # Step 1: Download - smooth progress from 0 to 60
+            self._emit("download_progress", step="Connecting to mirror...", progress=5)
 
-            async with httpx.AsyncClient(follow_redirects=True, timeout=300.0) as client:
+            # Rotate user agent on each attempt
+            headers = {
+                "User-Agent": self._next_ua(),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Connection": "keep-alive",
+                "DNT": "1",
+                "Upgrade-Insecure-Requests": "1",
+            }
+
+            # Longer timeout for slow connections
+            timeout_config = httpx.Timeout(300.0, connect=30.0, read=120.0)
+            
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=timeout_config,
+                headers=headers,
+                verify=True  # Keep SSL verification on
+            ) as client:
+                self._emit("download_progress", step="Starting download...", progress=10)
+                
+                # Use stream() to download progressively
                 async with client.stream("GET", url) as response:
+                    # Handle different status codes
+                    if response.status_code == 404:
+                        raise Exception(f"HTTP 404 Not Found - URL may be invalid")
+                    elif response.status_code == 403:
+                        raise Exception(f"HTTP 403 Forbidden - Access denied with UA: {headers['User-Agent'][:50]}...")
+                    elif response.status_code == 429:
+                        raise Exception(f"HTTP 429 Too Many Requests - Rate limited")
+                    
                     response.raise_for_status()
+                    
                     total = int(response.headers.get("content-length", 0))
                     downloaded = 0
+                    last_percent = 10
+                    last_update_time = asyncio.get_event_loop().time()
 
                     with open(archive_path, "wb") as f:
-                        async for chunk in response.aiter_bytes(chunk_size=8192):
+                        async for chunk in response.aiter_bytes(chunk_size=65536):
                             if self._cancelled:
                                 raise asyncio.CancelledError("Installation cancelled")
                             f.write(chunk)
                             downloaded += len(chunk)
+                            
                             if total > 0:
-                                percent = int((downloaded / total) * 50)
-                                self._emit(
-                                    "download_progress",
-                                    step="Downloading FFmpeg...",
-                                    progress=percent,
-                                )
+                                percent = 10 + int((downloaded / total) * 50)
+                                
+                                current_time = asyncio.get_event_loop().time()
+                                if percent != last_percent and (current_time - last_update_time) >= 0.1:
+                                    last_percent = percent
+                                    last_update_time = current_time
+                                    downloaded_mb = downloaded // (1024 * 1024)
+                                    total_mb = total // (1024 * 1024)
+                                    self._emit(
+                                        "download_progress",
+                                        step=f"Downloading... {downloaded_mb}MB / {total_mb}MB",
+                                        progress=percent,
+                                    )
 
-            self._emit("download_progress", step="Download complete", progress=50)
+            self._emit("download_progress", step="Download complete!", progress=60)
 
-            # Extract
-            self._emit("extracting", step="Extracting archive...", progress=55)
+            # Step 2: Extract - progress 60 to 75
+            self._emit("extracting", step="Extracting archive...", progress=65)
             extract_dir = temp_dir / "extracted"
             extract_dir.mkdir()
 
-            if url.endswith(".zip") or str(archive_path).endswith(".zip"):
+            # Try different extraction methods based on file extension
+            if archive_path.suffix == ".zip" or ".zip" in str(url):
                 await asyncio.to_thread(self._extract_zip, archive_path, extract_dir)
-            elif url.endswith(".tar.xz") or ".tar." in url:
+            elif archive_path.suffix == ".xz" or ".tar." in str(url):
                 await asyncio.to_thread(self._extract_tar, archive_path, extract_dir)
             else:
-                # Try zip first, then tar
+                # Try both
                 try:
                     await asyncio.to_thread(self._extract_zip, archive_path, extract_dir)
                 except Exception:
@@ -167,7 +272,7 @@ class FfmpegInstaller:
 
             self._emit("extracting", step="Extraction complete", progress=75)
 
-            # Find binaries
+            # Step 3: Locate binaries - 75 to 85
             self._emit("installing", step="Locating binaries...", progress=80)
             ffmpeg_bin, ffprobe_bin = await asyncio.to_thread(
                 self._find_binaries, extract_dir
@@ -175,10 +280,11 @@ class FfmpegInstaller:
 
             if not ffmpeg_bin or not ffprobe_bin:
                 raise RuntimeError(
-                    "Could not find ffmpeg and ffprobe binaries in the downloaded archive."
+                    f"Could not find ffmpeg and ffprobe binaries in the downloaded archive. "
+                    f"Found ffmpeg: {ffmpeg_bin is not None}, ffprobe: {ffprobe_bin is not None}"
                 )
 
-            # Install (copy to app dir)
+            # Step 4: Install binaries - 85 to 95
             self._emit("installing", step="Installing binaries...", progress=85)
             dest_ffmpeg = self.ffmpeg_dir / ("ffmpeg.exe" if self.system == "windows" else "ffmpeg")
             dest_ffprobe = self.ffmpeg_dir / ("ffprobe.exe" if self.system == "windows" else "ffprobe")
@@ -186,14 +292,13 @@ class FfmpegInstaller:
             shutil.copy2(ffmpeg_bin, dest_ffmpeg)
             shutil.copy2(ffprobe_bin, dest_ffprobe)
 
-            # Make executable on Unix
             if self.system != "windows":
                 os.chmod(dest_ffmpeg, 0o755)
                 os.chmod(dest_ffprobe, 0o755)
 
             self._emit("installing", step="Verifying installation...", progress=95)
 
-            # Verify
+            # Step 5: Verify
             ffmpeg_ok = await asyncio.to_thread(self._verify_binary, str(dest_ffmpeg))
             ffprobe_ok = await asyncio.to_thread(self._verify_binary, str(dest_ffprobe))
 
@@ -206,8 +311,11 @@ class FfmpegInstaller:
                 "ffprobe_path": str(dest_ffprobe),
             }
 
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            raise Exception(f"Installation failed: {exc}")
         finally:
-            # Cleanup temp files
             await asyncio.to_thread(shutil.rmtree, temp_dir, ignore_errors=True)
 
     def _extract_zip(self, archive: Path, dest: Path) -> None:
