@@ -1,5 +1,6 @@
+// frontend/src/components/ffmpeg/FfmpegMissingModal.tsx
 import { useState } from "react";
-import { AlertTriangle, Download, Settings } from "lucide-react";
+import { AlertTriangle, Download, Settings, X } from "lucide-react"; // Add X
 import { ModalShell } from "@/components/common/ModalShell";
 import { FfmpegInstallModal } from "./FfmpegInstallModal";
 
@@ -27,7 +28,14 @@ export function FfmpegMissingModal({
 
   return (
     <ModalShell onClose={onClose} maxWidth="max-w-md">
-      <div className="p-6 space-y-5">
+      <div className="p-6 space-y-5 relative">
+        <button
+          onClick={onClose}
+          className="cursor-pointer absolute top-4 right-4 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 z-10"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
         <div className="text-center">
           <div className="w-14 h-14 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center mx-auto mb-4">
             <AlertTriangle className="w-7 h-7 text-yellow-600 dark:text-yellow-400" />
@@ -39,6 +47,7 @@ export function FfmpegMissingModal({
           </p>
         </div>
 
+        {/* Rest of the component unchanged */}
         <div className="space-y-2 text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-surface-dark/50 rounded-lg p-3">
           <p>Without FFmpeg you can still:</p>
           <ul className="list-disc pl-5 space-y-1">
