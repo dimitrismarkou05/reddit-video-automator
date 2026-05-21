@@ -12,6 +12,9 @@ import { StoryDetailPage } from "@/pages/StoryDetailPage";
 import { youtubeApi } from "@/services/api";
 import { PublicSettingsPage } from "@/pages/PublicSettingsPage";
 import { TitleBar } from "@/components/TitleBar";
+import { FfmpegMissingModal } from "@/components/ffmpeg/FfmpegMissingModal";
+import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
+import { useState } from "react";
 
 function ProtectedRoute() {
   const { authStatus, isLoading } = useAuthStore();
@@ -64,6 +67,10 @@ function App() {
   const { isDark } = useThemeStore();
   const { setAuthStatus, setLoading } = useAuthStore();
   const isElectron = !!window.electronAPI;
+  const [showFfmpegMissing, setShowFfmpegMissing] = useState(false);
+  const [ffmpegSkipped, setFfmpegSkipped] = useState(false);
+
+  const { status: ffmpegStatus, isLoading: ffmpegLoading } = useFfmpegStatus();
 
   useEffect(() => {
     if (isDark) {
@@ -86,6 +93,13 @@ function App() {
     };
     checkAuth();
   }, [setAuthStatus, setLoading]);
+
+  // Show FFmpeg missing modal on startup if not installed and not skipped
+  useEffect(() => {
+    if (!ffmpegLoading && ffmpegStatus && !ffmpegStatus.can_generate_videos && !ffmpegSkipped) {
+      setShowFfmpegMissing(true);
+    }
+  }, [ffmpegLoading, ffmpegStatus, ffmpegSkipped]);
 
   return (
     <div
@@ -119,6 +133,13 @@ function App() {
           </Route>
         </Routes>
       </div>
+
+      {showFfmpegMissing && (
+        <FfmpegMissingModal
+          onClose={() => setShowFfmpegMissing(false)}
+          onSkip={() => setFfmpegSkipped(true)}
+        />
+      )}
     </div>
   );
 }

@@ -16,6 +16,7 @@ interface UpdateCardProps {
   totalUpdates: number;
   onDelete: (story: Story) => void;
   parentStoryId: number;
+  canGenerate?: boolean;
 }
 
 export function UpdateCard({
@@ -24,6 +25,7 @@ export function UpdateCard({
   totalUpdates,
   onDelete,
   parentStoryId,
+  canGenerate = true,
 }: UpdateCardProps) {
   const navigate = useNavigate();
   const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -75,6 +77,7 @@ export function UpdateCard({
                 permalink={update.permalink}
                 onGenerate={() => setShowGenerateModal(true)}
                 onDelete={() => onDelete(update)}
+                canGenerate={canGenerate}
               />
             </div>
           </div>

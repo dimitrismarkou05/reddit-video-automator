@@ -11,6 +11,8 @@ from notifications.routes import router as notifications_router
 from notifications.sse import router as notifications_sse_router
 from settings.routes import router as settings_router
 from automation.routes import router as automation_router
+from ffmpeg.routes import router as ffmpeg_router
+from ffmpeg.sse import router as ffmpeg_sse_router
 
 api_router = APIRouter()
 
@@ -27,6 +29,7 @@ api_router.include_router(video_router, prefix="/videos", tags=["Videos"])
 # SSE streams
 api_router.include_router(video_sse_router, prefix="/sse", tags=["SSE"])
 api_router.include_router(notifications_sse_router, prefix="/sse", tags=["SSE"])
+api_router.include_router(ffmpeg_sse_router, prefix="/sse/ffmpeg", tags=["SSE"])
 
 # YouTube
 api_router.include_router(youtube_router, prefix="/youtube", tags=["YouTube"])
@@ -39,3 +42,6 @@ api_router.include_router(settings_router, prefix="/settings", tags=["Settings"]
 
 # Automation
 api_router.include_router(automation_router, prefix="/automation", tags=["Automation"])
+
+# FFmpeg
+api_router.include_router(ffmpeg_router, prefix="/ffmpeg", tags=["FFmpeg"])

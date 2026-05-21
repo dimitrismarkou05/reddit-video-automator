@@ -1,21 +1,29 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   Key,
   Film,
   Palette,
   FolderOpen,
-  ExternalLink,
   Check,
   AlertCircle,
   Sun,
   Moon,
   Monitor,
   Mic,
+  RotateCcw,
+  Download,
+  FolderInput,
+  TestTube,
+  Loader2,
 } from "lucide-react";
 import { useThemeStore, useAuthStore } from "@/store";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { ApiKeyInput } from "@/components/settings/ApiKeyInput";
+import { FfmpegStatus } from "@/components/ffmpeg/FfmpegStatus";
+import { FfmpegInstallModal } from "@/components/ffmpeg/FfmpegInstallModal";
+import { ffmpegApi } from "@/services/api";
+import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
+import toast from "react-hot-toast";
 
 export function SettingsPage() {
   const { isDark, toggle } = useThemeStore();
@@ -23,34 +31,101 @@ export function SettingsPage() {
   const [ttsKey, setTtsKey] = useState("");
   const [elevenLabsKey, setElevenLabsKey] = useState("");
   const [ffmpegPath, setFfmpegPath] = useState("");
-  const [outputDir, setOutputDir] = useState("");
+  const [ffprobePath, setFfprobePath] = useState("");
+  const [showInstallModal, setShowInstallModal] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [isSavingPath, setIsSavingPath] = useState(false);
 
-  const { data: ffmpegInfo } = useQuery({
-    queryKey: ["ffmpeg"],
-    queryFn: async () => {
-      return {
-        installed: true,
-        path: "/usr/bin/ffmpeg",
-        version: "ffmpeg version 6.0",
-      };
-    },
-    staleTime: Infinity,
-  });
+  const { status: ffmpegStatus, refetch: refetchFfmpeg } = useFfmpegStatus();
 
   const handleSelectOutputDir = async () => {
     if (window.electronAPI) {
       const path = await window.electronAPI.selectDirectory();
       if (path) {
-        setOutputDir(path);
+        // setOutputDir(path);
       }
     }
   };
 
-  const openExternal = async (url: string) => {
-    if (window.electronAPI) {
-      await window.electronAPI.openExternal(url);
-    } else {
-      window.open(url, "_blank");
+  const handleTestPath = async () => {
+    if (!ffmpegPath.trim()) {
+      toast.error("Please enter an FFmpeg path");
+      return;
+    }
+    setIsTesting(true);
+    try {
+      const { data } = await ffmpegApi.checkPath(ffmpegPath.trim());
+      if (data.valid) {
+        toast.success(
+          `Valid! Version: ${data.ffmpeg_version || data.ffprobe_version || "unknown"}`,
+        );
+      } else {
+        toast.error(data.error || "Invalid path");
+      }
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to validate path");
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  const handleSetPath = async () => {
+    if (!ffmpegPath.trim()) {
+      toast.error("Please enter an FFmpeg path");
+      return;
+    }
+    setIsSavingPath(true);
+    try {
+      const { data } = await ffmpegApi.setPath(
+        ffmpegPath.trim(),
+        ffprobePath.trim() || undefined,
+      );
+      if (data.valid) {
+        toast.success("FFmpeg path saved successfully");
+        refetchFfmpeg();
+        setFfmpegPath("");
+        setFfprobePath("");
+      } else {
+        toast.error(data.error || "Invalid path");
+      }
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to save path");
+    } finally {
+      setIsSavingPath(false);
+    }
+  };
+
+  const handleResetPaths = async () => {
+    setIsResetting(true);
+    try {
+      await ffmpegApi.reset();
+      toast.success("FFmpeg paths reset to defaults");
+      refetchFfmpeg();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to reset paths");
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
+  const handleRetryDetection = async () => {
+    setIsRetrying(true);
+    try {
+      const { data } = await ffmpegApi.getStatus();
+      if (data.can_generate_videos) {
+        toast.success("FFmpeg detected successfully");
+      } else {
+        toast.error(
+          "FFmpeg not found. Try installing or setting a custom path.",
+        );
+      }
+      refetchFfmpeg();
+    } catch (e: any) {
+      toast.error("Failed to detect FFmpeg");
+    } finally {
+      setIsRetrying(false);
     }
   };
 
@@ -113,45 +188,145 @@ export function SettingsPage() {
         )}
       </SettingsSection>
 
-      <SettingsSection title="FFmpeg Settings" icon={Film}>
-        {ffmpegInfo ? (
-          <div className="space-y-3">
-            <div className="flex items-center gap-3 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
-              <Check className="w-5 h-5 text-green-500" />
-              <div>
-                <p className="font-medium text-sm">FFmpeg Detected</p>
-                <p className="text-xs text-gray-500">{ffmpegInfo.path}</p>
+      <SettingsSection title="FFmpeg Configuration" icon={Film}>
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <FfmpegStatus />
+          </div>
+
+          {ffmpegStatus?.ffmpeg_path && (
+            <div className="space-y-1 text-sm">
+              <div className="flex items-center gap-2">
+                <Check className="w-3.5 h-3.5 text-green-500" />
+                <span className="text-gray-500">FFmpeg:</span>
+                <code className="text-xs bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark px-1.5 py-0.5 rounded truncate">
+                  {ffmpegStatus.ffmpeg_path}
+                </code>
+              </div>
+              {ffmpegStatus.ffmpeg_version && (
+                <p className="text-xs text-gray-400 ml-5.5">
+                  Version {ffmpegStatus.ffmpeg_version}
+                </p>
+              )}
+            </div>
+          )}
+
+          {ffmpegStatus?.ffprobe_path && (
+            <div className="space-y-1 text-sm">
+              <div className="flex items-center gap-2">
+                <Check className="w-3.5 h-3.5 text-green-500" />
+                <span className="text-gray-500">FFprobe:</span>
+                <code className="text-xs bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark px-1.5 py-0.5 rounded truncate">
+                  {ffmpegStatus.ffprobe_path}
+                </code>
+              </div>
+              {ffmpegStatus.ffprobe_version && (
+                <p className="text-xs text-gray-400 ml-5.5">
+                  Version {ffmpegStatus.ffprobe_version}
+                </p>
+              )}
+            </div>
+          )}
+
+          {!ffmpegStatus?.can_generate_videos && (
+            <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-yellow-700 dark:text-yellow-400">
+                    FFmpeg not detected
+                  </p>
+                  <p className="text-xs text-yellow-600 dark:text-yellow-300 mt-0.5">
+                    Video generation is disabled. Install FFmpeg or set a custom
+                    path.
+                  </p>
+                </div>
               </div>
             </div>
-            <p className="text-xs text-gray-500 font-mono">
-              {ffmpegInfo.version}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex items-center gap-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg">
-              <AlertCircle className="w-5 h-5 text-red-500" />
-              <p className="text-sm">FFmpeg not detected on system</p>
-            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            {!ffmpegStatus?.can_generate_videos && (
+              <button
+                onClick={() => setShowInstallModal(true)}
+                className="cursor-pointer btn-primary flex items-center gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Install FFmpeg
+              </button>
+            )}
             <button
-              onClick={() => openExternal("https://ffmpeg.org/download.html")}
-              className="cursor-pointer btn-secondary text-sm flex items-center gap-2"
+              onClick={handleRetryDetection}
+              disabled={isRetrying}
+              className="cursor-pointer btn-secondary flex items-center gap-2 disabled:opacity-60"
             >
-              <ExternalLink className="w-4 h-4" />
-              Download FFmpeg
+              {isRetrying ? (
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+              ) : (
+                <RotateCcw className="w-4 h-4" />
+              )}
+              Retry Detection
             </button>
+            <button
+              onClick={handleResetPaths}
+              disabled={isResetting}
+              className="cursor-pointer btn-secondary flex items-center gap-2 disabled:opacity-60"
+            >
+              {isResetting ? (
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+              ) : (
+                <FolderOpen className="w-4 h-4" />
+              )}
+              Reset to Default
+            </button>
+          </div>
+
+          <div className="border-t border-border-light dark:border-border-dark pt-4 space-y-3">
+            <h4 className="text-sm font-medium">Custom Paths</h4>
             <div className="flex gap-3">
               <input
                 type="text"
-                placeholder="Manual FFmpeg path"
+                placeholder="FFmpeg path (e.g., /usr/bin/ffmpeg)"
                 value={ffmpegPath}
                 onChange={(e) => setFfmpegPath(e.target.value)}
                 className="input flex-1"
               />
-              <button className="cursor-pointer btn-primary">Set Path</button>
+              <button
+                onClick={handleTestPath}
+                disabled={isTesting}
+                className="cursor-pointer btn-secondary flex items-center justify-center gap-2 disabled:opacity-60 min-w-24"
+              >
+                {isTesting ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                ) : (
+                  <TestTube className="w-4 h-4" />
+                )}
+                Test
+              </button>
+            </div>
+            <div className="flex gap-3">
+              <input
+                type="text"
+                placeholder="FFprobe path (optional — auto-detected if omitted)"
+                value={ffprobePath}
+                onChange={(e) => setFfprobePath(e.target.value)}
+                className="input flex-1"
+              />
+              <button
+                onClick={handleSetPath}
+                disabled={isSavingPath}
+                className="cursor-pointer btn-primary flex items-center justify-center gap-2 disabled:opacity-60 min-w-24"
+              >
+                {isSavingPath ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <FolderInput className="w-4 h-4" />
+                )}
+                Save
+              </button>
             </div>
           </div>
-        )}
+        </div>
       </SettingsSection>
 
       <SettingsSection title="Appearance" icon={Palette}>
@@ -192,7 +367,6 @@ export function SettingsPage() {
             <div className="flex gap-3">
               <input
                 type="text"
-                value={outputDir}
                 readOnly
                 placeholder="Select output folder..."
                 className="input flex-1"
@@ -225,6 +399,10 @@ export function SettingsPage() {
           </div>
         </div>
       </SettingsSection>
+
+      {showInstallModal && (
+        <FfmpegInstallModal onClose={() => setShowInstallModal(false)} />
+      )}
     </div>
   );
 }

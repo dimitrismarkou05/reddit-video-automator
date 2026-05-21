@@ -22,6 +22,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { GenerateVideoModal } from "@/components/GenerateVideoModal";
 import { DeleteConfirmModal } from "@/components/modals/DeleteConfirmModal";
 import { formatUtcRelative, stripUpdatePrefix } from "@/lib/formatters";
+import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
 import type { Story } from "@/types";
 import toast from "react-hot-toast";
 import { renderMarkdownLinks } from "@/lib/renderMarkdownLinks";
@@ -144,10 +145,12 @@ function UpdateSection({
   update,
   index,
   isLast,
+  canGenerate,
 }: {
   update: Story;
   index: number;
   isLast: boolean;
+  canGenerate: boolean;
 }) {
   const updateNumber = index + 1;
   const cleanTitle = stripUpdatePrefix(update.title);
@@ -181,7 +184,7 @@ function UpdateSection({
         </div>
       )}
 
-      <UpdateActions update={update} />
+      <UpdateActions update={update} canGenerate={canGenerate} />
 
       {!isLast && (
         <div className="my-8 border-b border-border-light dark:border-border-dark" />
@@ -191,7 +194,7 @@ function UpdateSection({
 }
 
 /* ─── Actions for an individual update ─── */
-function UpdateActions({ update }: { update: Story }) {
+function UpdateActions({ update, canGenerate }: { update: Story; canGenerate: boolean }) {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const queryClient = useQueryClient();
@@ -211,16 +214,26 @@ function UpdateActions({ update }: { update: Story }) {
     }
   };
 
+  const handleGenerateClick = () => {
+    if (!canGenerate) {
+      toast.error("FFmpeg not installed. Please install FFmpeg in Settings to generate videos.");
+      return;
+    }
+    setShowGenerateModal(true);
+  };
+
   return (
     <>
       <div className="flex items-center gap-2 mt-4">
         <button
-          onClick={() => setShowGenerateModal(true)}
+          onClick={handleGenerateClick}
           disabled={!!update.generated_video}
-          className={`cursor-pointer flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium  ${
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium  ${
             update.generated_video
               ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
-              : "bg-primary/10 text-primary hover:bg-primary/20"
+              : canGenerate
+                ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
+                : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
           }`}
         >
           <Film className="w-4 h-4" />
@@ -277,6 +290,9 @@ export function StoryDetailPage() {
     location.hash ? location.hash.replace("#", "") : null,
   );
   const isElectron = !!window.electronAPI;
+
+  const { status: ffmpegStatus } = useFfmpegStatus();
+  const canGenerate = ffmpegStatus?.can_generate_videos ?? false;
 
   const {
     data: story,
@@ -336,6 +352,14 @@ export function StoryDetailPage() {
     }
   };
 
+  const handleGenerateClick = () => {
+    if (!canGenerate) {
+      toast.error("FFmpeg not installed. Please install FFmpeg in Settings to generate videos.");
+      return;
+    }
+    setShowGenerateModal(true);
+  };
+
   if (isLoading) {
     return (
       <div
@@ -354,7 +378,7 @@ export function StoryDetailPage() {
         <EmptyState
           icon={MessageCircle}
           title="Story not found"
-          subtitle="The story you're looking for doesn't exist or has been deleted."
+          subtitle="The story you are looking for does not exist or has been deleted."
         />
       </div>
     );
@@ -368,7 +392,7 @@ export function StoryDetailPage() {
     <div
       className={`${isElectron ? "h-full" : "min-h-screen"} bg-background-light dark:bg-background-dark`}
     >
-      {/* ═══ Full-width sticky nav — breaks out of parent padding ═══ */}
+      {/* Full-width sticky nav */}
       <header className="sticky -top-6 z-50 -mx-6 -mt-6 bg-surface-light/95 dark:bg-surface-dark/95 backdrop-blur-md border-b border-border-light dark:border-border-dark">
         <div className="max-w-6xl mx-auto h-14 px-4 sm:px-6 flex items-center gap-3">
           <button
@@ -422,10 +446,10 @@ export function StoryDetailPage() {
         </div>
       </header>
 
-      {/* ═══ Content grid ═══ */}
+      {/* Content grid */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
-          {/* ── Main column ── */}
+          {/* Main column */}
           <div className="space-y-6 min-w-0">
             {/* Original story */}
             <article className="card p-6">
@@ -443,12 +467,14 @@ export function StoryDetailPage() {
 
               <div className="flex flex-wrap items-center gap-2 mt-6 pt-4 border-t border-border-light dark:border-border-dark">
                 <button
-                  onClick={() => setShowGenerateModal(true)}
+                  onClick={handleGenerateClick}
                   disabled={hasVideo}
-                  className={`cursor-pointer flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium  ${
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium  ${
                     hasVideo
                       ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
-                      : "bg-primary/10 text-primary hover:bg-primary/20"
+                      : canGenerate
+                        ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
+                        : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
                   }`}
                 >
                   <Film className="w-4 h-4" />
@@ -484,6 +510,7 @@ export function StoryDetailPage() {
                       update={update}
                       index={index}
                       isLast={index === updateCount - 1}
+                      canGenerate={canGenerate}
                     />
                   ))}
                 </div>
@@ -491,7 +518,7 @@ export function StoryDetailPage() {
             )}
           </div>
 
-          {/* ── Right sidebar ── */}
+          {/* Right sidebar */}
           <aside className="hidden lg:block space-y-4">
             <StoryInfoSidebar story={story} />
             {hasUpdates && (

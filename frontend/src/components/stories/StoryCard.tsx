@@ -12,9 +12,10 @@ import type { Story } from "@/types";
 interface StoryCardProps {
   story: Story;
   onDelete: (story: Story) => void;
+  canGenerate?: boolean;
 }
 
-export function StoryCard({ story, onDelete }: StoryCardProps) {
+export function StoryCard({ story, onDelete, canGenerate = true }: StoryCardProps) {
   const navigate = useNavigate();
   const [showUpdates, setShowUpdates] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -95,6 +96,7 @@ export function StoryCard({ story, onDelete }: StoryCardProps) {
               permalink={story.permalink}
               onGenerate={() => setShowGenerateModal(true)}
               onDelete={() => onDelete(story)}
+              canGenerate={canGenerate}
             />
           </div>
         </div>
@@ -111,6 +113,7 @@ export function StoryCard({ story, onDelete }: StoryCardProps) {
                 totalUpdates={updateCount}
                 onDelete={onDelete}
                 parentStoryId={story.id}
+                canGenerate={canGenerate}
               />
             ))}
           </div>

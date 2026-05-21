@@ -14,6 +14,10 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 TEMP_DIR = APP_DIR / "temp"
 TEMP_DIR.mkdir(exist_ok=True)
 
+# FFmpeg installation directory
+FFMPEG_DIR = APP_DIR / "ffmpeg"
+FFMPEG_DIR.mkdir(exist_ok=True)
+
 # Default video dimensions
 VIDEO_FORMATS = {
     "shorts": {"width": 1080, "height": 1920, "aspect": "9:16"},

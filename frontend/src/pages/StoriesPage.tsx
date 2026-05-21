@@ -14,6 +14,7 @@ import { PrivateSubConfirmModal } from "@/components/modals/PrivateSubConfirmMod
 import { EmptyState } from "@/components/common/EmptyState";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { useDeleteTarget } from "@/hooks/useDeleteTarget";
+import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
 import type { Story } from "@/types";
 import type { SortOption } from "@/config/sortOptions";
 import toast from "react-hot-toast";
@@ -46,6 +47,9 @@ export function StoriesPage() {
     setStory,
     setAllStories,
   } = useDeleteTarget();
+
+  const { status: ffmpegStatus } = useFfmpegStatus();
+  const canGenerate = ffmpegStatus?.can_generate_videos ?? false;
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -331,6 +335,7 @@ export function StoriesPage() {
                 key={story.id}
                 story={story}
                 onDelete={(s) => setStory(s)}
+                canGenerate={canGenerate}
               />
             ))}
           </div>

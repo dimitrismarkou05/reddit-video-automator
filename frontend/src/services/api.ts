@@ -182,3 +182,15 @@ export const automationApi = {
   runTemplate: (id: number) => api.post(`/automation/templates/${id}/run`),
   getRuns: (id: number) => api.get(`/automation/templates/${id}/runs`),
 };
+
+// ─── FFmpeg API ───
+export const ffmpegApi = {
+  getStatus: () => api.get("/ffmpeg/status"),
+  install: () => api.post("/ffmpeg/install"),
+  retry: () => api.post("/ffmpeg/retry"),
+  setPath: (ffmpegPath: string, ffprobePath?: string) =>
+    api.post("/ffmpeg/set-path", { ffmpeg_path: ffmpegPath, ffprobe_path: ffprobePath }),
+  checkPath: (path: string) => api.get("/ffmpeg/check-path", { params: { path } }),
+  reset: () => api.delete("/ffmpeg/reset"),
+  cancel: () => api.post("/ffmpeg/cancel"),
+};
