@@ -36,9 +36,9 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
     // Only connect SSE when installation is active
     if (!isInstalling) return;
 
-    const es = new EventSource(
-      `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/sse/ffmpeg/install-progress`,
-    );
+    // Added /api/v1 suffix prefix to align with your FastAPI mounting structure
+    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
+    const es = new EventSource(`${baseUrl}/api/v1/sse/ffmpeg/install-progress`);
     eventSourceRef.current = es;
 
     es.onmessage = (event) => {
@@ -108,7 +108,6 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
     };
 
     es.onerror = () => {
-      // Auto-reconnect handled by browser, but close on terminal states
       if (isComplete || installError) {
         es.close();
       }
@@ -118,13 +117,25 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
       es.close();
       eventSourceRef.current = null;
     };
-  }, [isInstalling]); // Only re-run when installation starts/stops
+  }, [isInstalling]);
 
   const handleStartInstall = async () => {
     try {
       startInstall();
       await ffmpegApi.install();
       toast.success("Installation started");
+
+      // Check current state in case the backend instantly resolved everything synchronously
+      const result = await refetch();
+      if (result.data?.is_installed) {
+        updateProgress(100, "Installation complete!", "", 0);
+        setIsComplete(true);
+        finishInstall(result.data);
+        toast.success("FFmpeg installed successfully!");
+        if (eventSourceRef.current) {
+          eventSourceRef.current.close();
+        }
+      }
     } catch (e: any) {
       failInstall(e?.response?.data?.detail || "Failed to start installation");
       toast.error("Failed to start FFmpeg installation");
@@ -138,6 +149,17 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
       startInstall();
       await ffmpegApi.retry();
       toast.success("Retrying installation...");
+
+      const result = await refetch();
+      if (result.data?.is_installed) {
+        updateProgress(100, "Installation complete!", "", 0);
+        setIsComplete(true);
+        finishInstall(result.data);
+        toast.success("FFmpeg installed successfully!");
+        if (eventSourceRef.current) {
+          eventSourceRef.current.close();
+        }
+      }
     } catch (e: any) {
       failInstall(e?.response?.data?.detail || "Retry failed");
       toast.error("Failed to retry installation");
@@ -164,7 +186,7 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
   };
 
   const handleClose = () => {
-    if (isInstalling) {
+    if (isInstalling && !isComplete) {
       setShowCancelConfirm(true);
       return;
     }
@@ -178,7 +200,7 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
         subtitle="Required for video generation"
         icon={Download}
         onClose={handleClose}
-        disabled={isInstalling}
+        disabled={isInstalling && !isComplete}
       />
 
       <div className="p-6 space-y-5">
@@ -230,7 +252,7 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
           </div>
         )}
 
-        {isInstalling && (
+        {isInstalling && !isComplete && (
           <div className="space-y-4">
             <div className="text-center">
               <div className="relative w-16 h-16 mx-auto mb-4">
@@ -299,7 +321,7 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
           </div>
         )}
 
-        {isComplete && !isInstalling && (
+        {isComplete && (
           <div className="text-center space-y-4">
             <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mx-auto">
               <CheckCircle className="w-8 h-8 text-green-500" />

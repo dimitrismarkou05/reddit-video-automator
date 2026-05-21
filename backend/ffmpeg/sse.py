@@ -72,7 +72,9 @@ async def _sse_generator(request: Request) -> AsyncGenerator[str, None]:
             # Only send if state changed or keep-alive needed
             if current_update > last_sent:
                 last_sent = current_update
-                message = f"event: {state['event_type']}\ndata: {json.dumps(state)}\n\n"
+                # REMOVED the "event: {state['event_type']}\n" prefix line.
+                # This guarantees that the payload goes directly to es.onmessage
+                message = f"data: {json.dumps(state)}\n\n"
                 yield message
 
                 # Stop if complete/failed/cancelled
