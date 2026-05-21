@@ -116,7 +116,7 @@ export function NotificationDropdown() {
   };
 
   return (
-    <div className="relative z-1000" ref={dropdownRef}>
+    <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="cursor-pointer relative p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 "
@@ -130,7 +130,7 @@ export function NotificationDropdown() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-96 bg-surface-light dark:bg-surface-dark rounded-xl shadow-lg border border-border-light dark:border-border-dark z-50 overflow-hidden">
+        <div className="z-1000 absolute right-0 top-full mt-2 w-96 bg-surface-light dark:bg-surface-dark rounded-xl shadow-lg border border-border-light dark:border-border-dark overflow-hidden">
           <div className="flex items-center justify-between p-3 border-b border-border-light dark:border-border-dark">
             <h3 className="font-semibold">Notifications</h3>
             <div className="flex items-center gap-1">
