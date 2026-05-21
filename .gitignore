@@ -1,6 +1,7 @@
 # OS
 .DS_Store
 Thumbs.db
+start.ps1
 
 # IDEs
 .idea/
