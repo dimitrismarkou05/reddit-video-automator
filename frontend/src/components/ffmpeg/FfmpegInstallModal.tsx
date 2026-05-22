@@ -36,6 +36,15 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const installStartedRef = useRef(false);
 
+  // CRITICAL FIX: Reset local completion state when modal opens
+  useEffect(() => {
+    setIsComplete(false);
+    setShowCancelConfirm(false);
+    setIsCancelling(false);
+    setIsStarting(false);
+    installStartedRef.current = false;
+  }, []);
+
   // Keep a live reference to store actions so the SSE handler never goes stale
   const storeRef = useRef({
     updateProgress,
@@ -150,7 +159,6 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
             es.close();
             break;
           case "idle":
-            // ignore keep-alive / initial state
             break;
         }
       } catch (e) {
@@ -160,7 +168,6 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
 
     es.onerror = (err) => {
       console.warn("[FFmpeg SSE] Error:", err);
-      // Only auto-close if we're done; otherwise let browser retry naturally
       if (isComplete || installError) {
         es.close();
       }
@@ -177,7 +184,10 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
     if (installStartedRef.current || isStarting) return;
     installStartedRef.current = true;
     setIsStarting(true);
-    setIsComplete(false);
+    setIsComplete(false); // Ensure we don't show done from previous session
+
+    // Reset any stale store state before starting
+    resetInstall();
 
     try {
       startInstall();
@@ -232,7 +242,6 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
       eventSourceRef.current = null;
     }
 
-    // Allow backend a moment to process cancellation and emit state
     setTimeout(() => {
       resetInstall();
       setIsCancelling(false);

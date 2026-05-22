@@ -46,6 +46,9 @@ class FfmpegService:
                     "ffprobe_version": self._get_version(custom_ffprobe),
                     "can_generate_videos": True,
                 }
+            else:
+                # Cached paths are stale (files were deleted). Clear them.
+                self.settings.clear_all()
 
         # Check app-local installation
         app_ffmpeg = self._get_app_local_binary("ffmpeg")

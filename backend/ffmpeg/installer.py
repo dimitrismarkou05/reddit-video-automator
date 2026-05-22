@@ -217,12 +217,17 @@ class FfmpegInstaller:
         """Download from a single mirror and install."""
         url = mirror["url"]
         file_type = mirror.get("type", "zip")
-
-        # Create temp directory
-        temp_dir = Path(tempfile.mkdtemp(dir=TEMP_DIR))
-        archive_path = temp_dir / f"ffmpeg_archive.{file_type.replace('.', '_')}"
+        temp_dir = None
 
         try:
+            # Ensure directories exist (user may have deleted them while server running)
+            TEMP_DIR.mkdir(parents=True, exist_ok=True)
+            self.ffmpeg_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create temp directory
+            temp_dir = Path(tempfile.mkdtemp(dir=TEMP_DIR))
+            archive_path = temp_dir / f"ffmpeg_archive.{file_type.replace('.', '_')}"
+
             # Step 1: Download
             self._emit("download_progress", step="Connecting to mirror...", progress=5)
 
@@ -234,7 +239,6 @@ class FfmpegInstaller:
                 "Connection": "keep-alive",
             }
 
-            # Connect timeout 30s, read timeout 300s
             with requests.get(url, headers=headers, stream=True, timeout=(30, 300)) as response:
                 self._current_response = response
 
@@ -279,11 +283,9 @@ class FfmpegInstaller:
                                         progress=percent,
                                     )
                             else:
-                                # Unknown size: pulse progress based on chunks
                                 if (now - last_update_time) > 1.0:
                                     last_update_time = now
                                     downloaded_mb = downloaded / (1024 * 1024)
-                                    # Pulse between 10-55%
                                     pulse = 10 + (int(downloaded_mb) % 45)
                                     self._emit(
                                         "download_progress",
@@ -291,7 +293,6 @@ class FfmpegInstaller:
                                         progress=pulse,
                                     )
 
-                # Validate downloaded file
                 if not archive_path.exists() or archive_path.stat().st_size == 0:
                     raise Exception("Download failed - empty or missing file")
 
@@ -307,7 +308,6 @@ class FfmpegInstaller:
             elif file_type in ("tar.xz", "tar.gz") or ".tar." in str(archive_path):
                 self._extract_tar(archive_path, extract_dir)
             else:
-                # Try zip first, then tar
                 try:
                     self._extract_zip(archive_path, extract_dir)
                 except Exception:
@@ -350,7 +350,6 @@ class FfmpegInstaller:
             ffprobe_ok = self._verify_binary(str(dest_ffprobe))
 
             if not ffmpeg_ok or not ffprobe_ok:
-                # Cleanup on verification failure
                 if dest_ffmpeg.exists():
                     dest_ffmpeg.unlink()
                 if dest_ffprobe.exists():
@@ -369,8 +368,7 @@ class FfmpegInstaller:
             raise Exception(f"Installation failed: {exc}")
         finally:
             self._current_response = None
-            # Always cleanup temp directory
-            if temp_dir.exists():
+            if temp_dir is not None:
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
     def _extract_zip(self, archive: Path, dest: Path) -> None:
