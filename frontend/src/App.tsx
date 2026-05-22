@@ -65,7 +65,7 @@ function StoryDetailWrapper() {
 
 function App() {
   const { isDark } = useThemeStore();
-  const { setAuthStatus, setLoading } = useAuthStore();
+  const { setAuthStatus, setLoading, authStatus } = useAuthStore();
   const isElectron = !!window.electronAPI;
   const [showFfmpegMissing, setShowFfmpegMissing] = useState(false);
   const [ffmpegSkipped, setFfmpegSkipped] = useState(false);
@@ -94,12 +94,30 @@ function App() {
     checkAuth();
   }, [setAuthStatus, setLoading]);
 
-  // Show FFmpeg missing modal on startup if not installed and not skipped
+  // Show FFmpeg missing modal after authentication
   useEffect(() => {
-    if (!ffmpegLoading && ffmpegStatus && !ffmpegStatus.can_generate_videos && !ffmpegSkipped) {
+    const isAuthenticated = authStatus?.is_authenticated;
+
+    // Only check FFmpeg if user is authenticated and not loading
+    if (
+      !ffmpegLoading &&
+      isAuthenticated &&
+      ffmpegStatus &&
+      !ffmpegStatus.can_generate_videos &&
+      !ffmpegSkipped
+    ) {
       setShowFfmpegMissing(true);
+    } else if (!isAuthenticated) {
+      // Reset FFmpeg modal state when logged out
+      setShowFfmpegMissing(false);
+      setFfmpegSkipped(false);
     }
-  }, [ffmpegLoading, ffmpegStatus, ffmpegSkipped]);
+  }, [
+    ffmpegLoading,
+    ffmpegStatus,
+    ffmpegSkipped,
+    authStatus?.is_authenticated,
+  ]);
 
   return (
     <div
