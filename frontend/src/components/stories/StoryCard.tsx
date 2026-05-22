@@ -13,9 +13,10 @@ interface StoryCardProps {
   story: Story;
   onDelete: (story: Story) => void;
   canGenerate?: boolean;
+  isDetectingFfmpeg?: boolean;
 }
 
-export function StoryCard({ story, onDelete, canGenerate = true }: StoryCardProps) {
+export function StoryCard({ story, onDelete, canGenerate = true, isDetectingFfmpeg = false }: StoryCardProps) {
   const navigate = useNavigate();
   const [showUpdates, setShowUpdates] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -97,6 +98,7 @@ export function StoryCard({ story, onDelete, canGenerate = true }: StoryCardProp
               onGenerate={() => setShowGenerateModal(true)}
               onDelete={() => onDelete(story)}
               canGenerate={canGenerate}
+              isDetectingFfmpeg={isDetectingFfmpeg}
             />
           </div>
         </div>
@@ -114,6 +116,7 @@ export function StoryCard({ story, onDelete, canGenerate = true }: StoryCardProp
                 onDelete={onDelete}
                 parentStoryId={story.id}
                 canGenerate={canGenerate}
+                isDetectingFfmpeg={isDetectingFfmpeg}
               />
             ))}
           </div>

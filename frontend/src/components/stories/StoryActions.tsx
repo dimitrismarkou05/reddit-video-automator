@@ -1,4 +1,4 @@
-import { Film, ExternalLink, Trash2 } from "lucide-react";
+import { Film, ExternalLink, Trash2, Loader2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface StoryActionsProps {
@@ -7,6 +7,7 @@ interface StoryActionsProps {
   onGenerate: () => void;
   onDelete: () => void;
   canGenerate?: boolean;
+  isDetectingFfmpeg?: boolean;
 }
 
 export function StoryActions({
@@ -15,8 +16,10 @@ export function StoryActions({
   onGenerate,
   onDelete,
   canGenerate = true,
+  isDetectingFfmpeg = false,
 }: StoryActionsProps) {
   const handleGenerateClick = () => {
+    if (isDetectingFfmpeg) return;
     if (!canGenerate) {
       toast.error("FFmpeg not installed. Please install FFmpeg in Settings to generate videos.");
       return;
@@ -28,17 +31,31 @@ export function StoryActions({
     <div className="flex flex-col gap-2">
       <button
         onClick={handleGenerateClick}
-        disabled={hasVideo}
+        disabled={hasVideo || isDetectingFfmpeg}
         className={`p-2 rounded-lg  ${
           hasVideo
             ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
-            : canGenerate
-              ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
-              : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
+            : isDetectingFfmpeg
+              ? "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-wait"
+              : canGenerate
+                ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
+                : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
         }`}
-        title={hasVideo ? "Video ready" : canGenerate ? "Generate video" : "FFmpeg not installed"}
+        title={
+          hasVideo
+            ? "Video ready"
+            : isDetectingFfmpeg
+              ? "Searching for FFmpeg..."
+              : canGenerate
+                ? "Generate video"
+                : "FFmpeg not installed"
+        }
       >
-        <Film className="w-5 h-5" />
+        {isDetectingFfmpeg ? (
+          <Loader2 className="w-5 h-5 animate-spin" />
+        ) : (
+          <Film className="w-5 h-5" />
+        )}
       </button>
       <a
         href={permalink}

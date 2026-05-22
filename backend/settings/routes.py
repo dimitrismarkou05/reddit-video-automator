@@ -25,4 +25,12 @@ def get_setting(key: str, decrypt: bool = False, db: Session = Depends(get_db)):
     if value is None:
         raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
     setting = db.query(Setting).filter(Setting.key == key).first()
+    # If decrypt=true, return the decrypted value in the response
+    if decrypt and setting and setting.is_encrypted:
+        return SettingsResponse(
+            key=setting.key,
+            value=value,
+            is_encrypted=setting.is_encrypted,
+            updated_at=setting.updated_at,
+        )
     return setting

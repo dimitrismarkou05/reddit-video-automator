@@ -17,6 +17,7 @@ interface UpdateCardProps {
   onDelete: (story: Story) => void;
   parentStoryId: number;
   canGenerate?: boolean;
+  isDetectingFfmpeg?: boolean;
 }
 
 export function UpdateCard({
@@ -26,6 +27,7 @@ export function UpdateCard({
   onDelete,
   parentStoryId,
   canGenerate = true,
+  isDetectingFfmpeg = false,
 }: UpdateCardProps) {
   const navigate = useNavigate();
   const [showGenerateModal, setShowGenerateModal] = useState(false);
@@ -78,6 +80,7 @@ export function UpdateCard({
                 onGenerate={() => setShowGenerateModal(true)}
                 onDelete={() => onDelete(update)}
                 canGenerate={canGenerate}
+                isDetectingFfmpeg={isDetectingFfmpeg}
               />
             </div>
           </div>

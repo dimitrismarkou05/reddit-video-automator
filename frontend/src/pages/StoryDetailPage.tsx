@@ -146,11 +146,13 @@ function UpdateSection({
   index,
   isLast,
   canGenerate,
+  isDetectingFfmpeg,
 }: {
   update: Story;
   index: number;
   isLast: boolean;
   canGenerate: boolean;
+  isDetectingFfmpeg: boolean;
 }) {
   const updateNumber = index + 1;
   const cleanTitle = stripUpdatePrefix(update.title);
@@ -184,7 +186,7 @@ function UpdateSection({
         </div>
       )}
 
-      <UpdateActions update={update} canGenerate={canGenerate} />
+      <UpdateActions update={update} canGenerate={canGenerate} isDetectingFfmpeg={isDetectingFfmpeg} />
 
       {!isLast && (
         <div className="my-8 border-b border-border-light dark:border-border-dark" />
@@ -194,7 +196,7 @@ function UpdateSection({
 }
 
 /* ─── Actions for an individual update ─── */
-function UpdateActions({ update, canGenerate }: { update: Story; canGenerate: boolean }) {
+function UpdateActions({ update, canGenerate, isDetectingFfmpeg }: { update: Story; canGenerate: boolean; isDetectingFfmpeg: boolean }) {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const queryClient = useQueryClient();
@@ -215,6 +217,7 @@ function UpdateActions({ update, canGenerate }: { update: Story; canGenerate: bo
   };
 
   const handleGenerateClick = () => {
+    if (isDetectingFfmpeg) return;
     if (!canGenerate) {
       toast.error("FFmpeg not installed. Please install FFmpeg in Settings to generate videos.");
       return;
@@ -227,14 +230,25 @@ function UpdateActions({ update, canGenerate }: { update: Story; canGenerate: bo
       <div className="flex items-center gap-2 mt-4">
         <button
           onClick={handleGenerateClick}
-          disabled={!!update.generated_video}
+          disabled={!!update.generated_video || isDetectingFfmpeg}
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium  ${
             update.generated_video
               ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
-              : canGenerate
-                ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
-                : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
+              : isDetectingFfmpeg
+                ? "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-wait"
+                : canGenerate
+                  ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
+                  : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
           }`}
+          title={
+            update.generated_video
+              ? "Video Ready"
+              : isDetectingFfmpeg
+                ? "Searching for FFmpeg..."
+                : canGenerate
+                  ? "Generate Video"
+                  : "FFmpeg not installed"
+          }
         >
           <Film className="w-4 h-4" />
           {update.generated_video ? "Video Ready" : "Generate Video"}
@@ -291,8 +305,9 @@ export function StoryDetailPage() {
   );
   const isElectron = !!window.electronAPI;
 
-  const { status: ffmpegStatus } = useFfmpegStatus();
+  const { status: ffmpegStatus, isLoading: ffmpegLoading } = useFfmpegStatus();
   const canGenerate = ffmpegStatus?.can_generate_videos ?? false;
+  const isDetectingFfmpeg = ffmpegLoading && !ffmpegStatus;
 
   const {
     data: story,
@@ -353,6 +368,7 @@ export function StoryDetailPage() {
   };
 
   const handleGenerateClick = () => {
+    if (isDetectingFfmpeg) return;
     if (!canGenerate) {
       toast.error("FFmpeg not installed. Please install FFmpeg in Settings to generate videos.");
       return;
@@ -468,14 +484,25 @@ export function StoryDetailPage() {
               <div className="flex flex-wrap items-center gap-2 mt-6 pt-4 border-t border-border-light dark:border-border-dark">
                 <button
                   onClick={handleGenerateClick}
-                  disabled={hasVideo}
+                  disabled={hasVideo || isDetectingFfmpeg}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium  ${
                     hasVideo
                       ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
-                      : canGenerate
-                        ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
-                        : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
+                      : isDetectingFfmpeg
+                        ? "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-wait"
+                        : canGenerate
+                          ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
+                          : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
                   }`}
+                  title={
+                    hasVideo
+                      ? "Video Ready"
+                      : isDetectingFfmpeg
+                        ? "Searching for FFmpeg..."
+                        : canGenerate
+                          ? "Generate Video"
+                          : "FFmpeg not installed"
+                  }
                 >
                   <Film className="w-4 h-4" />
                   {hasVideo ? "Video Ready" : "Generate Video"}
@@ -500,7 +527,7 @@ export function StoryDetailPage() {
                   <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
                     Updates
                   </h2>
-                  <div className="flex-1 h-px bg-border-light dark:bg-border-dark ml-2" />
+                  <div className="flex-1 h-px bg-border-light dark:border-border-dark ml-2" />
                 </div>
 
                 <div className="card p-6 space-y-2">
@@ -511,6 +538,7 @@ export function StoryDetailPage() {
                       index={index}
                       isLast={index === updateCount - 1}
                       canGenerate={canGenerate}
+                      isDetectingFfmpeg={isDetectingFfmpeg}
                     />
                   ))}
                 </div>

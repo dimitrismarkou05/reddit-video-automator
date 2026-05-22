@@ -164,7 +164,7 @@ export const notificationApi = {
 };
 
 export const settingsApi = {
-  get: (key: string) => api.get(`/settings/${key}`),
+  get: (key: string, decrypt?: boolean) => api.get(`/settings/${key}`, { params: { decrypt } }),
   set: (key: string, value: string, encrypt?: boolean) =>
     api.post("/settings", { key, value, encrypt }),
 };

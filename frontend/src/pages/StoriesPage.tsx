@@ -48,8 +48,9 @@ export function StoriesPage() {
     setAllStories,
   } = useDeleteTarget();
 
-  const { status: ffmpegStatus } = useFfmpegStatus();
+  const { status: ffmpegStatus, isLoading: ffmpegLoading } = useFfmpegStatus();
   const canGenerate = ffmpegStatus?.can_generate_videos ?? false;
+  const isDetectingFfmpeg = ffmpegLoading && !ffmpegStatus;
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -336,6 +337,7 @@ export function StoriesPage() {
                 story={story}
                 onDelete={(s) => setStory(s)}
                 canGenerate={canGenerate}
+                isDetectingFfmpeg={isDetectingFfmpeg}
               />
             ))}
           </div>

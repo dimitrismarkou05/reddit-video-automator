@@ -11,7 +11,7 @@ interface ThemeState {
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set) => ({
-      isDark: false,
+      isDark: true,
       toggle: () => {
         if (typeof document !== "undefined" && document.startViewTransition) {
           // Add disable class before ViewTransition
