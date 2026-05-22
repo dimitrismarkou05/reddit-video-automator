@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from core.config import APP_DIR
 from core.ffmpeg_settings import FFmpegSettings
 from ffmpeg.detector import FfmpegDetector
-from ffmpeg.installer import FfmpegInstaller
+from ffmpeg.installer import FfmpegInstaller, cancel_active_install
 
 
 class FfmpegService:
@@ -20,7 +20,6 @@ class FfmpegService:
         self.db = db
         self.settings = FFmpegSettings(db)
         self.detector = FfmpegDetector()
-        self._installer: Optional[FfmpegInstaller] = None
 
     def get_status(self) -> dict:
         """Get complete FFmpeg installation status.
@@ -140,25 +139,27 @@ class FfmpegService:
         self.settings.clear_all()
         return self.get_status()
 
-    async def install(self) -> dict:
-        """Download and install FFmpeg. Streams progress via SSE."""
-
-        # The installer now handles updating the global SSE state directly, 
-        # so no progress_handler callback is needed here.
-        self._installer = FfmpegInstaller()
-        result = await self._installer.install()
+    def install_sync(self) -> dict:
+        """Download and install FFmpeg. Sync version for BackgroundTasks."""
+        installer = FfmpegInstaller()
+        result = installer.install()
 
         if result.get("success"):
             # Save installed paths
             self.settings.set_ffmpeg_path(result["ffmpeg_path"])
             self.settings.set_ffprobe_path(result["ffprobe_path"])
+            self.settings.set_ffmpeg_version(self._get_version(result["ffmpeg_path"]) or "")
+            self.settings.set_ffprobe_version(self._get_version(result["ffprobe_path"]) or "")
 
         return result
 
+    async def install(self) -> dict:
+        """Async wrapper for install_sync."""
+        return await asyncio.to_thread(self.install_sync)
+
     def cancel_install(self) -> None:
         """Cancel an in-progress installation."""
-        if self._installer:
-            self._installer.cancel()
+        cancel_active_install()
 
     def _get_app_local_binary(self, name: str) -> Optional[str]:
         """Check the app-local ffmpeg directory for a binary."""

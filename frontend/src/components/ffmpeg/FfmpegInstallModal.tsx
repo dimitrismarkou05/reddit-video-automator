@@ -1,8 +1,9 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { Download, AlertTriangle, RotateCcw, CheckCircle } from "lucide-react";
 import { ModalShell } from "@/components/common/ModalShell";
 import { ModalHeader } from "@/components/common/ModalHeader";
 import { ProgressBar } from "@/components/common/ProgressBar";
+import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { useFfmpegStore } from "@/store/ffmpeg";
 import { ffmpegApi } from "@/services/api";
 import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
@@ -30,84 +31,136 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
   const { refetch } = useFfmpegStatus();
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const installStartedRef = useRef(false);
 
+  // Keep a live reference to store actions so the SSE handler never goes stale
+  const storeRef = useRef({
+    updateProgress,
+    finishInstall,
+    failInstall,
+    resetInstall,
+  });
   useEffect(() => {
-    // Only connect SSE when installation is active
-    if (!isInstalling) return;
+    storeRef.current = {
+      updateProgress,
+      finishInstall,
+      failInstall,
+      resetInstall,
+    };
+  });
 
-    // Added /api/v1 suffix prefix to align with your FastAPI mounting structure
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+    };
+  }, []);
+
+  // SSE Connection - ONLY reconnect when isInstalling / isCancelling toggles
+  useEffect(() => {
+    if (!isInstalling && !isCancelling) {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+      return;
+    }
+
     const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
     const es = new EventSource(`${baseUrl}/api/v1/sse/ffmpeg/install-progress`);
     eventSourceRef.current = es;
 
+    es.onopen = () => {
+      console.log("[FFmpeg SSE] Connected");
+    };
+
     es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (!data.event_type) return;
+        console.log("[FFmpeg SSE] message:", data);
+        if (!data || !data.event_type) return;
+
+        const store = storeRef.current;
 
         switch (data.event_type) {
           case "mirror_switch":
-            updateProgress(
-              data.progress_percent || 0,
-              data.step,
+            store.updateProgress(
+              Number(data.progress_percent) || 0,
+              data.step || "",
               data.mirror,
               0,
             );
             break;
           case "retry":
-            updateProgress(
-              data.progress_percent || 0,
-              data.step,
+            store.updateProgress(
+              Number(data.progress_percent) || 0,
+              data.step || "",
               data.mirror,
-              data.retry_count,
+              Number(data.retry_count) || 0,
             );
             break;
           case "download_progress":
-            updateProgress(
-              data.progress_percent || 0,
-              data.step,
+            store.updateProgress(
+              Number(data.progress_percent) || 0,
+              data.step || "",
               data.mirror,
-              data.retry_count,
+              Number(data.retry_count) || 0,
             );
             break;
           case "extracting":
-            updateProgress(55, data.step, data.mirror, data.retry_count);
+            store.updateProgress(
+              Number(data.progress_percent) || 65,
+              data.step || "Extracting...",
+              data.mirror,
+              Number(data.retry_count) || 0,
+            );
             break;
           case "installing":
-            updateProgress(85, data.step, data.mirror, data.retry_count);
+            store.updateProgress(
+              Number(data.progress_percent) || 85,
+              data.step || "Installing...",
+              data.mirror,
+              Number(data.retry_count) || 0,
+            );
             break;
           case "complete":
-            updateProgress(
-              100,
-              "Installation complete!",
-              data.mirror,
-              data.retry_count,
-            );
+            store.updateProgress(100, "Installation complete!", data.mirror, 0);
             setIsComplete(true);
-            refetch().then((result) => {
-              if (result.data) finishInstall(result.data);
+            refetch().then((result: any) => {
+              if (result?.data) store.finishInstall(result.data);
             });
             toast.success("FFmpeg installed successfully!");
             es.close();
             break;
           case "failed":
-            failInstall(data.error || "Installation failed");
+            store.failInstall(data.error || "Installation failed");
             toast.error(data.error || "FFmpeg installation failed");
             es.close();
             break;
           case "cancelled":
-            resetInstall();
+            store.resetInstall();
+            setIsCancelling(false);
             toast("FFmpeg installation cancelled", { icon: "⚠️" });
             es.close();
             break;
+          case "idle":
+            // ignore keep-alive / initial state
+            break;
         }
       } catch (e) {
-        console.error("SSE parse error:", e);
+        console.error("[FFmpeg SSE] Parse error:", e);
       }
     };
 
-    es.onerror = () => {
+    es.onerror = (err) => {
+      console.warn("[FFmpeg SSE] Error:", err);
+      // Only auto-close if we're done; otherwise let browser retry naturally
       if (isComplete || installError) {
         es.close();
       }
@@ -117,81 +170,91 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
       es.close();
       eventSourceRef.current = null;
     };
-  }, [isInstalling]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInstalling, isCancelling]);
 
   const handleStartInstall = async () => {
+    if (installStartedRef.current || isStarting) return;
+    installStartedRef.current = true;
+    setIsStarting(true);
+    setIsComplete(false);
+
     try {
       startInstall();
       await ffmpegApi.install();
       toast.success("Installation started");
-
-      // Check current state in case the backend instantly resolved everything synchronously
-      const result = await refetch();
-      if (result.data?.is_installed) {
-        updateProgress(100, "Installation complete!", "", 0);
-        setIsComplete(true);
-        finishInstall(result.data);
-        toast.success("FFmpeg installed successfully!");
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-        }
-      }
     } catch (e: any) {
-      failInstall(e?.response?.data?.detail || "Failed to start installation");
-      toast.error("Failed to start FFmpeg installation");
+      installStartedRef.current = false;
+      const msg =
+        e?.response?.data?.detail ||
+        e?.message ||
+        "Failed to start installation";
+      failInstall(msg);
+      toast.error(msg);
+    } finally {
+      setIsStarting(false);
     }
   };
 
   const handleRetry = async () => {
-    resetInstall();
+    if (installStartedRef.current || isStarting) return;
+    installStartedRef.current = true;
+    setIsStarting(true);
     setIsComplete(false);
+    resetInstall();
+
     try {
       startInstall();
       await ffmpegApi.retry();
       toast.success("Retrying installation...");
-
-      const result = await refetch();
-      if (result.data?.is_installed) {
-        updateProgress(100, "Installation complete!", "", 0);
-        setIsComplete(true);
-        finishInstall(result.data);
-        toast.success("FFmpeg installed successfully!");
-        if (eventSourceRef.current) {
-          eventSourceRef.current.close();
-        }
-      }
     } catch (e: any) {
-      failInstall(e?.response?.data?.detail || "Retry failed");
-      toast.error("Failed to retry installation");
+      installStartedRef.current = false;
+      const msg = e?.response?.data?.detail || e?.message || "Retry failed";
+      failInstall(msg);
+      toast.error(msg);
+    } finally {
+      setIsStarting(false);
     }
   };
 
   const handleCancel = async () => {
-    if (isInstalling && !showCancelConfirm) {
-      setShowCancelConfirm(true);
-      return;
-    }
+    if (isCancelling) return;
+    setIsCancelling(true);
 
     try {
       await ffmpegApi.cancel();
     } catch (e) {
       // Ignore errors on cancel
     }
+
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
+      eventSourceRef.current = null;
     }
-    resetInstall();
-    setShowCancelConfirm(false);
-    onClose();
+
+    // Allow backend a moment to process cancellation and emit state
+    setTimeout(() => {
+      resetInstall();
+      setIsCancelling(false);
+      setShowCancelConfirm(false);
+      onClose();
+    }, 800);
   };
 
-  const handleClose = () => {
-    if (isInstalling && !isComplete) {
+  const handleClose = useCallback(() => {
+    if ((isInstalling || isCancelling) && !isComplete) {
       setShowCancelConfirm(true);
       return;
     }
     onClose();
-  };
+  }, [isInstalling, isCancelling, isComplete, onClose]);
+
+  // Reset installStartedRef when not installing
+  useEffect(() => {
+    if (!isInstalling && !isStarting) {
+      installStartedRef.current = false;
+    }
+  }, [isInstalling, isStarting]);
 
   return (
     <ModalShell onClose={handleClose} maxWidth="max-w-lg">
@@ -217,14 +280,23 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
               <button
                 onClick={() => setShowCancelConfirm(false)}
                 className="cursor-pointer btn-secondary text-sm"
+                disabled={isCancelling}
               >
                 Continue Installation
               </button>
               <button
                 onClick={handleCancel}
-                className="cursor-pointer px-3 py-1.5 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600"
+                disabled={isCancelling}
+                className="cursor-pointer px-3 py-1.5 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                Cancel Installation
+                {isCancelling ? (
+                  <>
+                    <LoadingSpinner size="sm" className="border-orange-500" />
+                    <span>Cancelling...</span>
+                  </>
+                ) : (
+                  "Cancel Installation"
+                )}
               </button>
             </div>
           </div>
@@ -244,10 +316,20 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
             </div>
             <button
               onClick={handleStartInstall}
-              className="cursor-pointer btn-primary flex items-center gap-2 mx-auto"
+              disabled={isStarting}
+              className="cursor-pointer btn-primary flex items-center gap-2 mx-auto disabled:opacity-50"
             >
-              <Download className="w-4 h-4" />
-              Install FFmpeg Now
+              {isStarting ? (
+                <>
+                  <LoadingSpinner size="sm" />
+                  <span>Starting...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  Install FFmpeg Now
+                </>
+              )}
             </button>
           </div>
         )}
@@ -282,7 +364,8 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
 
             <button
               onClick={() => setShowCancelConfirm(true)}
-              className="cursor-pointer w-full btn-secondary text-sm"
+              disabled={isCancelling}
+              className="cursor-pointer w-full btn-secondary text-sm disabled:opacity-50"
             >
               Cancel
             </button>
@@ -306,10 +389,20 @@ export function FfmpegInstallModal({ onClose }: FfmpegInstallModalProps) {
             <div className="flex gap-2">
               <button
                 onClick={handleRetry}
-                className="cursor-pointer flex-1 btn-primary flex items-center justify-center gap-2"
+                disabled={isStarting}
+                className="cursor-pointer flex-1 btn-primary flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                <RotateCcw className="w-4 h-4" />
-                Retry
+                {isStarting ? (
+                  <>
+                    <LoadingSpinner size="sm" />
+                    <span>Retrying...</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-4 h-4" />
+                    Retry
+                  </>
+                )}
               </button>
               <button
                 onClick={onClose}

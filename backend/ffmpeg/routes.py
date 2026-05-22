@@ -1,5 +1,6 @@
 """FFmpeg feature API routes."""
 
+import threading
 from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.orm import Session
 
@@ -16,6 +17,10 @@ from ffmpeg.sse import reset_install_state
 
 router = APIRouter()
 
+# Global lock to prevent concurrent installations
+_install_lock = threading.Lock()
+_install_running = False
+
 
 @router.get("/status", response_model=FfmpegStatusResponse)
 def get_ffmpeg_status(db: Session = Depends(get_db)):
@@ -31,9 +36,9 @@ def install_ffmpeg(
     db: Session = Depends(get_db),
 ):
     """Start FFmpeg installation. Returns immediately; progress streams via SSE."""
-    service = FfmpegService(db)
+    global _install_running
 
-    # Check if already installed
+    service = FfmpegService(db)
     status = service.get_status()
     if status["can_generate_videos"] and not (request and request.force):
         return {
@@ -42,13 +47,20 @@ def install_ffmpeg(
             "status": status,
         }
 
+    with _install_lock:
+        if _install_running:
+            return {
+                "success": False,
+                "message": "Installation already in progress.",
+            }
+        _install_running = True
+
     reset_install_state()
-    notif_service = NotificationService(db)
-    background_tasks.add_task(_run_install_sync, service, notif_service)
+    background_tasks.add_task(_run_install_sync)
 
     return {
         "success": True,
-        "message": "Installation started. Connect to /sse/ffmpeg/install-progress for updates.",
+        "message": "Installation started.",
     }
 
 
@@ -58,19 +70,33 @@ def retry_install(
     db: Session = Depends(get_db),
 ):
     """Retry FFmpeg installation."""
-    service = FfmpegService(db)
-    notif_service = NotificationService(db)
+    global _install_running
+
+    with _install_lock:
+        if _install_running:
+            return {
+                "success": False,
+                "message": "Installation already in progress.",
+            }
+        _install_running = True
+
     reset_install_state()
-    background_tasks.add_task(_run_install_sync, service, notif_service)
+    background_tasks.add_task(_run_install_sync)
 
     return {"success": True, "message": "Retrying installation..."}
 
 
-def _run_install_sync(service: FfmpegService, notif_service: NotificationService):
-    """Synchronous wrapper for the async install method, suitable for BackgroundTasks."""
-    import asyncio
+def _run_install_sync():
+    """Run installation in a background thread with its own DB session."""
+    global _install_running
+    from core.database import SessionLocal
+
+    db = SessionLocal()
     try:
-        result = asyncio.run(service.install())
+        service = FfmpegService(db)
+        notif_service = NotificationService(db)
+        result = service.install_sync()
+
         if result.get("success"):
             notif_service.create(
                 notif_type="ffmpeg",
@@ -87,12 +113,21 @@ def _run_install_sync(service: FfmpegService, notif_service: NotificationService
                 details={"error": error},
             )
     except Exception as exc:
-        notif_service.create(
-            notif_type="ffmpeg",
-            level="error",
-            message=f"FFmpeg installation crashed: {str(exc)}",
-            details={"error": str(exc)},
-        )
+        # Ensure notification is attempted even on crash
+        try:
+            notif_service = NotificationService(db)
+            notif_service.create(
+                notif_type="ffmpeg",
+                level="error",
+                message=f"FFmpeg installation crashed: {str(exc)}",
+                details={"error": str(exc)},
+            )
+        except Exception:
+            pass
+    finally:
+        db.close()
+        with _install_lock:
+            _install_running = False
 
 
 @router.post("/set-path", response_model=CheckPathResponse)

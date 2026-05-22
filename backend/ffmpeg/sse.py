@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import threading
 import time
 from typing import AsyncGenerator, Optional
 from fastapi import APIRouter, Request
@@ -9,7 +10,7 @@ from fastapi.responses import StreamingResponse
 
 router = APIRouter()
 
-# Global install state (thread-safe via GIL for simple dict ops)
+# Global install state (thread-safe)
 _install_state: dict = {
     "event_type": "idle",
     "progress_percent": 0,
@@ -19,6 +20,7 @@ _install_state: dict = {
     "error": None,
     "last_update": 0,
 }
+_state_lock = threading.Lock()
 
 
 def update_install_state(
@@ -31,36 +33,40 @@ def update_install_state(
 ) -> None:
     """Called from installer (potentially in a BackgroundTask thread) to update state."""
     global _install_state
-    _install_state = {
-        "event_type": event_type,
-        "progress_percent": progress,
-        "step": step,
-        "mirror": mirror,
-        "retry_count": retry,
-        "error": error,
-        "last_update": time.time(),
-    }
+    with _state_lock:
+        _install_state = {
+            "event_type": event_type,
+            "progress_percent": progress,
+            "step": step,
+            "mirror": mirror,
+            "retry_count": retry,
+            "error": error,
+            "last_update": time.time(),
+        }
 
 
 def reset_install_state() -> None:
     global _install_state
-    _install_state = {
-        "event_type": "idle",
-        "progress_percent": 0,
-        "step": "",
-        "mirror": None,
-        "retry_count": 0,
-        "error": None,
-        "last_update": 0,
-    }
+    with _state_lock:
+        _install_state = {
+            "event_type": "idle",
+            "progress_percent": 0,
+            "step": "",
+            "mirror": None,
+            "retry_count": 0,
+            "error": None,
+            "last_update": time.time(),
+        }
 
 
 def get_install_state() -> dict:
-    return _install_state.copy()
+    with _state_lock:
+        return _install_state.copy()
 
 
 async def _sse_generator(request: Request) -> AsyncGenerator[str, None]:
     last_sent = 0.0
+    last_state: Optional[dict] = None
     try:
         while True:
             if await request.is_disconnected():
@@ -68,21 +74,21 @@ async def _sse_generator(request: Request) -> AsyncGenerator[str, None]:
 
             state = get_install_state()
             current_update = state["last_update"]
+            state_changed = current_update > last_sent or state != last_state
 
-            # Only send if state changed or keep-alive needed
-            if current_update > last_sent:
+            if state_changed:
                 last_sent = current_update
-                # REMOVED the "event: {state['event_type']}\n" prefix line.
-                # This guarantees that the payload goes directly to es.onmessage
-                message = f"data: {json.dumps(state)}\n\n"
+                last_state = state.copy()
+                payload = json.dumps(state)
+                message = "data: " + payload + "\n\n"
                 yield message
 
-                # Stop if complete/failed/cancelled
+                # Stop if terminal state
                 if state["event_type"] in ("complete", "failed", "cancelled"):
+                    await asyncio.sleep(0.5)
                     break
             else:
-                # Keep-alive every 5 seconds
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
                 if time.time() - last_sent > 5:
                     yield ":keep-alive\n\n"
                     last_sent = time.time()
