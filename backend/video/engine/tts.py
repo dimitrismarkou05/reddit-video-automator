@@ -10,6 +10,7 @@ from elevenlabs import ElevenLabs
 from sqlalchemy.orm import Session
 
 from core.settings_manager import SettingsManager
+from video.engine.utils import get_audio_duration
 
 
 class TTSProviderError(Exception):
@@ -44,8 +45,7 @@ class OpenAITTSProvider(BaseTTSProvider):
             )
             response.stream_to_file(str(output_path))
 
-            from video.engine.utils import get_video_info
-            duration, _, _ = get_video_info(str(output_path))
+            duration = get_audio_duration(str(output_path))
             return duration
         except Exception as exc:
             raise TTSProviderError(f"OpenAI TTS failed: {exc}")
@@ -68,7 +68,6 @@ class ElevenLabsTTSProvider(BaseTTSProvider):
 
     def synthesize(self, text: str, voice: str, output_path: Path) -> float:
         try:
-            # ElevenLabs v2.x API
             audio_generator = self.client.text_to_speech.convert(
                 voice_id=voice,
                 output_format="mp3_44100_128",
@@ -76,12 +75,10 @@ class ElevenLabsTTSProvider(BaseTTSProvider):
                 model_id="eleven_monolingual_v1",
             )
 
-            # Collect audio chunks and write to file
             audio_bytes = b"".join(audio_generator)
             output_path.write_bytes(audio_bytes)
 
-            from video.engine.utils import get_video_info
-            duration, _, _ = get_video_info(str(output_path))
+            duration = get_audio_duration(str(output_path))
             return duration
         except Exception as exc:
             raise TTSProviderError(f"ElevenLabs TTS failed: {exc}")
@@ -107,11 +104,16 @@ class TTSEngine:
         "elevenlabs": ElevenLabsTTSProvider,
     }
 
+    FALLBACK_VOICES = {
+        "openai": ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
+        "elevenlabs": [],
+    }
+
     def __init__(self, db: Session):
         self.db = db
         self.settings = SettingsManager(db)
 
-    def get_provider(self, provider_name: str) -> BaseTTSProvider:
+    def get_provider(self, provider_name: str, voice: Optional[str] = None) -> BaseTTSProvider:
         provider_class = self.PROVIDERS.get(provider_name)
         if not provider_class:
             raise TTSProviderError(f"Unknown TTS provider: {provider_name}")
@@ -127,6 +129,15 @@ class TTSEngine:
             )
 
         return provider_class(api_key)
+
+    def get_fallback_voice(self, provider: str, failed_voice: str) -> Optional[str]:
+        """Get next available fallback voice for the provider."""
+        voices = self.FALLBACK_VOICES.get(provider, [])
+        if failed_voice in voices:
+            idx = voices.index(failed_voice)
+            if idx + 1 < len(voices):
+                return voices[idx + 1]
+        return None
 
     def synthesize(
         self,

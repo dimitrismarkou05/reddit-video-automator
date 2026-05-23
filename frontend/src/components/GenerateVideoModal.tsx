@@ -1,7 +1,23 @@
-import { useState } from "react";
-import { X, Film, Mic, Type, Image, Settings } from "lucide-react";
+import { useState, useEffect } from "react";
+import {
+  X,
+  Film,
+  Mic,
+  Type,
+  Image,
+  Settings,
+  Pause,
+  Play,
+  Square,
+  FolderOpen,
+  FileVideo,
+  CheckCircle,
+} from "lucide-react";
 import { videoApi } from "@/services/api";
 import type { Story, SubtitleStyle } from "@/types";
+import { useVideoProgress } from "@/hooks/useVideoProgress";
+import { ProgressBar } from "@/components/common/ProgressBar";
+import { ACTIVE_GENERATION_STATUSES } from "@/config/videoStatus";
 import toast from "react-hot-toast";
 
 const TTS_VOICES = [
@@ -13,14 +29,33 @@ const TTS_VOICES = [
   { id: "shimmer", name: "Shimmer", provider: "openai" },
 ];
 
+const STEP_LABELS: Record<string, string> = {
+  queued: "Queued...",
+  preparing: "Preparing narrative...",
+  tts: "Generating speech...",
+  tts_done: "TTS complete",
+  transcribe_done: "Transcription complete",
+  subtitles_done: "Subtitles generated",
+  selecting_background: "Selecting background...",
+  compositing: "Compositing video...",
+  compositing_done: "Finalizing...",
+  thumbnail: "Generating thumbnail...",
+  done: "Complete!",
+  failed: "Failed",
+  cancelled: "Cancelled",
+  paused: "Paused",
+};
+
 interface GenerateVideoModalProps {
   story: Story;
   onClose: () => void;
+  existingVideoId?: number | null;
 }
 
 export function GenerateVideoModal({
   story,
   onClose,
+  existingVideoId,
 }: GenerateVideoModalProps) {
   const [settings, setSettings] = useState({
     tts_provider: "openai",
@@ -32,25 +67,112 @@ export function GenerateVideoModal({
     subtitle_size: 48,
     generate_hashtags: true,
   });
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [videoId, setVideoId] = useState<number | null>(
+    existingVideoId ?? null,
+  );
+  const [isGenerating, setIsGenerating] = useState(!!existingVideoId);
+  const [showBackgroundPicker, setShowBackgroundPicker] =
+    useState(!existingVideoId);
 
-  const handleSelectBackground = async () => {
+  const { progress } = useVideoProgress({
+    videoId,
+    onComplete: (data) => {
+      if (data.status === "done") {
+        toast.success("Video generation complete!");
+      }
+    },
+  });
+
+  // Update isGenerating based on progress status
+  useEffect(() => {
+    if (progress) {
+      const terminal = ["done", "failed", "cancelled"];
+      if (terminal.includes(progress.status)) {
+        setIsGenerating(false);
+        // Reset form on failure/cancel so user can retry instead of hanging
+        if (progress.status === "failed" || progress.status === "cancelled") {
+          setShowBackgroundPicker(true);
+          setVideoId(null);
+        }
+      } else {
+        setIsGenerating(true);
+        setShowBackgroundPicker(false);
+      }
+    }
+  }, [progress]);
+
+  const handleSelectFolder = async () => {
     if (window.electronAPI) {
       const path = await window.electronAPI.selectDirectory();
       if (path) {
         setSettings((s) => ({ ...s, background_source: path }));
       }
     } else {
-      const input = document.createElement("input");
-      input.type = "file";
-      (input as any).webkitdirectory = true;
-      input.onchange = (e: any) => {
-        const files = e.target.files;
-        if (files.length > 0) {
-          setSettings((s) => ({ ...s, background_source: files[0].path }));
+      try {
+        // @ts-ignore
+        const dirHandle = await window.showDirectoryPicker?.();
+        if (dirHandle) {
+          setSettings((s) => ({ ...s, background_source: dirHandle.name }));
         }
-      };
-      input.click();
+      } catch (err: any) {
+        if (err.name === "AbortError") return;
+        // Fallback for browsers that don't support showDirectoryPicker
+        const input = document.createElement("input");
+        input.type = "file";
+        // @ts-ignore
+        input.webkitdirectory = true;
+        input.onchange = (e: any) => {
+          const files = e.target.files;
+          if (files.length > 0) {
+            const firstFile = files[0];
+            const path = firstFile.webkitRelativePath
+              ? firstFile.webkitRelativePath.split("/")[0]
+              : firstFile.name;
+            setSettings((s) => ({ ...s, background_source: path }));
+          }
+        };
+        input.click();
+      }
+    }
+  };
+
+  const handleSelectFile = async () => {
+    if (window.electronAPI) {
+      const path = await window.electronAPI.selectFile([
+        { name: "Videos", extensions: ["mp4", "mov", "avi", "mkv", "webm"] },
+      ]);
+      if (path) {
+        setSettings((s) => ({ ...s, background_source: path }));
+      }
+    } else {
+      try {
+        // @ts-ignore
+        const fileHandle = await window.showOpenFilePicker?.({
+          types: [
+            {
+              description: "Videos",
+              accept: { "video/*": [".mp4", ".mov", ".avi", ".mkv", ".webm"] },
+            },
+          ],
+        });
+        if (fileHandle && fileHandle[0]) {
+          const file = await fileHandle[0].getFile();
+          setSettings((s) => ({ ...s, background_source: file.name }));
+        }
+      } catch (err: any) {
+        if (err.name === "AbortError") return;
+        // Fallback
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "video/*";
+        input.onchange = (e: any) => {
+          const file = e.target.files?.[0];
+          if (file) {
+            setSettings((s) => ({ ...s, background_source: file.name }));
+          }
+        };
+        input.click();
+      }
     }
   };
 
@@ -61,6 +183,7 @@ export function GenerateVideoModal({
     }
 
     setIsGenerating(true);
+    setShowBackgroundPicker(false);
 
     try {
       const subtitleStyle: SubtitleStyle = {
@@ -72,7 +195,7 @@ export function GenerateVideoModal({
         max_width_percent: 90,
       };
 
-      await videoApi.generate({
+      const { data } = await videoApi.generate({
         story_id: story.id,
         include_updates: settings.include_updates,
         tts_provider: settings.tts_provider,
@@ -83,17 +206,56 @@ export function GenerateVideoModal({
         generate_hashtags: settings.generate_hashtags,
       });
 
-      toast.success(
-        "Video generation started! Check the Videos tab for progress.",
-      );
-      onClose();
+      setVideoId(data.video_id);
+      toast.success(data.message || "Video generation started!");
     } catch (e: any) {
       toast.error(
         e.response?.data?.detail || "Failed to start video generation",
       );
       setIsGenerating(false);
+      setShowBackgroundPicker(true);
     }
   };
+
+  const handlePause = async () => {
+    if (!videoId) return;
+    try {
+      await videoApi.pause(videoId);
+      toast.success("Generation paused");
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || "Failed to pause");
+    }
+  };
+
+  const handleResume = async () => {
+    if (!videoId) return;
+    try {
+      await videoApi.resume(videoId);
+      toast.success("Generation resuming...");
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || "Failed to resume");
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!videoId) return;
+    try {
+      await videoApi.cancel(videoId);
+      toast.success("Generation cancelled");
+      setIsGenerating(false);
+      setShowBackgroundPicker(true);
+      setVideoId(null);
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || "Failed to cancel");
+    }
+  };
+
+  const isActive =
+    progress && ACTIVE_GENERATION_STATUSES.includes(progress.status);
+  const isPaused = progress?.status === "paused";
+  const currentStepLabel = progress
+    ? STEP_LABELS[progress.current_step] || progress.current_step
+    : "";
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -113,8 +275,7 @@ export function GenerateVideoModal({
           </div>
           <button
             onClick={onClose}
-            disabled={isGenerating}
-            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 "
+            className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5"
           >
             <X className="w-5 h-5" />
           </button>
@@ -122,22 +283,101 @@ export function GenerateVideoModal({
 
         {/* Content */}
         <div className="p-6 space-y-6">
-          {isGenerating ? (
-            <div className="text-center py-12">
-              <div className="relative w-20 h-20 mx-auto mb-4">
-                <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
-                <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin" />
-                <Film className="absolute inset-0 m-auto w-8 h-8 text-primary" />
+          {isGenerating && progress ? (
+            <div className="space-y-4">
+              {/* Progress Section */}
+              <div className="text-center py-6">
+                <div className="relative w-20 h-20 mx-auto mb-4">
+                  <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
+                  <div
+                    className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"
+                    style={{
+                      animationPlayState: isPaused ? "paused" : "running",
+                    }}
+                  />
+                  <Film className="absolute inset-0 m-auto w-8 h-8 text-primary" />
+                </div>
+                <h3 className="text-lg font-semibold mb-1">
+                  {isPaused ? "Generation Paused" : "Generating Video..."}
+                </h3>
+                <p className="text-sm text-gray-500 mb-4">{currentStepLabel}</p>
+
+                <ProgressBar
+                  progress={progress.progress_percent}
+                  size="lg"
+                  showPercentage
+                />
+
+                {progress.queue_position && progress.queue_position > 0 && (
+                  <p className="text-sm text-yellow-600 mt-2">
+                    Queued at position {progress.queue_position}
+                  </p>
+                )}
+
+                {progress.error_message && (
+                  <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg text-left">
+                    <p className="text-sm text-red-600 dark:text-red-400 font-medium">
+                      Error{" "}
+                      {progress.error_step ? `at ${progress.error_step}` : ""}
+                    </p>
+                    <p className="text-xs text-red-500 mt-1">
+                      {progress.error_message}
+                    </p>
+                  </div>
+                )}
+
+                <p className="text-xs text-gray-400 mt-3">
+                  {isActive
+                    ? "Generation continues in background if you close this modal"
+                    : ""}
+                </p>
               </div>
-              <h3 className="text-lg font-semibold mb-2">
-                Generating Video...
-              </h3>
-              <p className="text-sm text-gray-500">
-                This may take a few minutes. You can close this modal and check
-                progress in the Videos tab.
-              </p>
+
+              {/* Control Buttons */}
+              <div className="flex items-center justify-center gap-3">
+                {isPaused ? (
+                  <button
+                    onClick={handleResume}
+                    className="cursor-pointer btn-primary flex items-center gap-2"
+                  >
+                    <Play className="w-4 h-4" />
+                    Resume
+                  </button>
+                ) : (
+                  <button
+                    onClick={handlePause}
+                    disabled={!isActive}
+                    className="cursor-pointer btn-secondary flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <Pause className="w-4 h-4" />
+                    Pause
+                  </button>
+                )}
+                <button
+                  onClick={handleCancel}
+                  className="cursor-pointer px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 flex items-center gap-2 font-medium"
+                >
+                  <Square className="w-4 h-4" />
+                  Cancel
+                </button>
+              </div>
             </div>
-          ) : (
+          ) : progress?.status === "done" ? (
+            <div className="text-center py-8 space-y-4">
+              <div className="w-16 h-16 mx-auto rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                <CheckCircle className="w-8 h-8 text-green-500" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">Video Ready!</h3>
+                <p className="text-sm text-gray-500">
+                  Your video has been generated successfully.
+                </p>
+              </div>
+              <button onClick={onClose} className="cursor-pointer btn-primary">
+                Close
+              </button>
+            </div>
+          ) : showBackgroundPicker ? (
             <>
               {/* TTS Settings */}
               <div className="space-y-3">
@@ -188,7 +428,7 @@ export function GenerateVideoModal({
                 </div>
               </div>
 
-              {/* Background */}
+              {/* Background Video */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
                   <Image className="w-4 h-4" />
@@ -196,21 +436,28 @@ export function GenerateVideoModal({
                 </div>
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={handleSelectBackground}
+                    onClick={handleSelectFolder}
                     className="cursor-pointer btn-secondary flex items-center gap-2"
                   >
-                    <Image className="w-4 h-4" />
+                    <FolderOpen className="w-4 h-4" />
                     Select Folder
                   </button>
-                  {settings.background_source && (
-                    <span className="text-sm text-gray-600 dark:text-gray-400 truncate flex-1">
-                      {settings.background_source}
-                    </span>
-                  )}
+                  <button
+                    onClick={handleSelectFile}
+                    className="cursor-pointer btn-secondary flex items-center gap-2"
+                  >
+                    <FileVideo className="w-4 h-4" />
+                    Select Video File
+                  </button>
                 </div>
+                {settings.background_source && (
+                  <span className="text-sm text-gray-600 dark:text-gray-400 truncate flex-1 block">
+                    {settings.background_source}
+                  </span>
+                )}
                 <p className="text-xs text-gray-500">
-                  Select a folder with video files. One will be picked randomly
-                  for each generation.
+                  Select a folder with video files (one will be picked randomly)
+                  or a specific video file.
                 </p>
               </div>
 
@@ -225,7 +472,7 @@ export function GenerateVideoModal({
                     onClick={() =>
                       setSettings((s) => ({ ...s, video_format: "shorts" }))
                     }
-                    className={`cursor-pointer flex-1 p-3 rounded-lg border-2  ${
+                    className={`cursor-pointer flex-1 p-3 rounded-lg border-2 ${
                       settings.video_format === "shorts"
                         ? "border-primary bg-primary/5"
                         : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5"
@@ -238,7 +485,7 @@ export function GenerateVideoModal({
                     onClick={() =>
                       setSettings((s) => ({ ...s, video_format: "normal" }))
                     }
-                    className={`cursor-pointer flex-1 p-3 rounded-lg border-2  ${
+                    className={`cursor-pointer flex-1 p-3 rounded-lg border-2 ${
                       settings.video_format === "normal"
                         ? "border-primary bg-primary/5"
                         : "border-border-light dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5"
@@ -333,18 +580,23 @@ export function GenerateVideoModal({
                 </label>
               </div>
             </>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-gray-500">Setting up video generation...</p>
+            </div>
           )}
         </div>
 
         {/* Footer */}
-        {!isGenerating && (
+        {showBackgroundPicker && (
           <div className="flex items-center justify-end gap-3 p-6 border-t border-border-light dark:border-border-dark">
             <button onClick={onClose} className="cursor-pointer btn-secondary">
               Cancel
             </button>
             <button
               onClick={handleGenerate}
-              className="cursor-pointer btn-primary flex items-center gap-2"
+              disabled={!settings.background_source}
+              className="cursor-pointer btn-primary flex items-center gap-2 disabled:opacity-50"
             >
               <Film className="w-4 h-4" />
               Generate Video

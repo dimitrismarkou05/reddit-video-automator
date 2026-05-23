@@ -5,15 +5,50 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.database import init_db
 from api_router import api_router
 from notifications.sse import signal_shutdown
+from video.engine.job_manager import job_manager
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     init_db()
+
+    # Pre-load Whisper model on startup
+    try:
+        from video.engine.subtitles import _load_whisper_model
+        _load_whisper_model("base")
+    except Exception:
+        pass  # Will load on first use
+
     yield
     # Shutdown
     signal_shutdown()
+
+    # Pause all active video generations
+    paused_ids = job_manager.shutdown_all()
+
+    # Update DB status for paused videos
+    try:
+        from core.database import SessionLocal
+        from video.models import GeneratedVideo, VideoStatus
+        db = SessionLocal()
+        try:
+            for vid_id in paused_ids:
+                video = db.query(GeneratedVideo).filter(
+                    GeneratedVideo.id == vid_id
+                ).first()
+                if video and video.status not in (
+                    VideoStatus.DONE.value,
+                    VideoStatus.FAILED.value,
+                    VideoStatus.CANCELLED.value,
+                ):
+                    video.status = VideoStatus.PAUSED.value
+                    video.is_paused = True
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        pass
 
 
 app = FastAPI(

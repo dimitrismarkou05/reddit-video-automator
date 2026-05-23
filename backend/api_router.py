@@ -27,7 +27,7 @@ api_router.include_router(stories_router, prefix="/stories", tags=["Stories"])
 api_router.include_router(video_router, prefix="/videos", tags=["Videos"])
 
 # SSE streams
-api_router.include_router(video_sse_router, prefix="/sse", tags=["SSE"])
+api_router.include_router(video_sse_router, prefix="/sse/videos", tags=["SSE"])
 api_router.include_router(notifications_sse_router, prefix="/sse", tags=["SSE"])
 api_router.include_router(ffmpeg_sse_router, prefix="/sse/ffmpeg", tags=["SSE"])
 

@@ -1,3 +1,6 @@
+"""Subtitle generation with Whisper transcription and ASS formatting."""
+
+import functools
 import re
 from pathlib import Path
 from typing import List, Tuple, Optional
@@ -7,9 +10,16 @@ import whisper
 from video.schemas import SubtitleStyle
 
 
+# Singleton pattern: module-level cached model
+@functools.lru_cache(maxsize=2)
+def _load_whisper_model(model_size: str = "base"):
+    """Load and cache Whisper model. Pre-load on startup if possible."""
+    return whisper.load_model(model_size)
+
+
 class SubtitleGenerator:
     def __init__(self, model_size: str = "base"):
-        self.model = whisper.load_model(model_size)
+        self.model = _load_whisper_model(model_size)
         self.model_size = model_size
 
     def transcribe(self, audio_path: str) -> dict:

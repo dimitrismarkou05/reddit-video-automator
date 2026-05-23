@@ -1,3 +1,5 @@
+"""Thumbnail generation with bundled font fallback."""
+
 import random
 from pathlib import Path
 from typing import Optional, Tuple
@@ -5,6 +7,12 @@ from typing import Optional, Tuple
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 
 from video.engine.utils import sanitize_filename
+
+
+# Bundled font path (relative to backend package)
+BUNDLED_FONT_DIR = Path(__file__).parent.parent.parent / "assets" / "fonts"
+BUNDLED_FONT_PATH = BUNDLED_FONT_DIR / "Inter-Regular.ttf"
+BUNDLED_FONT_BOLD_PATH = BUNDLED_FONT_DIR / "Inter-Bold.ttf"
 
 
 class ThumbnailGenerator:
@@ -23,12 +31,25 @@ class ThumbnailGenerator:
         self.width = width
         self.height = height
 
-    def _get_font(self, size: int) -> ImageFont.FreeTypeFont:
-        font_paths = [
+    def _get_font(self, size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
+        """Load font with bundled Inter font as first priority."""
+        font_paths = []
+
+        # Try bundled font first
+        if BUNDLED_FONT_PATH.exists():
+            font_paths.append(str(BUNDLED_FONT_BOLD_PATH if bold else BUNDLED_FONT_PATH))
+
+        # System fallbacks
+        font_paths.extend([
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
             "/System/Library/Fonts/Helvetica.ttc",
             "C:/Windows/Fonts/arialbd.ttf",
-        ]
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "C:/Windows/Fonts/arial.ttf",
+        ])
+
         for path in font_paths:
             try:
                 return ImageFont.truetype(path, size)
@@ -134,7 +155,7 @@ class ThumbnailGenerator:
 
         if score:
             score_font = self._get_font(24)
-            score_text = f"↑ {score:,}"
+            score_text = f"\u2191 {score:,}"
             score_bbox = score_font.getbbox(score_text)
             score_w = (score_bbox[2] - score_bbox[0]) + 30 if score_bbox else 150
             score_h = (score_bbox[3] - score_bbox[1]) + 14 if score_bbox else 40
@@ -155,9 +176,9 @@ class ThumbnailGenerator:
                 fill=(255, 255, 255),
             )
 
-        title_font_large = self._get_font(72)
-        title_font_medium = self._get_font(56)
-        title_font_small = self._get_font(42)
+        title_font_large = self._get_font(72, bold=True)
+        title_font_medium = self._get_font(56, bold=True)
+        title_font_small = self._get_font(42, bold=True)
 
         max_width = self.width - 100
         wrapped = self._wrap_text(title, title_font_large, max_width)

@@ -3,29 +3,16 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
-from notifications.sse import notification_queue, sse_generator
-from core.database import SessionLocal
-from video.engine.pipeline import VideoPipeline
+from video.engine.progress_broadcaster import VideoProgressBroadcaster
 
 router = APIRouter()
 
 
-@router.get("/progress/{video_id}")
-async def progress_stream(video_id: int, request: Request):
-    queue = await notification_queue.connect()
-    try:
-        db = SessionLocal()
-        try:
-            pipeline = VideoPipeline(db)
-            progress = pipeline.get_progress(video_id)
-            await queue.put(f"event: progress\ndata: {progress}\n\n")
-        finally:
-            db.close()
-    except Exception:
-        pass
-
+@router.get("/{video_id}/progress")
+async def video_progress_stream(video_id: int, request: Request):
+    broadcaster = VideoProgressBroadcaster(video_id)
     return StreamingResponse(
-        sse_generator(request, queue),
+        broadcaster.stream(request),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

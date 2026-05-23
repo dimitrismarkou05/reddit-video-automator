@@ -10,23 +10,17 @@ export const api = axios.create({
   },
 });
 
-// Global notification refresh after mutating requests
 api.interceptors.response.use(
   (response) => {
     const method = response.config.method?.toLowerCase();
-    const isMutation =
-      method === "post" || method === "put" || method === "delete";
-    const isNotificationEndpoint =
-      response.config.url?.includes("/notifications");
-
+    const isMutation = method === "post" || method === "put" || method === "delete";
+    const isNotificationEndpoint = response.config.url?.includes("/notifications");
     if (isMutation && !isNotificationEndpoint) {
       refreshNotifications().catch(() => {});
     }
     return response;
   },
-  (error) => {
-    return Promise.reject(error);
-  },
+  (error) => Promise.reject(error),
 );
 
 async function refreshNotifications() {
@@ -40,7 +34,6 @@ async function refreshNotifications() {
   }
 }
 
-// SSE connection manager
 export class SSEConnection {
   private eventSource: EventSource | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -48,10 +41,8 @@ export class SSEConnection {
 
   connect(endpoint: string) {
     if (this.eventSource) return;
-
     const url = `${API_BASE.replace("/api/v1", "")}${endpoint}`;
     this.eventSource = new EventSource(url);
-
     this.eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
@@ -61,12 +52,9 @@ export class SSEConnection {
         console.error("SSE parse error:", e);
       }
     };
-
     this.eventSource.onerror = () => {
       this.disconnect();
-      this.reconnectTimer = setTimeout(() => {
-        this.connect(endpoint);
-      }, 5000);
+      this.reconnectTimer = setTimeout(() => this.connect(endpoint), 5000);
     };
   }
 
@@ -100,15 +88,66 @@ export class SSEConnection {
 
 export const sse = new SSEConnection();
 
-// API endpoints
+export class VideoProgressConnection {
+  private eventSource: EventSource | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private listeners: Set<(data: any) => void> = new Set();
+  private currentEndpoint: string = "";
+
+  connect(videoId: number) {
+    const endpoint = `${API_BASE.replace("/api/v1", "")}/api/v1/sse/videos/${videoId}/progress`;
+    if (this.eventSource && this.currentEndpoint === endpoint) return;
+    this.disconnect();
+    this.currentEndpoint = endpoint;
+    this.eventSource = new EventSource(endpoint);
+    this.eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        this.listeners.forEach((cb) => cb(data));
+      } catch (e) {
+        console.error("Video SSE parse error:", e);
+      }
+    };
+    this.eventSource.addEventListener("progress", (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        this.listeners.forEach((cb) => cb(data));
+      } catch (e) {
+        console.error("Video progress event error:", e);
+      }
+    });
+    this.eventSource.onerror = () => {
+      this.disconnect();
+      this.reconnectTimer = setTimeout(() => this.connect(videoId), 3000);
+    };
+  }
+
+  disconnect() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+  }
+
+  onProgress(callback: (data: any) => void) {
+    this.listeners.add(callback);
+  }
+
+  offProgress(callback: (data: any) => void) {
+    this.listeners.delete(callback);
+  }
+}
+
+export const videoProgressSSE = new VideoProgressConnection();
+
 export const subredditApi = {
   list: () => api.get("/subreddits"),
   add: (name: string, settings?: Record<string, any>, force?: boolean) =>
-    api.post(
-      "/subreddits",
-      { name, fetch_settings: settings },
-      { params: { force } },
-    ),
+    api.post("/subreddits", { name, fetch_settings: settings }, { params: { force } }),
   delete: (id: number) => api.delete(`/subreddits/${id}`),
   deleteAll: () => api.delete("/subreddits"),
   fetch: (id: number) => api.post(`/subreddits/${id}/fetch`),
@@ -137,6 +176,10 @@ export const videoApi = {
   get: (id: number) => api.get(`/videos/${id}`),
   generate: (data: Record<string, any>) => api.post("/videos/generate", data),
   getProgress: (id: number) => api.get(`/videos/${id}/progress`),
+  pause: (id: number) => api.post(`/videos/${id}/pause`),
+  resume: (id: number) => api.post(`/videos/${id}/resume`),
+  cancel: (id: number) => api.post(`/videos/${id}/cancel`),
+  delete: (id: number) => api.delete(`/videos/${id}`),
 };
 
 export const youtubeApi = {
@@ -164,7 +207,8 @@ export const notificationApi = {
 };
 
 export const settingsApi = {
-  get: (key: string, decrypt?: boolean) => api.get(`/settings/${key}`, { params: { decrypt } }),
+  get: (key: string, decrypt?: boolean) =>
+    api.get(`/settings/${key}`, { params: { decrypt } }),
   set: (key: string, value: string, encrypt?: boolean) =>
     api.post("/settings", { key, value, encrypt }),
 };
@@ -183,7 +227,6 @@ export const automationApi = {
   getRuns: (id: number) => api.get(`/automation/templates/${id}/runs`),
 };
 
-// ─── FFmpeg API ───
 export const ffmpegApi = {
   getStatus: () => api.get("/ffmpeg/status"),
   install: () => api.post("/ffmpeg/install"),

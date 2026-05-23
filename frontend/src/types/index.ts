@@ -23,12 +23,29 @@ export interface GeneratedVideo {
   story_id: number;
   video_path: string;
   thumbnail_path: string;
+  audio_path: string | null;
+  subtitle_path: string | null;
   format: string;
   duration_seconds: number | null;
+  file_size_bytes: number | null;
   status: string;
   progress_percent: number;
+  current_step: string;
+  step_progress: number;
+  retry_count: number;
   error_message: string | null;
+  error_type: string | null;
+  error_step: string | null;
+  queue_position: number | null;
+  is_paused: boolean;
+  paused_at: string | null;
+  tts_audio_path: string | null;
+  subtitle_ass_path: string | null;
+  selected_background_video: string | null;
   tts_voice: string | null;
+  tts_provider: string | null;
+  background_source: string | null;
+  subtitle_style: Record<string, any> | null;
   youtube_upload_status: string;
   youtube_video_id: string | null;
   youtube_analytics: Record<string, any> | null;
@@ -119,7 +136,20 @@ export interface SubtitleStyle {
   max_width_percent: number;
 }
 
-// ─── FFmpeg Types ───
+export interface VideoProgressEvent {
+  video_id: number;
+  status: string;
+  progress_percent: number;
+  current_step: string;
+  step_progress: number;
+  error_message: string | null;
+  error_type: string | null;
+  error_step: string | null;
+  queue_position: number | null;
+  is_paused: boolean;
+  thumbnail_path?: string;
+  video_path?: string;
+}
 
 export interface FfmpegStatus {
   ffmpeg_installed: boolean;

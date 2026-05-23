@@ -27,6 +27,7 @@ class VideoGenerationResponse(BaseModel):
     video_id: int
     status: str
     message: str
+    queue_position: Optional[int] = None
 
 
 class GeneratedVideoResponse(BaseModel):
@@ -36,19 +37,36 @@ class GeneratedVideoResponse(BaseModel):
     story_id: int
     video_path: str
     thumbnail_path: str
+    audio_path: Optional[str] = None
+    subtitle_path: Optional[str] = None
     format: str
-    duration_seconds: Optional[float]
+    duration_seconds: Optional[float] = None
+    file_size_bytes: Optional[int] = None
     status: str
     progress_percent: int
-    error_message: Optional[str]
-    tts_voice: Optional[str]
+    current_step: str = ""
+    step_progress: int = 0
+    retry_count: int = 0
+    error_message: Optional[str] = None
+    error_type: Optional[str] = None
+    error_step: Optional[str] = None
+    queue_position: Optional[int] = None
+    is_paused: bool = False
+    paused_at: Optional[datetime] = None
+    tts_audio_path: Optional[str] = None
+    subtitle_ass_path: Optional[str] = None
+    selected_background_video: Optional[str] = None
+    tts_voice: Optional[str] = None
+    tts_provider: Optional[str] = None
+    background_source: Optional[str] = None
+    subtitle_style: Optional[dict] = None
     youtube_upload_status: str
-    youtube_video_id: Optional[str]
-    youtube_analytics: Optional[dict]
+    youtube_video_id: Optional[str] = None
+    youtube_analytics: Optional[dict] = None
     created_at: datetime
-    completed_at: Optional[datetime]
+    completed_at: Optional[datetime] = None
 
-    @field_serializer('created_at', 'completed_at')
+    @field_serializer('created_at', 'completed_at', 'paused_at')
     def serialize_datetime(self, value: Optional[datetime]) -> str:
         if value is None:
             return ""
@@ -62,4 +80,15 @@ class VideoProgressResponse(BaseModel):
     status: str
     progress_percent: int
     current_step: str
-    error_message: Optional[str]
+    step_progress: int
+    error_message: Optional[str] = None
+    error_type: Optional[str] = None
+    error_step: Optional[str] = None
+    queue_position: Optional[int] = None
+    is_paused: bool = False
+
+
+class VideoControlResponse(BaseModel):
+    success: bool
+    status: str
+    message: str

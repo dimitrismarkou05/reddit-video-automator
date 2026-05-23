@@ -24,6 +24,10 @@ dependencies = [
     "google-api-python-client>=2.115.0",
     "google-auth-oauthlib>=1.2.0",
     "google-auth-httplib2>=0.2.0",
+    # Video generation fixes
+    "tenacity>=8.2.0",
+    "python-slugify>=8.0.0",
+    "mutagen>=1.47.0",
 ]
 
 [project.optional-dependencies]
