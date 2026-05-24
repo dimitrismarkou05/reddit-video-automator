@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   X,
   Film,
@@ -9,27 +10,17 @@ import {
   Pause,
   Play,
   Square,
-  Loader2,
   FolderOpen,
   FileVideo,
   CheckCircle,
   AlertTriangle,
 } from "lucide-react";
-import { videoApi } from "@/services/api";
+import { videoApi, ttsLocalApi, settingsApi } from "@/services/api";
 import type { Story, SubtitleStyle } from "@/types";
 import { useVideoProgress } from "@/hooks/useVideoProgress";
 import { ProgressBar } from "@/components/common/ProgressBar";
 import { ACTIVE_GENERATION_STATUSES } from "@/config/videoStatus";
 import toast from "react-hot-toast";
-
-const TTS_VOICES = [
-  { id: "alloy", name: "Alloy", provider: "openai" },
-  { id: "echo", name: "Echo", provider: "openai" },
-  { id: "fable", name: "Fable", provider: "openai" },
-  { id: "onyx", name: "Onyx", provider: "openai" },
-  { id: "nova", name: "Nova", provider: "openai" },
-  { id: "shimmer", name: "Shimmer", provider: "openai" },
-];
 
 const STEP_LABELS: Record<string, string> = {
   queued: "Queued...",
@@ -60,8 +51,7 @@ export function GenerateVideoModal({
   existingVideoId,
 }: GenerateVideoModalProps) {
   const [settings, setSettings] = useState({
-    tts_provider: "openai",
-    tts_voice: "alloy",
+    voice_id: "default",
     background_source: "",
     video_format: "shorts" as "shorts" | "normal",
     include_updates: true,
@@ -77,6 +67,27 @@ export function GenerateVideoModal({
     useState(!existingVideoId);
   const [lastError, setLastError] = useState<string | null>(null);
 
+  const { data: voices } = useQuery({
+    queryKey: ["tts-voices"],
+    queryFn: async () => {
+      const { data } = await ttsLocalApi.listVoices();
+      return data as { id: string; name: string }[];
+    },
+    staleTime: 60000,
+  });
+
+  useEffect(() => {
+    const loadDefault = async () => {
+      try {
+        const { data } = await settingsApi.get("default_tts_voice");
+        if (data?.value) {
+          setSettings((s) => ({ ...s, voice_id: data.value }));
+        }
+      } catch (e) {}
+    };
+    loadDefault();
+  }, []);
+
   const { progress } = useVideoProgress({
     videoId,
     onComplete: (data) => {
@@ -85,11 +96,9 @@ export function GenerateVideoModal({
       } else if (data.status === "failed") {
         toast.error(data.error_message || "Video generation failed");
       }
-      // cancelled — no toast, user already pressed Cancel
     },
   });
 
-  // Sync UI state with SSE progress
   useEffect(() => {
     if (!progress) return;
 
@@ -117,16 +126,14 @@ export function GenerateVideoModal({
       if (path) setSettings((s) => ({ ...s, background_source: path }));
     } else {
       try {
-        // @ts-ignore
-        const dirHandle = await window.showDirectoryPicker?.();
+        const dirHandle = await (window as any).showDirectoryPicker?.();
         if (dirHandle)
           setSettings((s) => ({ ...s, background_source: dirHandle.name }));
       } catch (err: any) {
         if (err.name === "AbortError") return;
         const input = document.createElement("input");
         input.type = "file";
-        // @ts-ignore
-        input.webkitdirectory = true;
+        (input as any).webkitdirectory = true;
         input.onchange = (e: any) => {
           const files = e.target.files;
           if (files.length > 0) {
@@ -150,8 +157,7 @@ export function GenerateVideoModal({
       if (path) setSettings((s) => ({ ...s, background_source: path }));
     } else {
       try {
-        // @ts-ignore
-        const fileHandle = await window.showOpenFilePicker?.({
+        const fileHandle = await (window as any).showOpenFilePicker?.({
           types: [
             {
               description: "Videos",
@@ -201,8 +207,7 @@ export function GenerateVideoModal({
       const { data } = await videoApi.generate({
         story_id: story.id,
         include_updates: settings.include_updates,
-        tts_provider: settings.tts_provider,
-        tts_voice: settings.tts_voice,
+        voice_id: settings.voice_id,
         background_source: settings.background_source,
         video_format: settings.video_format,
         subtitle_style: subtitleStyle,
@@ -210,14 +215,13 @@ export function GenerateVideoModal({
       });
 
       setVideoId(data.video_id);
-      // NO toast here — wait for SSE to tell us if it actually succeeded or failed
     } catch (e: any) {
       const backendDetail = e.response?.data?.detail;
       const msg = backendDetail || "Failed to start video generation";
 
       const displayError =
-        backendDetail?.includes("api key") ||
-        backendDetail?.includes("not configured")
+        backendDetail?.includes("not installed") ||
+        backendDetail?.includes("TTS model")
           ? backendDetail
           : msg;
 
@@ -271,7 +275,6 @@ export function GenerateVideoModal({
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-surface-light dark:bg-surface-dark rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl">
-        {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-border-light dark:border-border-dark">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -292,11 +295,9 @@ export function GenerateVideoModal({
           </button>
         </div>
 
-        {/* Content */}
         <div className="p-6 space-y-6">
           {isGenerating && progress ? (
             <div className="space-y-4">
-              {/* Progress Section */}
               <div className="text-center py-6">
                 <div className="relative w-20 h-20 mx-auto mb-4">
                   <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
@@ -344,7 +345,6 @@ export function GenerateVideoModal({
                 </p>
               </div>
 
-              {/* Control Buttons */}
               <div className="flex items-center justify-center gap-3">
                 {isPaused ? (
                   <button
@@ -390,56 +390,41 @@ export function GenerateVideoModal({
             </div>
           ) : showBackgroundPicker ? (
             <>
-              {/* TTS Settings */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
                   <Mic className="w-4 h-4" />
-                  Text-to-Speech
+                  Voice
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">
-                      Provider
-                    </label>
-                    <select
-                      value={settings.tts_provider}
-                      onChange={(e) =>
-                        setSettings((s) => ({
-                          ...s,
-                          tts_provider: e.target.value,
-                        }))
-                      }
-                      className="input"
-                    >
-                      <option value="openai">OpenAI</option>
-                      <option value="elevenlabs">ElevenLabs</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">
-                      Voice
-                    </label>
-                    <select
-                      value={settings.tts_voice}
-                      onChange={(e) =>
-                        setSettings((s) => ({
-                          ...s,
-                          tts_voice: e.target.value,
-                        }))
-                      }
-                      className="input"
-                    >
-                      {TTS_VOICES.map((v) => (
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    Select Voice
+                  </label>
+                  <select
+                    value={settings.voice_id}
+                    onChange={(e) =>
+                      setSettings((s) => ({ ...s, voice_id: e.target.value }))
+                    }
+                    className="input w-full"
+                    disabled={!voices || voices.length === 0}
+                  >
+                    {voices && voices.length > 0 ? (
+                      voices.map((v) => (
                         <option key={v.id} value={v.id}>
                           {v.name}
                         </option>
-                      ))}
-                    </select>
-                  </div>
+                      ))
+                    ) : (
+                      <option value="default">No voices available</option>
+                    )}
+                  </select>
+                  {(!voices || voices.length === 0) && (
+                    <p className="text-xs text-yellow-600 mt-1">
+                      Install a TTS model in Settings to enable voice selection.
+                    </p>
+                  )}
                 </div>
               </div>
 
-              {/* Background Video */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
                   <Image className="w-4 h-4" />
@@ -472,7 +457,6 @@ export function GenerateVideoModal({
                 </p>
               </div>
 
-              {/* Format */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
                   <Settings className="w-4 h-4" />
@@ -508,7 +492,6 @@ export function GenerateVideoModal({
                 </div>
               </div>
 
-              {/* Subtitles */}
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
                   <Type className="w-4 h-4" />
@@ -555,7 +538,6 @@ export function GenerateVideoModal({
                 </div>
               </div>
 
-              {/* Options */}
               <div className="space-y-3">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
@@ -591,7 +573,6 @@ export function GenerateVideoModal({
                 </label>
               </div>
 
-              {/* Error banner — shown when the last attempt failed */}
               {lastError && (
                 <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
                   <div className="flex items-start gap-2">
@@ -613,7 +594,6 @@ export function GenerateVideoModal({
           )}
         </div>
 
-        {/* Footer */}
         {showBackgroundPicker && (
           <div className="flex items-center justify-end gap-3 p-6 border-t border-border-light dark:border-border-dark">
             <button onClick={onClose} className="cursor-pointer btn-secondary">

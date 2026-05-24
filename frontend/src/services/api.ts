@@ -122,7 +122,6 @@ export class VideoProgressConnection {
     });
 
     this.eventSource.addEventListener("error", (event) => {
-      // Backend-sent "event: error" (e.g. "Video not found")
       if (event instanceof MessageEvent) {
         try {
           const data = JSON.parse(event.data);
@@ -136,7 +135,6 @@ export class VideoProgressConnection {
 
     this.eventSource.onerror = () => {
       this.disconnect();
-      // Only reconnect if the video hasn't reached a terminal / not-found state
       if (!this.isTerminal && this.currentVideoId !== null) {
         this.reconnectTimer = setTimeout(() => {
           this.connect(this.currentVideoId!);
@@ -162,7 +160,6 @@ export class VideoProgressConnection {
 
   offProgress(callback: (data: any) => void) {
     this.listeners.delete(callback);
-    // Auto-disconnect when nothing is listening so we don't leak connections
     if (this.listeners.size === 0) {
       this.disconnect();
       this.currentEndpoint = "";
@@ -273,4 +270,12 @@ export const ffmpegApi = {
     api.get("/ffmpeg/check-path", { params: { path } }),
   reset: () => api.delete("/ffmpeg/reset"),
   cancel: () => api.post("/ffmpeg/cancel"),
+};
+
+export const ttsLocalApi = {
+  getStatus: () => api.get("/tts_local/status"),
+  listVoices: () => api.get("/tts_local/voices"),
+  install: () => api.post("/tts_local/install"),
+  retry: () => api.post("/tts_local/retry"),
+  cancel: () => api.post("/tts_local/cancel"),
 };

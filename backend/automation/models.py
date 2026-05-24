@@ -25,20 +25,15 @@ class AutomationTemplate(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(50), default=TemplateStatus.PAUSED.value)
 
-    # Subreddit configuration
     subreddit_names: Mapped[list] = mapped_column(JSON, default=list)
     fetch_settings: Mapped[dict] = mapped_column(JSON, default=dict)
 
-    # Video generation settings
-    tts_provider: Mapped[str] = mapped_column(String(50), default="openai")
-    tts_voice: Mapped[str] = mapped_column(String(100), default="alloy")
     background_source: Mapped[str] = mapped_column(Text, default="")
     video_format: Mapped[str] = mapped_column(String(20), default="shorts")
     subtitle_style: Mapped[dict] = mapped_column(JSON, default=dict)
     include_updates: Mapped[bool] = mapped_column(Boolean, default=True)
     generate_hashtags: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    # YouTube upload settings
     youtube_title_template: Mapped[str] = mapped_column(Text, default="{story_title}")
     youtube_description_template: Mapped[str] = mapped_column(Text, default="")
     youtube_tags: Mapped[list] = mapped_column(JSON, default=list)
@@ -46,8 +41,7 @@ class AutomationTemplate(Base):
     youtube_category: Mapped[str] = mapped_column(String(20), default="22")
     auto_upload: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    # Schedule
-    schedule_type: Mapped[str] = mapped_column(String(50), default="manual")  # manual, interval, cron
+    schedule_type: Mapped[str] = mapped_column(String(50), default="manual")
     schedule_config: Mapped[dict] = mapped_column(JSON, default=dict)
     last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     next_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -74,7 +68,7 @@ class TemplateRun(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     template_id: Mapped[int] = mapped_column(ForeignKey("automation_templates.id"))
 
-    status: Mapped[str] = mapped_column(String(50), default="running")  # running, completed, failed
+    status: Mapped[str] = mapped_column(String(50), default="running")
     stories_fetched: Mapped[int] = mapped_column(Integer, default=0)
     videos_generated: Mapped[int] = mapped_column(Integer, default=0)
     videos_uploaded: Mapped[int] = mapped_column(Integer, default=0)

@@ -38,34 +38,27 @@ class GeneratedVideo(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     progress_percent: Mapped[int] = mapped_column(Integer, default=0)
 
-    # Checkpoint / resume fields
     current_step: Mapped[str] = mapped_column(String(50), default="queued")
     step_progress: Mapped[int] = mapped_column(Integer, default=0)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     temp_files_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
-    # Error detail fields
     error_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     error_step: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     error_traceback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Queue fields
     queue_position: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
-    # Pause / resume / cancel timestamps
     is_paused: Mapped[bool] = mapped_column(Boolean, default=False)
     paused_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     resumed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
-    # Intermediate file paths for resume
     tts_audio_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     whisper_result_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     subtitle_ass_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     selected_background_video: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    tts_voice: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    tts_provider: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     background_source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subtitle_style: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 

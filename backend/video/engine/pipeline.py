@@ -32,16 +32,13 @@ class VideoPipelineError(Exception):
 
 
 class PipelineCancelledError(Exception):
-    """Raised when pipeline is cancelled by user."""
     pass
 
 
 class PipelinePausedError(Exception):
-    """Raised when pipeline is paused by user."""
     pass
 
 
-# Progress percentage mapping for each step
 STEP_PROGRESS = {
     "queued": 0,
     "preparing": 5,
@@ -89,13 +86,11 @@ class VideoPipeline:
         step: str,
         temp_data: dict,
     ) -> None:
-        """Save intermediate file paths and status to DB for resume."""
         video_record.current_step = step
         video_record.temp_files_json = temp_data
         self.db.commit()
 
     def _load_checkpoint(self, video_record: GeneratedVideo) -> dict:
-        """Load checkpoint data from DB."""
         return video_record.temp_files_json or {}
 
     def _build_narrative_text(self, story: Story, include_updates: bool) -> str:
@@ -142,10 +137,8 @@ class VideoPipeline:
         return hashtags[:8]
 
     def check_cancelled(self, video_record: GeneratedVideo) -> None:
-        """Check if the job has been cancelled or paused."""
         if self._cancelled:
             raise PipelineCancelledError("Video generation was cancelled")
-        # Refresh status from DB (in case external cancel/pause was set)
         self.db.refresh(video_record)
         if video_record.status == VideoStatus.CANCELLED.value:
             raise PipelineCancelledError("Video generation was cancelled")
@@ -154,17 +147,14 @@ class VideoPipeline:
             raise PipelinePausedError("Video generation was paused")
 
     def cancel(self) -> None:
-        """Signal cancellation."""
         self._cancelled = True
         self.composer.cancel()
 
     def pause(self) -> None:
-        """Signal pause."""
         self._paused = True
         self.composer.cancel()
 
     def resume(self) -> None:
-        """Signal resume."""
         self._paused = False
 
     def _record_error(
@@ -173,12 +163,11 @@ class VideoPipeline:
         error: Exception,
         step: str,
     ) -> None:
-        """Record detailed error info to DB."""
         raw = str(error)
         if "api key" in raw.lower() or "not configured" in raw.lower():
-            friendly = "API key not configured. Check Settings."
+            friendly = "TTS model not installed. Check Settings."
         elif "TTS" in type(error).__name__ or "tts" in raw.lower():
-            friendly = "Text-to-speech failed. Check your API key in Settings."
+            friendly = "Text-to-speech failed. Install a TTS model in Settings."
         elif "FFmpeg" in type(error).__name__ or "ffmpeg" in raw.lower():
             friendly = "Video rendering failed. Check FFmpeg installation."
         else:
@@ -196,8 +185,7 @@ class VideoPipeline:
         self,
         video_record: GeneratedVideo,
         include_updates: bool = True,
-        tts_provider: str = "openai",
-        tts_voice: str = "alloy",
+        voice_id: str = "default",
         background_source: str = "",
         video_format: str = "shorts",
         subtitle_style: Optional[SubtitleStyle] = None,
@@ -212,7 +200,6 @@ class VideoPipeline:
         output_folder = get_output_folder(story.id, story.title)
         temp_folder = get_temp_folder(video_id)
 
-        # Ensure output paths are set
         video_record.video_path = str(output_folder / "video.mp4")
         video_record.thumbnail_path = str(output_folder / "thumbnail.jpg")
         self.db.commit()
@@ -220,7 +207,6 @@ class VideoPipeline:
         checkpoint = self._load_checkpoint(video_record)
 
         try:
-            # ── Step: preparing ──
             if checkpoint.get("step", "queued") in ("queued", "failed"):
                 self.check_cancelled(video_record)
                 self._update_progress(video_record, "preparing", 0, progress_callback)
@@ -234,16 +220,13 @@ class VideoPipeline:
                         "hashtags": hashtags,
                     }
 
-                video_record.tts_provider = tts_provider
-                video_record.tts_voice = tts_voice
                 video_record.background_source = background_source
                 self.db.commit()
                 self._save_checkpoint(video_record, "preparing", {})
             else:
                 narrative = self._build_narrative_text(story, include_updates)
 
-            # ── Step: TTS ──
-            audio_path = temp_folder / "narration.mp3"
+            audio_path = temp_folder / "narration.wav"
             if checkpoint.get("step", "preparing") in ("queued", "preparing", "failed"):
                 self.check_cancelled(video_record)
                 self._update_progress(video_record, "tts", 0, progress_callback)
@@ -251,7 +234,7 @@ class VideoPipeline:
                 tts_engine = TTSEngine(self.db)
                 audio_duration = await asyncio.to_thread(
                     tts_engine.synthesize,
-                    narrative, tts_provider, tts_voice, audio_path,
+                    narrative, voice_id, audio_path,
                 )
 
                 video_record.audio_path = str(audio_path)
@@ -261,15 +244,12 @@ class VideoPipeline:
                 self.db.commit()
                 self._save_checkpoint(video_record, "tts_done", {
                     "audio_path": str(audio_path),
-                    "tts_provider": tts_provider,
-                    "tts_voice": tts_voice,
                 })
             else:
                 audio_path = Path(checkpoint.get("audio_path", str(audio_path)))
 
             self._update_progress(video_record, "tts_done", 0, progress_callback)
 
-            # ── Step: Transcribe ──
             whisper_result = None
             if checkpoint.get("step", "tts_done") in ("queued", "preparing", "tts_done", "failed"):
                 self.check_cancelled(video_record)
@@ -291,7 +271,6 @@ class VideoPipeline:
 
             self._update_progress(video_record, "transcribe_done", 0, progress_callback)
 
-            # ── Step: Subtitles ──
             subtitle_path = temp_folder / "subtitles.ass"
             if checkpoint.get("step", "transcribe_done") in (
                 "queued", "preparing", "tts_done", "transcribe_done", "failed"
@@ -327,7 +306,6 @@ class VideoPipeline:
 
             self._update_progress(video_record, "subtitles_done", 0, progress_callback)
 
-            # ── Step: Background video selection ──
             if checkpoint.get("step", "subtitles_done") in (
                 "queued", "preparing", "tts_done", "transcribe_done", "subtitles_done", "failed"
             ):
@@ -345,7 +323,6 @@ class VideoPipeline:
                 if not bg_video:
                     bg_video = await asyncio.to_thread(select_background_video, background_source)
 
-            # ── Step: Compositing ──
             if checkpoint.get("step", "selecting_background") in (
                 "queued", "preparing", "tts_done", "transcribe_done",
                 "subtitles_done", "selecting_background", "failed"
@@ -375,7 +352,6 @@ class VideoPipeline:
 
             self._update_progress(video_record, "compositing_done", 0, progress_callback)
 
-            # ── Step: Thumbnail ──
             self.check_cancelled(video_record)
             self._update_progress(video_record, "thumbnail", 0, progress_callback)
             await asyncio.to_thread(
@@ -386,7 +362,6 @@ class VideoPipeline:
                 score=story.score,
             )
 
-            # ── Finalize ──
             video_record.status = VideoStatus.DONE.value
             video_record.progress_percent = 100
             video_record.current_step = "done"
@@ -397,7 +372,6 @@ class VideoPipeline:
 
             self.db.commit()
 
-            # Clean up temp files only on success
             cleanup_temp(video_id)
 
             self._update_progress(video_record, "done", 0, progress_callback)

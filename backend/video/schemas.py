@@ -15,8 +15,7 @@ class SubtitleStyle(BaseModel):
 class VideoGenerationRequest(BaseModel):
     story_id: int
     include_updates: bool = True
-    tts_provider: str = "openai"
-    tts_voice: str = "alloy"
+    voice_id: str = "default"
     background_source: str
     video_format: str = "shorts"
     subtitle_style: SubtitleStyle = Field(default_factory=SubtitleStyle)
@@ -56,8 +55,6 @@ class GeneratedVideoResponse(BaseModel):
     tts_audio_path: Optional[str] = None
     subtitle_ass_path: Optional[str] = None
     selected_background_video: Optional[str] = None
-    tts_voice: Optional[str] = None
-    tts_provider: Optional[str] = None
     background_source: Optional[str] = None
     subtitle_style: Optional[dict] = None
     youtube_upload_status: str

@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 
 from core.database import get_db
 from automation.models import AutomationTemplate, TemplateRun, TemplateStatus
-from automation.scheduler.core import start_scheduler, stop_scheduler
 
 router = APIRouter()
 
@@ -72,13 +71,10 @@ def toggle_template(template_id: int, db: Session = Depends(get_db)):
 
 @router.post("/templates/{template_id}/run")
 def run_template_now(template_id: int, db: Session = Depends(get_db)):
-    """Trigger a template run manually."""
     template = db.query(AutomationTemplate).filter(AutomationTemplate.id == template_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    # This would normally trigger the scheduler to run this template immediately
-    # For now, return a message that manual run is queued
     return {"message": "Manual run queued", "template_id": template_id}
 
 

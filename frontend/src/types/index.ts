@@ -42,8 +42,6 @@ export interface GeneratedVideo {
   tts_audio_path: string | null;
   subtitle_ass_path: string | null;
   selected_background_video: string | null;
-  tts_voice: string | null;
-  tts_provider: string | null;
   background_source: string | null;
   subtitle_style: Record<string, any> | null;
   youtube_upload_status: string;
@@ -66,7 +64,7 @@ export interface Subreddit {
 export interface Notification {
   id: number;
   type: string;
-  level: 'info' | 'success' | 'warning' | 'error';
+  level: "info" | "success" | "warning" | "error";
   message: string;
   details: Record<string, any> | null;
   is_read: boolean;
@@ -106,8 +104,6 @@ export interface AutomationTemplate {
   status: string;
   subreddit_names: string[];
   fetch_settings: Record<string, any>;
-  tts_provider: string;
-  tts_voice: string;
   background_source: string;
   video_format: string;
   subtitle_style: Record<string, any>;
@@ -128,7 +124,7 @@ export interface AutomationTemplate {
 }
 
 export interface SubtitleStyle {
-  position: 'center' | 'bottom' | 'top';
+  position: "center" | "bottom" | "top";
   font_size: number;
   font_color: string;
   outline_color: string;
@@ -162,6 +158,21 @@ export interface FfmpegStatus {
 }
 
 export interface FfmpegInstallProgress {
+  event_type: string;
+  progress_percent: number;
+  step: string;
+  mirror: string | null;
+  retry_count: number;
+  error: string | null;
+}
+
+export interface TtsStatus {
+  installed: boolean;
+  voices: { id: string; name: string; path: string }[];
+  models_dir: string;
+}
+
+export interface TtsInstallProgress {
   event_type: string;
   progress_percent: number;
   step: string;

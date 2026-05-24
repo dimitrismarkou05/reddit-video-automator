@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Key,
   Film,
@@ -9,42 +9,67 @@ import {
   Sun,
   Moon,
   Monitor,
-  Mic,
   RotateCcw,
   Download,
   FolderInput,
   TestTube,
   Loader2,
+  Volume2,
 } from "lucide-react";
 import { useThemeStore, useAuthStore } from "@/store";
 import { SettingsSection } from "@/components/settings/SettingsSection";
-import { ApiKeyInput } from "@/components/settings/ApiKeyInput";
 import { FfmpegStatus } from "@/components/ffmpeg/FfmpegStatus";
 import { FfmpegInstallModal } from "@/components/ffmpeg/FfmpegInstallModal";
-import { ffmpegApi } from "@/services/api";
+import { ffmpegApi, ttsLocalApi, settingsApi } from "@/services/api";
 import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
+import { useTtsLocalStatus } from "@/hooks/useTtsLocalStatus";
 import toast from "react-hot-toast";
 
 export function SettingsPage() {
   const { isDark, toggle } = useThemeStore();
   const { authStatus } = useAuthStore();
-  const [ttsKey, setTtsKey] = useState("");
-  const [elevenLabsKey, setElevenLabsKey] = useState("");
-  const [ffmpegPath, setFfmpegPath] = useState("");
-  const [ffprobePath, setFfprobePath] = useState("");
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isSavingPath, setIsSavingPath] = useState(false);
+  const [ffmpegPath, setFfmpegPath] = useState("");
+  const [ffprobePath, setFfprobePath] = useState("");
+
+  const [defaultVoice, setDefaultVoice] = useState("default");
+  const [voices, setVoices] = useState<{ id: string; name: string }[]>([]);
+  const [isInstallingTts, setIsInstallingTts] = useState(false);
+  const [isRetryingTts, setIsRetryingTts] = useState(false);
 
   const { status: ffmpegStatus, refetch: refetchFfmpeg } = useFfmpegStatus();
+  const { status: ttsStatus, refetch: refetchTts } = useTtsLocalStatus();
+
+  useEffect(() => {
+    if (ttsStatus?.voices) {
+      setVoices(ttsStatus.voices);
+    }
+  }, [ttsStatus]);
+
+  useEffect(() => {
+    const loadDefaultVoice = async () => {
+      try {
+        const { data } = await settingsApi.get("default_tts_voice");
+        if (data?.value) setDefaultVoice(data.value);
+      } catch (e) {}
+    };
+    loadDefaultVoice();
+  }, []);
 
   const handleSelectOutputDir = async () => {
     if (window.electronAPI) {
       const path = await window.electronAPI.selectDirectory();
       if (path) {
-        // setOutputDir(path);
+        try {
+          await settingsApi.set("output_directory", path);
+          toast.success("Output directory saved");
+        } catch (e) {
+          toast.error("Failed to save output directory");
+        }
       }
     }
   };
@@ -129,30 +154,165 @@ export function SettingsPage() {
     }
   };
 
+  const handleInstallTts = async () => {
+    setIsInstallingTts(true);
+    try {
+      await ttsLocalApi.install();
+      toast.success("TTS model installation started");
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to start TTS install");
+      setIsInstallingTts(false);
+    }
+  };
+
+  const handleRetryTts = async () => {
+    setIsRetryingTts(true);
+    try {
+      await ttsLocalApi.retry();
+      toast.success("Retrying TTS model installation");
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Retry failed");
+      setIsRetryingTts(false);
+    }
+  };
+
+  const handleSaveDefaultVoice = async () => {
+    try {
+      await settingsApi.set("default_tts_voice", defaultVoice);
+      toast.success("Default voice saved");
+    } catch (e) {
+      toast.error("Failed to save default voice");
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <h2 className="text-2xl font-bold mb-6">Settings</h2>
 
-      <SettingsSection title="Text-to-Speech APIs" icon={Mic}>
-        <ApiKeyInput
-          label="OpenAI (Default)"
-          placeholder="sk-..."
-          getUrl="https://platform.openai.com/api-keys"
-          settingKey="openai_api_key"
-          value={ttsKey}
-          onChange={setTtsKey}
-          hint="Used for voice narration. Your key is encrypted at rest."
-        />
-        <div className="border-t border-border-light dark:border-border-dark pt-4 mt-4">
-          <ApiKeyInput
-            label="ElevenLabs (Optional)"
-            placeholder="ElevenLabs API key..."
-            getUrl="https://elevenlabs.io/app/settings/api-keys"
-            settingKey="elevenlabs_api_key"
-            value={elevenLabsKey}
-            onChange={setElevenLabsKey}
-            hint="Higher quality voices. Optional — falls back to OpenAI if not set."
-          />
+      <SettingsSection title="Video Generation" icon={Volume2}>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Default Voice
+            </label>
+            <div className="flex gap-3">
+              <select
+                value={defaultVoice}
+                onChange={(e) => setDefaultVoice(e.target.value)}
+                className="input flex-1"
+                disabled={!ttsStatus?.installed}
+              >
+                {voices.length === 0 && (
+                  <option value="default">No voices installed</option>
+                )}
+                {voices.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleSaveDefaultVoice}
+                disabled={!ttsStatus?.installed}
+                className="cursor-pointer btn-primary flex items-center gap-2 disabled:opacity-50"
+              >
+                <Check className="w-4 h-4" />
+                Save
+              </button>
+            </div>
+            {!ttsStatus?.installed && (
+              <p className="text-xs text-yellow-600 mt-1">
+                Install a TTS model to enable voice selection.
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Output Directory
+            </label>
+            <div className="flex gap-3">
+              <input
+                type="text"
+                readOnly
+                placeholder="Select output folder..."
+                className="input flex-1"
+              />
+              <button
+                onClick={handleSelectOutputDir}
+                className="cursor-pointer btn-secondary flex items-center gap-2"
+              >
+                <FolderOpen className="w-4 h-4" />
+                Browse
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Default Video Format
+            </label>
+            <div className="flex gap-3">
+              <button className="cursor-pointer flex-1 p-3 rounded-lg border-2 border-primary bg-primary/5 text-center">
+                <div className="text-sm font-medium">Shorts (9:16)</div>
+                <div className="text-xs text-gray-500">
+                  Vertical mobile format
+                </div>
+              </button>
+              <button className="cursor-pointer flex-1 p-3 rounded-lg border-2 border-border-light dark:border-border-dark text-center hover:bg-gray-50 dark:hover:bg-white/5 ">
+                <div className="text-sm font-medium">Normal (16:9)</div>
+                <div className="text-xs text-gray-500">Standard horizontal</div>
+              </button>
+            </div>
+          </div>
+
+          <div className="border-t border-border-light dark:border-border-dark pt-4">
+            <h4 className="text-sm font-medium mb-2">TTS Model Status</h4>
+            {ttsStatus?.installed ? (
+              <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 dark:bg-green-900/20 p-3 rounded-lg">
+                <Check className="w-4 h-4" />
+                <span>
+                  TTS model installed ({voices.length} voice
+                  {voices.length !== 1 ? "s" : ""})
+                </span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-start gap-2 text-sm text-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-lg">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>
+                    TTS model not installed. Voice generation is disabled.
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleInstallTts}
+                    disabled={isInstallingTts}
+                    className="cursor-pointer btn-primary flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {isInstallingTts ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4" />
+                    )}
+                    Install TTS Model
+                  </button>
+                  <button
+                    onClick={handleRetryTts}
+                    disabled={isRetryingTts}
+                    className="cursor-pointer btn-secondary flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {isRetryingTts ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RotateCcw className="w-4 h-4" />
+                    )}
+                    Retry
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </SettingsSection>
 
@@ -355,48 +515,6 @@ export function SettingsPage() {
             <div className="text-sm font-medium">Dark Mode</div>
             <div className="text-xs text-gray-500">Dark slate tones</div>
           </button>
-        </div>
-      </SettingsSection>
-
-      <SettingsSection title="Output Settings" icon={FolderOpen}>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Output Directory
-            </label>
-            <div className="flex gap-3">
-              <input
-                type="text"
-                readOnly
-                placeholder="Select output folder..."
-                className="input flex-1"
-              />
-              <button
-                onClick={handleSelectOutputDir}
-                className="cursor-pointer btn-secondary flex items-center gap-2"
-              >
-                <FolderOpen className="w-4 h-4" />
-                Browse
-              </button>
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Default Video Format
-            </label>
-            <div className="flex gap-3">
-              <button className="cursor-pointer flex-1 p-3 rounded-lg border-2 border-primary bg-primary/5 text-center">
-                <div className="text-sm font-medium">Shorts (9:16)</div>
-                <div className="text-xs text-gray-500">
-                  Vertical mobile format
-                </div>
-              </button>
-              <button className="cursor-pointer flex-1 p-3 rounded-lg border-2 border-border-light dark:border-border-dark text-center hover:bg-gray-50 dark:hover:bg-white/5 ">
-                <div className="text-sm font-medium">Normal (16:9)</div>
-                <div className="text-xs text-gray-500">Standard horizontal</div>
-              </button>
-            </div>
-          </div>
         </div>
       </SettingsSection>
 

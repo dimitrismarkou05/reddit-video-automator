@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Routes, Route, Navigate, Outlet, useParams } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { useThemeStore, useAuthStore } from "@/store";
@@ -14,7 +14,9 @@ import { PublicSettingsPage } from "@/pages/PublicSettingsPage";
 import { TitleBar } from "@/components/TitleBar";
 import { FfmpegMissingModal } from "@/components/ffmpeg/FfmpegMissingModal";
 import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
-import { useState } from "react";
+import { useTtsLocalStatus } from "@/hooks/useTtsLocalStatus";
+import { SetupWizardModal } from "@/components/setup/SetupWizardModal";
+import { useSetupStore } from "@/store/setup";
 
 function ProtectedRoute() {
   const { authStatus, isLoading } = useAuthStore();
@@ -69,8 +71,11 @@ function App() {
   const isElectron = !!window.electronAPI;
   const [showFfmpegMissing, setShowFfmpegMissing] = useState(false);
   const [ffmpegSkipped, setFfmpegSkipped] = useState(false);
+  const [showSetupWizard, setShowSetupWizard] = useState(false);
 
   const { status: ffmpegStatus, isLoading: ffmpegLoading } = useFfmpegStatus();
+  const { status: ttsStatus, isLoading: ttsLoading } = useTtsLocalStatus();
+  const { wizardComplete, setWizardComplete } = useSetupStore();
 
   useEffect(() => {
     if (isDark) {
@@ -94,30 +99,39 @@ function App() {
     checkAuth();
   }, [setAuthStatus, setLoading]);
 
-  // Show FFmpeg missing modal after authentication
   useEffect(() => {
     const isAuthenticated = authStatus?.is_authenticated;
+    if (!isAuthenticated || ffmpegLoading || ttsLoading || wizardComplete) {
+      if (!isAuthenticated) {
+        setShowFfmpegMissing(false);
+        setFfmpegSkipped(false);
+        setShowSetupWizard(false);
+      }
+      return;
+    }
 
-    // Only check FFmpeg if user is authenticated and not loading
-    if (
-      !ffmpegLoading &&
-      isAuthenticated &&
-      ffmpegStatus &&
-      !ffmpegStatus.can_generate_videos &&
-      !ffmpegSkipped
-    ) {
+    const ffmpegOk = ffmpegStatus?.can_generate_videos ?? false;
+    const ttsOk = ttsStatus?.installed ?? false;
+
+    if (!ffmpegOk && !ttsOk) {
+      setShowSetupWizard(true);
+    } else if (!ffmpegOk && !ffmpegSkipped) {
       setShowFfmpegMissing(true);
-    } else if (!isAuthenticated) {
-      // Reset FFmpeg modal state when logged out
-      setShowFfmpegMissing(false);
-      setFfmpegSkipped(false);
     }
   }, [
     ffmpegLoading,
+    ttsLoading,
     ffmpegStatus,
+    ttsStatus,
     ffmpegSkipped,
     authStatus?.is_authenticated,
+    wizardComplete,
   ]);
+
+  const handleWizardComplete = () => {
+    setWizardComplete(true);
+    setShowSetupWizard(false);
+  };
 
   return (
     <div
@@ -152,7 +166,11 @@ function App() {
         </Routes>
       </div>
 
-      {showFfmpegMissing && (
+      {showSetupWizard && (
+        <SetupWizardModal onComplete={handleWizardComplete} />
+      )}
+
+      {showFfmpegMissing && !showSetupWizard && (
         <FfmpegMissingModal
           onClose={() => setShowFfmpegMissing(false)}
           onSkip={() => setFfmpegSkipped(true)}
