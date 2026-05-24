@@ -97,7 +97,7 @@ def _run_install_sync():
                 notif_type="tts",
                 level="success",
                 message="TTS model installed successfully",
-                details={"voice_path": result.get("voice_path")},
+                details={"model_name": result.get("model_name")},
             )
         else:
             error = result.get("error", "Unknown error")

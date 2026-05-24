@@ -1,9 +1,12 @@
-"""Local TTS orchestration using Coqui TTS."""
+"""Local TTS orchestration using Coqui TTS.
+
+Uses model_name-based initialization (e.g. "tts_models/en/ljspeech/tacotron2-DDC")
+instead of manual path-based loading. Coqui TTS auto-downloads on first use.
+"""
 
 from pathlib import Path
 from typing import Optional
 
-from TTS.api import TTS
 from sqlalchemy.orm import Session
 
 from services.tts_service import TTSService
@@ -18,29 +21,23 @@ class TTSProviderError(Exception):
 
 
 class LocalTTSProvider:
-    def __init__(self, voice_path: Path):
-        self.voice_path = voice_path
-        self.config_path = voice_path / "config.json"
-        self.model_path = self._find_model_file(voice_path)
-        self.tts: Optional[TTS] = None
+    """Coqui TTS provider using model_name auto-download."""
 
-    def _find_model_file(self, voice_path: Path) -> Path:
-        for path in voice_path.iterdir():
-            if path.is_file() and path.suffix in (".pth", ".onnx"):
-                return path
-        raise TTSProviderError(f"No model file (.pth or .onnx) found in {voice_path}")
+    def __init__(self, model_name: str):
+        self.model_name = model_name
+        self.tts = None
 
     def _load(self) -> None:
         if self.tts is None:
             try:
+                from TTS.api import TTS
                 self.tts = TTS(
-                    model_path=str(self.model_path),
-                    config_path=str(self.config_path),
+                    model_name=self.model_name,
                     progress_bar=False,
                     gpu=False,
                 )
             except Exception as exc:
-                raise TTSProviderError(f"Failed to load TTS model: {exc}")
+                raise TTSProviderError(f"Failed to load TTS model '{self.model_name}': {exc}")
 
     def synthesize(self, text: str, output_path: Path) -> float:
         try:
@@ -58,14 +55,11 @@ class TTSEngine:
         self.service = TTSService(db)
 
     def get_provider(self, voice_id: str = "default") -> LocalTTSProvider:
-        voice_path = self.service.get_voice_path(voice_id)
-        if not voice_path:
-            available = [v["id"] for v in self.service.list_voices()]
-            raise TTSProviderError(
-                f"Voice '{voice_id}' not found. Available: {available}. "
-                f"Install a TTS model in Settings."
-            )
-        return LocalTTSProvider(voice_path)
+        model_name = self.service.get_voice_model_name(voice_id)
+        if not model_name:
+            from tts_local.mirrors import get_default_model_name
+            model_name = get_default_model_name()
+        return LocalTTSProvider(model_name)
 
     def synthesize(
         self,

@@ -20,7 +20,8 @@ import { useThemeStore, useAuthStore } from "@/store";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { FfmpegStatus } from "@/components/ffmpeg/FfmpegStatus";
 import { FfmpegInstallModal } from "@/components/ffmpeg/FfmpegInstallModal";
-import { ffmpegApi, ttsLocalApi, settingsApi } from "@/services/api";
+import { TtsInstallModal } from "@/components/tts/TtsInstallModal";
+import { ffmpegApi, settingsApi } from "@/services/api";
 import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
 import { useTtsLocalStatus } from "@/hooks/useTtsLocalStatus";
 import toast from "react-hot-toast";
@@ -29,6 +30,7 @@ export function SettingsPage() {
   const { isDark, toggle } = useThemeStore();
   const { authStatus } = useAuthStore();
   const [showInstallModal, setShowInstallModal] = useState(false);
+  const [showTtsInstallModal, setShowTtsInstallModal] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -38,11 +40,9 @@ export function SettingsPage() {
 
   const [defaultVoice, setDefaultVoice] = useState("default");
   const [voices, setVoices] = useState<{ id: string; name: string }[]>([]);
-  const [isInstallingTts, setIsInstallingTts] = useState(false);
-  const [isRetryingTts, setIsRetryingTts] = useState(false);
 
   const { status: ffmpegStatus, refetch: refetchFfmpeg } = useFfmpegStatus();
-  const { status: ttsStatus, refetch: refetchTts } = useTtsLocalStatus();
+  const { status: ttsStatus } = useTtsLocalStatus();
 
   useEffect(() => {
     if (ttsStatus?.voices) {
@@ -154,26 +154,8 @@ export function SettingsPage() {
     }
   };
 
-  const handleInstallTts = async () => {
-    setIsInstallingTts(true);
-    try {
-      await ttsLocalApi.install();
-      toast.success("TTS model installation started");
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail || "Failed to start TTS install");
-      setIsInstallingTts(false);
-    }
-  };
-
-  const handleRetryTts = async () => {
-    setIsRetryingTts(true);
-    try {
-      await ttsLocalApi.retry();
-      toast.success("Retrying TTS model installation");
-    } catch (e: any) {
-      toast.error(e?.response?.data?.detail || "Retry failed");
-      setIsRetryingTts(false);
-    }
+  const handleInstallTts = () => {
+    setShowTtsInstallModal(true);
   };
 
   const handleSaveDefaultVoice = async () => {
@@ -284,32 +266,13 @@ export function SettingsPage() {
                     TTS model not installed. Voice generation is disabled.
                   </span>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleInstallTts}
-                    disabled={isInstallingTts}
-                    className="cursor-pointer btn-primary flex items-center gap-2 disabled:opacity-50"
-                  >
-                    {isInstallingTts ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Download className="w-4 h-4" />
-                    )}
-                    Install TTS Model
-                  </button>
-                  <button
-                    onClick={handleRetryTts}
-                    disabled={isRetryingTts}
-                    className="cursor-pointer btn-secondary flex items-center gap-2 disabled:opacity-50"
-                  >
-                    {isRetryingTts ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <RotateCcw className="w-4 h-4" />
-                    )}
-                    Retry
-                  </button>
-                </div>
+                <button
+                  onClick={handleInstallTts}
+                  className="cursor-pointer btn-primary flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  Install TTS Model
+                </button>
               </div>
             )}
           </div>
@@ -520,6 +483,9 @@ export function SettingsPage() {
 
       {showInstallModal && (
         <FfmpegInstallModal onClose={() => setShowInstallModal(false)} />
+      )}
+      {showTtsInstallModal && (
+        <TtsInstallModal onClose={() => setShowTtsInstallModal(false)} />
       )}
     </div>
   );

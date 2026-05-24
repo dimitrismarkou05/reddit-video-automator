@@ -10,9 +10,10 @@ import {
 } from "lucide-react";
 import { ModalShell } from "@/components/common/ModalShell";
 import { ProgressBar } from "@/components/common/ProgressBar";
-import { ffmpegApi, ttsLocalApi } from "@/services/api";
+import { ffmpegApi } from "@/services/api";
 import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
 import { useTtsLocalStatus } from "@/hooks/useTtsLocalStatus";
+import { TtsInstallModal } from "@/components/tts/TtsInstallModal";
 import toast from "react-hot-toast";
 
 interface SetupWizardModalProps {
@@ -27,17 +28,13 @@ export function SetupWizardModal({ onComplete }: SetupWizardModalProps) {
   const [ffmpegError, setFfmpegError] = useState<string | null>(null);
   const [ffmpegComplete, setFfmpegComplete] = useState(false);
 
-  const [ttsInstalling, setTtsInstalling] = useState(false);
-  const [ttsProgress, setTtsProgress] = useState(0);
-  const [ttsStep, setTtsStep] = useState("");
-  const [ttsError, setTtsError] = useState<string | null>(null);
   const [ttsComplete, setTtsComplete] = useState(false);
+  const [showTtsInstallModal, setShowTtsInstallModal] = useState(false);
 
   const { status: ffmpegStatus, refetch: refetchFfmpeg } = useFfmpegStatus();
   const { status: ttsStatus, refetch: refetchTts } = useTtsLocalStatus();
 
   const ffmpegEsRef = useRef<EventSource | null>(null);
-  const ttsEsRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
     if (ffmpegStatus?.can_generate_videos && step === 1) {
@@ -67,7 +64,6 @@ export function SetupWizardModal({ onComplete }: SetupWizardModalProps) {
   useEffect(() => {
     return () => {
       ffmpegEsRef.current?.close();
-      ttsEsRef.current?.close();
     };
   }, []);
 
@@ -110,47 +106,6 @@ export function SetupWizardModal({ onComplete }: SetupWizardModalProps) {
     };
   };
 
-  const connectTtsSSE = () => {
-    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:8000";
-    const es = new EventSource(
-      `${baseUrl}/api/v1/sse/tts_local/install-progress`,
-    );
-    ttsEsRef.current = es;
-
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (!data?.event_type) return;
-
-        setTtsProgress(data.progress_percent || 0);
-        setTtsStep(data.step || "");
-
-        if (data.event_type === "complete") {
-          setTtsComplete(true);
-          setTtsInstalling(false);
-          refetchTts();
-          toast.success("TTS model installed successfully!");
-          es.close();
-        } else if (data.event_type === "failed") {
-          setTtsError(data.error || "TTS installation failed");
-          setTtsInstalling(false);
-          toast.error(data.error || "TTS installation failed");
-          es.close();
-        } else if (data.event_type === "cancelled") {
-          setTtsInstalling(false);
-          toast("TTS installation cancelled", { icon: "⚠️" });
-          es.close();
-        }
-      } catch (e) {
-        console.error("TTS SSE parse error:", e);
-      }
-    };
-
-    es.onerror = () => {
-      es.close();
-    };
-  };
-
   const startFfmpegInstall = async () => {
     setFfmpegInstalling(true);
     setFfmpegError(null);
@@ -169,24 +124,6 @@ export function SetupWizardModal({ onComplete }: SetupWizardModalProps) {
     }
   };
 
-  const startTtsInstall = async () => {
-    setTtsInstalling(true);
-    setTtsError(null);
-    setTtsComplete(false);
-    connectTtsSSE();
-    try {
-      await ttsLocalApi.install();
-    } catch (e: any) {
-      setTtsInstalling(false);
-      setTtsError(
-        e?.response?.data?.detail || "Failed to start TTS installation",
-      );
-      toast.error(
-        e?.response?.data?.detail || "Failed to start TTS installation",
-      );
-    }
-  };
-
   const retryFfmpeg = async () => {
     setFfmpegError(null);
     setFfmpegInstalling(true);
@@ -199,18 +136,6 @@ export function SetupWizardModal({ onComplete }: SetupWizardModalProps) {
     }
   };
 
-  const retryTts = async () => {
-    setTtsError(null);
-    setTtsInstalling(true);
-    connectTtsSSE();
-    try {
-      await ttsLocalApi.retry();
-    } catch (e: any) {
-      setTtsInstalling(false);
-      setTtsError(e?.response?.data?.detail || "Retry failed");
-    }
-  };
-
   return (
     <ModalShell onClose={() => {}} maxWidth="max-w-lg">
       <div className="p-6 space-y-6">
@@ -219,7 +144,7 @@ export function SetupWizardModal({ onComplete }: SetupWizardModalProps) {
             Welcome to Reddit Video Automator
           </h2>
           <p className="text-sm text-gray-500 mt-1">
-            Let's set up the required components for video generation.
+            Let&apos;s set up the required components for video generation.
           </p>
         </div>
 
@@ -313,28 +238,9 @@ export function SetupWizardModal({ onComplete }: SetupWizardModalProps) {
                 <CheckCircle className="w-5 h-5" />
                 <span className="text-sm font-medium">TTS model is ready</span>
               </div>
-            ) : ttsInstalling ? (
-              <div className="space-y-3">
-                <ProgressBar progress={ttsProgress} size="lg" />
-                <p className="text-sm text-gray-500 text-center">{ttsStep}</p>
-              </div>
-            ) : ttsError ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-red-600 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
-                  <AlertTriangle className="w-5 h-5" />
-                  <span className="text-sm font-medium">{ttsError}</span>
-                </div>
-                <button
-                  onClick={retryTts}
-                  className="cursor-pointer w-full btn-primary flex items-center justify-center gap-2"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  Retry TTS Install
-                </button>
-              </div>
             ) : (
               <button
-                onClick={startTtsInstall}
+                onClick={() => setShowTtsInstallModal(true)}
                 className="cursor-pointer w-full btn-primary flex items-center justify-center gap-2"
               >
                 <Download className="w-4 h-4" />
@@ -354,6 +260,19 @@ export function SetupWizardModal({ onComplete }: SetupWizardModalProps) {
           </div>
         )}
       </div>
+
+      {showTtsInstallModal && (
+        <TtsInstallModal
+          onClose={() => {
+            setShowTtsInstallModal(false);
+            refetchTts().then((result: any) => {
+              if (result?.data?.installed) {
+                setTtsComplete(true);
+              }
+            });
+          }}
+        />
+      )}
     </ModalShell>
   );
 }

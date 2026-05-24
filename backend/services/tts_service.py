@@ -6,7 +6,6 @@ from typing import List, Dict, Optional
 
 from sqlalchemy.orm import Session
 
-from core.config import TTS_MODELS_DIR
 from tts_local.detector import TtsDetector
 from tts_local.installer import TtsModelInstaller, cancel_active_install
 
@@ -27,6 +26,9 @@ class TTSService:
     def get_voice_path(self, voice_id: str) -> Optional[Path]:
         return self.detector.get_voice_path(voice_id)
 
+    def get_voice_model_name(self, voice_id: str) -> Optional[str]:
+        return self.detector.get_voice_model_name(voice_id)
+
     def install_sync(self) -> dict:
         installer = TtsModelInstaller()
         return installer.install()
@@ -38,9 +40,10 @@ class TTSService:
         cancel_active_install()
 
     def preload_default(self) -> None:
-        voices = self.list_voices()
-        if voices:
-            from video.engine.tts import LocalTTSProvider
-
-            provider = LocalTTSProvider(Path(voices[0]["path"]))
-            provider._load()
+        """Preload the default TTS model to warm up cache."""
+        try:
+            from tts_local.mirrors import get_default_model_name
+            from TTS.api import TTS
+            TTS(model_name=get_default_model_name(), progress_bar=False, gpu=False)
+        except Exception:
+            pass

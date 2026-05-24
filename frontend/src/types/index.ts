@@ -166,10 +166,24 @@ export interface FfmpegInstallProgress {
   error: string | null;
 }
 
+export interface VoiceInfo {
+  id: string;
+  name: string;
+  model_name: string;
+  language: string;
+  speaker_count: number;
+  description: string;
+  installed: boolean;
+  path: string | null;
+}
+
 export interface TtsStatus {
   installed: boolean;
-  voices: { id: string; name: string; path: string }[];
+  tts_package_installed: boolean;
+  voices: VoiceInfo[];
   models_dir: string;
+  auto_download: boolean;
+  message: string;
 }
 
 export interface TtsInstallProgress {

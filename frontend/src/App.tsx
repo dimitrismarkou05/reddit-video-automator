@@ -17,6 +17,7 @@ import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
 import { useTtsLocalStatus } from "@/hooks/useTtsLocalStatus";
 import { SetupWizardModal } from "@/components/setup/SetupWizardModal";
 import { useSetupStore } from "@/store/setup";
+import { TtsMissingModal } from "@/components/tts/TtsMissingModal";
 
 function ProtectedRoute() {
   const { authStatus, isLoading } = useAuthStore();
@@ -72,6 +73,8 @@ function App() {
   const [showFfmpegMissing, setShowFfmpegMissing] = useState(false);
   const [ffmpegSkipped, setFfmpegSkipped] = useState(false);
   const [showSetupWizard, setShowSetupWizard] = useState(false);
+  const [showTtsMissing, setShowTtsMissing] = useState(false);
+  const [ttsSkipped, setTtsSkipped] = useState(false);
 
   const { status: ffmpegStatus, isLoading: ffmpegLoading } = useFfmpegStatus();
   const { status: ttsStatus, isLoading: ttsLoading } = useTtsLocalStatus();
@@ -105,6 +108,8 @@ function App() {
       if (!isAuthenticated) {
         setShowFfmpegMissing(false);
         setFfmpegSkipped(false);
+        setShowTtsMissing(false);
+        setTtsSkipped(false);
         setShowSetupWizard(false);
       }
       return;
@@ -117,6 +122,13 @@ function App() {
       setShowSetupWizard(true);
     } else if (!ffmpegOk && !ffmpegSkipped) {
       setShowFfmpegMissing(true);
+    } else if (
+      !ttsOk &&
+      !ttsSkipped &&
+      !showSetupWizard &&
+      !showFfmpegMissing
+    ) {
+      setShowTtsMissing(true);
     }
   }, [
     ffmpegLoading,
@@ -124,6 +136,7 @@ function App() {
     ffmpegStatus,
     ttsStatus,
     ffmpegSkipped,
+    ttsSkipped,
     authStatus?.is_authenticated,
     wizardComplete,
   ]);
@@ -174,6 +187,13 @@ function App() {
         <FfmpegMissingModal
           onClose={() => setShowFfmpegMissing(false)}
           onSkip={() => setFfmpegSkipped(true)}
+        />
+      )}
+
+      {showTtsMissing && !showSetupWizard && (
+        <TtsMissingModal
+          onClose={() => setShowTtsMissing(false)}
+          onSkip={() => setTtsSkipped(true)}
         />
       )}
     </div>
