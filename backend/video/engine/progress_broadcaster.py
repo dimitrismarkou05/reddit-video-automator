@@ -2,8 +2,7 @@
 
 import asyncio
 import json
-from typing import AsyncGenerator
-from typing import Optional
+from typing import AsyncGenerator, Optional
 
 from sqlalchemy.orm import Session
 from fastapi import Request
@@ -22,7 +21,6 @@ class VideoProgressBroadcaster:
 
     async def _get_progress(self) -> Optional[dict]:
         """Fetch current progress from DB."""
-        # Run DB query in thread pool to avoid blocking
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._sync_get_progress)
 
@@ -64,8 +62,23 @@ class VideoProgressBroadcaster:
 
                 data = await self._get_progress()
                 if data is None:
-                    # Video not found
-                    yield f"event: error\ndata: {json.dumps({'error': 'Video not found'})}\n\n"
+                    # Video deleted / not found – send a synthetic terminal event so the UI dies gracefully
+                    payload = {
+                        "video_id": self.video_id,
+                        "status": "failed",
+                        "progress_percent": 0,
+                        "current_step": "failed",
+                        "step_progress": 0,
+                        "error_message": "Video not found",
+                        "error_type": "NotFound",
+                        "error_step": "lookup",
+                        "queue_position": None,
+                        "is_paused": False,
+                        "retry_count": 0,
+                        "thumbnail_path": None,
+                        "video_path": None,
+                    }
+                    yield f"event: progress\ndata: {json.dumps(payload)}\n\n"
                     break
 
                 # Only send if data changed
@@ -74,7 +87,8 @@ class VideoProgressBroadcaster:
                     yield f"event: progress\ndata: {json.dumps(data)}\n\n"
 
                 if data["status"] in terminal_states:
-                    # Send one final event then close
+                    # Keep connection open a moment so the client receives the final frame,
+                    # then close. The client is responsible for calling .close().
                     await asyncio.sleep(0.5)
                     break
 

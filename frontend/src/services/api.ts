@@ -13,8 +13,10 @@ export const api = axios.create({
 api.interceptors.response.use(
   (response) => {
     const method = response.config.method?.toLowerCase();
-    const isMutation = method === "post" || method === "put" || method === "delete";
-    const isNotificationEndpoint = response.config.url?.includes("/notifications");
+    const isMutation =
+      method === "post" || method === "put" || method === "delete";
+    const isNotificationEndpoint =
+      response.config.url?.includes("/notifications");
     if (isMutation && !isNotificationEndpoint) {
       refreshNotifications().catch(() => {});
     }
@@ -93,32 +95,53 @@ export class VideoProgressConnection {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private listeners: Set<(data: any) => void> = new Set();
   private currentEndpoint: string = "";
+  private currentVideoId: number | null = null;
+  private isTerminal = false;
 
   connect(videoId: number) {
     const endpoint = `${API_BASE.replace("/api/v1", "")}/api/v1/sse/videos/${videoId}/progress`;
     if (this.eventSource && this.currentEndpoint === endpoint) return;
+
     this.disconnect();
     this.currentEndpoint = endpoint;
+    this.currentVideoId = videoId;
+    this.isTerminal = false;
+
     this.eventSource = new EventSource(endpoint);
-    this.eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        this.listeners.forEach((cb) => cb(data));
-      } catch (e) {
-        console.error("Video SSE parse error:", e);
-      }
-    };
+
     this.eventSource.addEventListener("progress", (event) => {
       try {
-        const data = JSON.parse(event.data);
+        const data = JSON.parse((event as MessageEvent).data);
+        if (["done", "failed", "cancelled"].includes(data.status)) {
+          this.isTerminal = true;
+        }
         this.listeners.forEach((cb) => cb(data));
       } catch (e) {
         console.error("Video progress event error:", e);
       }
     });
+
+    this.eventSource.addEventListener("error", (event) => {
+      // Backend-sent "event: error" (e.g. "Video not found")
+      if (event instanceof MessageEvent) {
+        try {
+          const data = JSON.parse(event.data);
+          this.isTerminal = true;
+          this.listeners.forEach((cb) => cb(data));
+        } catch (e) {
+          console.error("Video SSE error event parse error:", e);
+        }
+      }
+    });
+
     this.eventSource.onerror = () => {
       this.disconnect();
-      this.reconnectTimer = setTimeout(() => this.connect(videoId), 3000);
+      // Only reconnect if the video hasn't reached a terminal / not-found state
+      if (!this.isTerminal && this.currentVideoId !== null) {
+        this.reconnectTimer = setTimeout(() => {
+          this.connect(this.currentVideoId!);
+        }, 3000);
+      }
     };
   }
 
@@ -139,6 +162,12 @@ export class VideoProgressConnection {
 
   offProgress(callback: (data: any) => void) {
     this.listeners.delete(callback);
+    // Auto-disconnect when nothing is listening so we don't leak connections
+    if (this.listeners.size === 0) {
+      this.disconnect();
+      this.currentEndpoint = "";
+      this.currentVideoId = null;
+    }
   }
 }
 
@@ -147,7 +176,11 @@ export const videoProgressSSE = new VideoProgressConnection();
 export const subredditApi = {
   list: () => api.get("/subreddits"),
   add: (name: string, settings?: Record<string, any>, force?: boolean) =>
-    api.post("/subreddits", { name, fetch_settings: settings }, { params: { force } }),
+    api.post(
+      "/subreddits",
+      { name, fetch_settings: settings },
+      { params: { force } },
+    ),
   delete: (id: number) => api.delete(`/subreddits/${id}`),
   deleteAll: () => api.delete("/subreddits"),
   fetch: (id: number) => api.post(`/subreddits/${id}/fetch`),
@@ -232,8 +265,12 @@ export const ffmpegApi = {
   install: () => api.post("/ffmpeg/install"),
   retry: () => api.post("/ffmpeg/retry"),
   setPath: (ffmpegPath: string, ffprobePath?: string) =>
-    api.post("/ffmpeg/set-path", { ffmpeg_path: ffmpegPath, ffprobe_path: ffprobePath }),
-  checkPath: (path: string) => api.get("/ffmpeg/check-path", { params: { path } }),
+    api.post("/ffmpeg/set-path", {
+      ffmpeg_path: ffmpegPath,
+      ffprobe_path: ffprobePath,
+    }),
+  checkPath: (path: string) =>
+    api.get("/ffmpeg/check-path", { params: { path } }),
   reset: () => api.delete("/ffmpeg/reset"),
   cancel: () => api.post("/ffmpeg/cancel"),
 };

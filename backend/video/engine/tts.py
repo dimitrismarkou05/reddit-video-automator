@@ -11,6 +11,9 @@ from sqlalchemy.orm import Session
 
 from core.settings_manager import SettingsManager
 from video.engine.utils import get_audio_duration
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class TTSProviderError(Exception):
@@ -47,6 +50,10 @@ class OpenAITTSProvider(BaseTTSProvider):
 
             duration = get_audio_duration(str(output_path))
             return duration
+        except openai.AuthenticationError as exc:
+            raise TTSProviderError(f"OpenAI API key rejected: {exc}")
+        except openai.RateLimitError as exc:
+            raise TTSProviderError(f"OpenAI rate limit exceeded: {exc}")
         except Exception as exc:
             raise TTSProviderError(f"OpenAI TTS failed: {exc}")
 
@@ -81,6 +88,8 @@ class ElevenLabsTTSProvider(BaseTTSProvider):
             duration = get_audio_duration(str(output_path))
             return duration
         except Exception as exc:
+            if "api key" in str(exc).lower() or "unauthorized" in str(exc).lower():
+                raise TTSProviderError(f"ElevenLabs API key rejected: {exc}")
             raise TTSProviderError(f"ElevenLabs TTS failed: {exc}")
 
     def list_voices(self) -> list[dict]:
@@ -122,10 +131,21 @@ class TTSEngine:
             "openai": "openai_api_key",
             "elevenlabs": "elevenlabs_api_key",
         }
-        api_key = self.settings.get(key_map[provider_name], decrypt_value=True)
+        setting_key = key_map[provider_name]
+        
+        api_key = self.settings.get(setting_key, decrypt_value=True)
+        
         if not api_key:
+            # Check if there's a raw encrypted value that failed decryption
+            raw = self.settings.get(setting_key, decrypt_value=False)
+            if raw:
+                logger.error(f"[TTSEngine] API key for '{setting_key}' exists but decryption returned None. Key file may have changed.")
+                raise TTSProviderError(
+                    f"{provider_name} API key is corrupted (encryption key mismatch). "
+                    f"Re-save it in Settings → API Keys."
+                )
             raise TTSProviderError(
-                f"{provider_name} API key not configured. Set it in Settings."
+                f"{provider_name} API key not configured. Set it in Settings → API Keys."
             )
 
         return provider_class(api_key)

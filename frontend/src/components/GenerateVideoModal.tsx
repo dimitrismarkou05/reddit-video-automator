@@ -9,9 +9,11 @@ import {
   Pause,
   Play,
   Square,
+  Loader2,
   FolderOpen,
   FileVideo,
   CheckCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { videoApi } from "@/services/api";
 import type { Story, SubtitleStyle } from "@/types";
@@ -73,50 +75,54 @@ export function GenerateVideoModal({
   const [isGenerating, setIsGenerating] = useState(!!existingVideoId);
   const [showBackgroundPicker, setShowBackgroundPicker] =
     useState(!existingVideoId);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   const { progress } = useVideoProgress({
     videoId,
     onComplete: (data) => {
       if (data.status === "done") {
         toast.success("Video generation complete!");
+      } else if (data.status === "failed") {
+        toast.error(data.error_message || "Video generation failed");
       }
+      // cancelled — no toast, user already pressed Cancel
     },
   });
 
-  // Update isGenerating based on progress status
+  // Sync UI state with SSE progress
   useEffect(() => {
-    if (progress) {
-      const terminal = ["done", "failed", "cancelled"];
-      if (terminal.includes(progress.status)) {
-        setIsGenerating(false);
-        // Reset form on failure/cancel so user can retry instead of hanging
-        if (progress.status === "failed" || progress.status === "cancelled") {
-          setShowBackgroundPicker(true);
-          setVideoId(null);
-        }
-      } else {
-        setIsGenerating(true);
-        setShowBackgroundPicker(false);
+    if (!progress) return;
+
+    const terminal = ["done", "failed", "cancelled"];
+    if (terminal.includes(progress.status)) {
+      setIsGenerating(false);
+      if (progress.status === "failed") {
+        setLastError(progress.error_message || "Unknown error");
+        setShowBackgroundPicker(true);
+        setVideoId(null);
+      } else if (progress.status === "cancelled") {
+        setShowBackgroundPicker(true);
+        setVideoId(null);
       }
+    } else {
+      setIsGenerating(true);
+      setShowBackgroundPicker(false);
+      setLastError(null);
     }
   }, [progress]);
 
   const handleSelectFolder = async () => {
     if (window.electronAPI) {
       const path = await window.electronAPI.selectDirectory();
-      if (path) {
-        setSettings((s) => ({ ...s, background_source: path }));
-      }
+      if (path) setSettings((s) => ({ ...s, background_source: path }));
     } else {
       try {
         // @ts-ignore
         const dirHandle = await window.showDirectoryPicker?.();
-        if (dirHandle) {
+        if (dirHandle)
           setSettings((s) => ({ ...s, background_source: dirHandle.name }));
-        }
       } catch (err: any) {
         if (err.name === "AbortError") return;
-        // Fallback for browsers that don't support showDirectoryPicker
         const input = document.createElement("input");
         input.type = "file";
         // @ts-ignore
@@ -141,9 +147,7 @@ export function GenerateVideoModal({
       const path = await window.electronAPI.selectFile([
         { name: "Videos", extensions: ["mp4", "mov", "avi", "mkv", "webm"] },
       ]);
-      if (path) {
-        setSettings((s) => ({ ...s, background_source: path }));
-      }
+      if (path) setSettings((s) => ({ ...s, background_source: path }));
     } else {
       try {
         // @ts-ignore
@@ -161,15 +165,13 @@ export function GenerateVideoModal({
         }
       } catch (err: any) {
         if (err.name === "AbortError") return;
-        // Fallback
         const input = document.createElement("input");
         input.type = "file";
         input.accept = "video/*";
         input.onchange = (e: any) => {
           const file = e.target.files?.[0];
-          if (file) {
+          if (file)
             setSettings((s) => ({ ...s, background_source: file.name }));
-          }
         };
         input.click();
       }
@@ -182,6 +184,7 @@ export function GenerateVideoModal({
       return;
     }
 
+    setLastError(null);
     setIsGenerating(true);
     setShowBackgroundPicker(false);
 
@@ -207,11 +210,19 @@ export function GenerateVideoModal({
       });
 
       setVideoId(data.video_id);
-      toast.success(data.message || "Video generation started!");
+      // NO toast here — wait for SSE to tell us if it actually succeeded or failed
     } catch (e: any) {
-      toast.error(
-        e.response?.data?.detail || "Failed to start video generation",
-      );
+      const backendDetail = e.response?.data?.detail;
+      const msg = backendDetail || "Failed to start video generation";
+
+      const displayError =
+        backendDetail?.includes("api key") ||
+        backendDetail?.includes("not configured")
+          ? backendDetail
+          : msg;
+
+      toast.error(displayError);
+      setLastError(displayError);
       setIsGenerating(false);
       setShowBackgroundPicker(true);
     }
@@ -303,7 +314,7 @@ export function GenerateVideoModal({
                 <p className="text-sm text-gray-500 mb-4">{currentStepLabel}</p>
 
                 <ProgressBar
-                  progress={progress.progress_percent}
+                  progress={progress.progress_percent ?? 0}
                   size="lg"
                   showPercentage
                 />
@@ -579,6 +590,21 @@ export function GenerateVideoModal({
                   </span>
                 </label>
               </div>
+
+              {/* Error banner — shown when the last attempt failed */}
+              {lastError && (
+                <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-red-600 dark:text-red-400">
+                        Generation failed
+                      </p>
+                      <p className="text-xs text-red-500 mt-1">{lastError}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <div className="text-center py-8">

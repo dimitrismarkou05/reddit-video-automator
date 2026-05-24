@@ -174,8 +174,18 @@ class VideoPipeline:
         step: str,
     ) -> None:
         """Record detailed error info to DB."""
+        raw = str(error)
+        if "api key" in raw.lower() or "not configured" in raw.lower():
+            friendly = "API key not configured. Check Settings."
+        elif "TTS" in type(error).__name__ or "tts" in raw.lower():
+            friendly = "Text-to-speech failed. Check your API key in Settings."
+        elif "FFmpeg" in type(error).__name__ or "ffmpeg" in raw.lower():
+            friendly = "Video rendering failed. Check FFmpeg installation."
+        else:
+            friendly = f"Generation failed: {raw}"
+
         video_record.status = VideoStatus.FAILED.value
-        video_record.error_message = str(error)
+        video_record.error_message = friendly
         video_record.error_type = type(error).__name__
         video_record.error_step = step
         video_record.error_traceback = traceback.format_exc()

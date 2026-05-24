@@ -80,7 +80,6 @@ def generate_video(
     # Check for existing active generation on this story chain
     existing_video = _find_active_video_for_story(story, db)
     if existing_video:
-        # If include_updates matches, return the existing video
         return VideoGenerationResponse(
             video_id=existing_video.id,
             status=existing_video.status,
@@ -91,24 +90,58 @@ def generate_video(
     if story.generated_video and story.generated_video.status == VideoStatus.DONE.value:
         raise HTTPException(status_code=400, detail="Video already generated for this story")
 
-    # Create the video record IMMEDIATELY with real DB entry
-    output_folder_name = f"{story.id}_{story.title[:40]}"
-    video = GeneratedVideo(
-        story_id=request.story_id,
-        video_path=f"output/{output_folder_name}/video.mp4",
-        thumbnail_path=f"output/{output_folder_name}/thumbnail.jpg",
-        format=request.video_format,
-        status=VideoStatus.QUEUED.value,
-        progress_percent=0,
-        current_step="queued",
-        tts_voice=request.tts_voice,
-        tts_provider=request.tts_provider,
-        background_source=request.background_source,
-        subtitle_style=request.subtitle_style.model_dump() if request.subtitle_style else {},
+    # If there's a failed or cancelled video for this story, reuse it instead of creating a new one
+    existing_failed = (
+        db.query(GeneratedVideo)
+        .filter(
+            GeneratedVideo.story_id == request.story_id,
+            GeneratedVideo.status.in_([VideoStatus.FAILED.value, VideoStatus.CANCELLED.value]),
+        )
+        .first()
     )
-    db.add(video)
-    db.commit()
-    db.refresh(video)
+
+    if existing_failed:
+        # Reset the existing record for retry
+        video = existing_failed
+        video.status = VideoStatus.QUEUED.value
+        video.progress_percent = 0
+        video.current_step = "queued"
+        video.step_progress = 0
+        video.error_message = None
+        video.error_type = None
+        video.error_step = None
+        video.error_traceback = None
+        video.is_paused = False
+        video.paused_at = None
+        video.resumed_at = None
+        video.cancelled_at = None
+        video.tts_voice = request.tts_voice
+        video.tts_provider = request.tts_provider
+        video.background_source = request.background_source
+        video.format = request.video_format
+        video.subtitle_style = request.subtitle_style.model_dump() if request.subtitle_style else {}
+        video.queue_position = None
+        db.commit()
+        db.refresh(video)
+    else:
+        # Create the video record fresh
+        output_folder_name = f"{story.id}_{story.title[:40]}"
+        video = GeneratedVideo(
+            story_id=request.story_id,
+            video_path=f"output/{output_folder_name}/video.mp4",
+            thumbnail_path=f"output/{output_folder_name}/thumbnail.jpg",
+            format=request.video_format,
+            status=VideoStatus.QUEUED.value,
+            progress_percent=0,
+            current_step="queued",
+            tts_voice=request.tts_voice,
+            tts_provider=request.tts_provider,
+            background_source=request.background_source,
+            subtitle_style=request.subtitle_style.model_dump() if request.subtitle_style else {},
+        )
+        db.add(video)
+        db.commit()
+        db.refresh(video)
 
     story.status = StoryStatus.VIDEO_QUEUED.value
     db.commit()
@@ -209,24 +242,41 @@ async def _run_video_generation_async(video_id: int, request: VideoGenerationReq
             video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
             if video:
                 video.status = VideoStatus.FAILED.value
-                video.error_message = str(exc)
                 video.error_type = type(exc).__name__
             story = db.query(Story).filter(Story.id == request.story_id).first()
             if story:
                 story.status = StoryStatus.VIDEO_FAILED.value
-            db.commit()
 
-            friendly = str(exc)
-            if "TTS" in str(type(exc).__name__) or "tts" in str(exc).lower():
-                friendly = f"Text-to-speech failed: {exc}"
-            elif "FFmpeg" in str(type(exc).__name__) or "ffmpeg" in str(exc).lower():
-                friendly = f"Video rendering failed: {exc}"
+            raw = str(exc)
+            lower_raw = raw.lower()
+            exc_name = type(exc).__name__
+
+            if "not configured" in lower_raw:
+                friendly = "API key not configured. Set it in Settings → API Keys."
+            elif "corrupted" in lower_raw or "mismatch" in lower_raw:
+                friendly = "API key corrupted (encryption key changed). Re-save it in Settings → API Keys."
+            elif "rejected" in lower_raw or "invalid" in lower_raw or "authentication" in lower_raw:
+                friendly = "API key rejected by provider. Check the key is correct and active."
+            elif "rate limit" in lower_raw:
+                friendly = "Provider rate limit hit. Wait a moment and try again."
+            elif "TTS" in exc_name or "tts" in lower_raw:
+                friendly = "Text-to-speech failed. Check your API key in Settings."
+            elif "FFmpeg" in exc_name or "ffmpeg" in lower_raw:
+                friendly = "FFmpeg video rendering failed. Check FFmpeg path in Settings."
+            elif "background" in lower_raw or "no valid" in lower_raw:
+                friendly = "Background video missing or corrupt. Select a different file or folder."
+            else:
+                friendly = f"Generation failed: {raw}"
+
+            if video:
+                video.error_message = friendly
+            db.commit()
 
             NotificationService(db).create(
                 "video", "error",
-                f"Video generation failed: {friendly}",
+                friendly,
                 {"story_id": request.story_id, "video_id": video_id,
-                 "error": str(exc), "error_type": type(exc).__name__},
+                 "error": raw, "error_type": exc_name},
             )
         except Exception:
             pass
@@ -235,6 +285,11 @@ async def _run_video_generation_async(video_id: int, request: VideoGenerationReq
             video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
             if video:
                 job_manager.release_slot(video_id, video.story_id, db)
+                # Clean up temp files for this job (output files stay so user can inspect/retry)
+                from video.engine.utils import cleanup_temp
+                cleanup_temp(video_id)
+            else:
+                job_manager._cleanup()
         except Exception:
             pass
         db.close()
@@ -357,18 +412,26 @@ def cancel_video(video_id: int, db: Session = Depends(get_db)):
     video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+    if video.status not in _ACTIVE_STATUSES:
+        raise HTTPException(status_code=400, detail="Video is not in a pausable state")
 
+    # 1. Kill the background task and free the slot
+    job_manager.cancel_job(video_id)
+    try:
+        job_manager.release_slot(video_id, video.story_id, db)
+    except Exception:
+        pass
+
+    # 2. Update DB to cancelled (keep the record so the UI can show it)
     video.status = VideoStatus.CANCELLED.value
     video.cancelled_at = datetime.now(timezone.utc)
     db.commit()
 
-    job_manager.cancel_job(video_id)
-
-    # Clean up temp files
+    # 3. Clean up temp files
     from video.engine.utils import cleanup_temp
     cleanup_temp(video_id)
 
-    # Update story status
+    # 4. Update story status
     story = db.query(Story).filter(Story.id == video.story_id).first()
     if story:
         story.status = StoryStatus.VIDEO_CANCELLED.value
@@ -381,30 +444,44 @@ def cancel_video(video_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/{video_id}", response_model=VideoControlResponse)
 def delete_video(video_id: int, db: Session = Depends(get_db)):
-    """Delete a video: remove files from disk, delete DB record, reset story status."""
+    """Delete a video: cancel active job, remove files from disk, delete DB record, reset story status."""
     video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    # Delete video file
-    if video.video_path and Path(video.video_path).exists():
-        Path(video.video_path).unlink(missing_ok=True)
+    # Stop any active background work first
+    job_manager.cancel_job(video_id)
+    try:
+        job_manager.release_slot(video_id, video.story_id, db)
+    except Exception:
+        pass
 
-    # Delete thumbnail
-    if video.thumbnail_path and Path(video.thumbnail_path).exists():
-        Path(video.thumbnail_path).unlink(missing_ok=True)
+    # Delete output files
+    for p in (video.video_path, video.thumbnail_path):
+        if p and Path(p).exists():
+            Path(p).unlink(missing_ok=True)
+
+    # Remove empty output directory
+    if video.video_path:
+        out_dir = Path(video.video_path).parent
+        if out_dir.exists() and out_dir.is_dir():
+            try:
+                if not any(out_dir.iterdir()):
+                    out_dir.rmdir()
+            except OSError:
+                pass
 
     # Delete temp files
     from video.engine.utils import cleanup_temp
     cleanup_temp(video_id)
 
-    # Delete audio temp if exists
+    # Delete intermediate files
     if video.tts_audio_path and Path(video.tts_audio_path).exists():
         Path(video.tts_audio_path).unlink(missing_ok=True)
     if video.subtitle_ass_path and Path(video.subtitle_ass_path).exists():
         Path(video.subtitle_ass_path).unlink(missing_ok=True)
 
-    # Update story status back
+    # Reset story status
     story = db.query(Story).filter(Story.id == video.story_id).first()
     if story:
         story.status = StoryStatus.UPDATE_LINKED.value
