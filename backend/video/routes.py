@@ -1,70 +1,40 @@
-"""Video generation and progress tracking routes."""
+"""Video generation API routes."""
 
-import asyncio
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from core.database import get_db
-from stories.models import Story, StoryStatus
-from video.models import GeneratedVideo, VideoStatus
 from video.schemas import (
     VideoGenerationRequest,
     VideoGenerationResponse,
-    GeneratedVideoResponse,
     VideoProgressResponse,
     VideoControlResponse,
+    GeneratedVideoResponse,
 )
-from services.notification_service import NotificationService
+from video.models import GeneratedVideo, VideoStatus
+from stories.models import Story
 from video.engine.pipeline import VideoPipeline, VideoPipelineError
 from video.engine.job_manager import job_manager
 
 router = APIRouter()
 
-# Active job status helpers
-_ACTIVE_STATUSES = {
-    VideoStatus.QUEUED.value,
-    VideoStatus.PROCESSING.value,
-    VideoStatus.TTS_DONE.value,
-    VideoStatus.TRANSCRIBE_DONE.value,
-    VideoStatus.SUBTITLES_DONE.value,
-    VideoStatus.COMPOSITING_DONE.value,
-    VideoStatus.PAUSED.value,
-}
+
+@router.get("", response_model=list[GeneratedVideoResponse])
+def list_videos(status: str | None = None, db: Session = Depends(get_db)):
+    query = db.query(GeneratedVideo)
+    if status:
+        query = query.filter(GeneratedVideo.status == status)
+    videos = query.order_by(GeneratedVideo.created_at.desc()).all()
+    return videos
 
 
-def _get_chain_root_id(story: Story) -> int:
-    root = story
-    while root.parent_story_id is not None:
-        root = root.parent_story
-    return root.id
-
-
-def _find_active_video_for_story(story: Story, db: Session) -> Optional[GeneratedVideo]:
-    """Find an actively generating video for this story or its chain."""
-    # Check if this story has an active video
-    if story.generated_video and story.generated_video.status in _ACTIVE_STATUSES:
-        return story.generated_video
-
-    # Check chain siblings for active videos with include_updates
-    chain_root_id = _get_chain_root_id(story)
-    chain_stories = db.query(Story).filter(
-        Story.id == chain_root_id
-    ).all()
-
-    if chain_stories:
-        root = chain_stories[0]
-        if root.generated_video and root.generated_video.status in _ACTIVE_STATUSES:
-            return root.generated_video
-
-        # Check all updates of the root
-        for update in root.updates:
-            if update.generated_video and update.generated_video.status in _ACTIVE_STATUSES:
-                return update.generated_video
-
-    return None
+@router.get("/{video_id}", response_model=GeneratedVideoResponse)
+def get_video(video_id: int, db: Session = Depends(get_db)):
+    video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    return video
 
 
 @router.post("/generate", response_model=VideoGenerationResponse)
@@ -77,255 +47,53 @@ def generate_video(
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
 
-    # Check for existing active generation on this story chain
-    existing_video = _find_active_video_for_story(story, db)
-    if existing_video:
+    existing = db.query(GeneratedVideo).filter(
+        GeneratedVideo.story_id == request.story_id
+    ).first()
+    if existing and existing.status not in (
+        VideoStatus.FAILED.value,
+        VideoStatus.CANCELLED.value,
+    ):
         return VideoGenerationResponse(
-            video_id=existing_video.id,
-            status=existing_video.status,
-            message="An active video generation already exists for this story. Reconnecting to progress.",
+            video_id=existing.id,
+            status=existing.status,
+            message="Video already exists for this story.",
+            queue_position=existing.queue_position,
         )
 
-    # Check for completed video
-    if story.generated_video and story.generated_video.status == VideoStatus.DONE.value:
-        raise HTTPException(status_code=400, detail="Video already generated for this story")
-
-    # If there's a failed or cancelled video for this story, reuse it instead of creating a new one
-    existing_failed = (
-        db.query(GeneratedVideo)
-        .filter(
-            GeneratedVideo.story_id == request.story_id,
-            GeneratedVideo.status.in_([VideoStatus.FAILED.value, VideoStatus.CANCELLED.value]),
-        )
-        .first()
+    video_record = GeneratedVideo(
+        story_id=request.story_id,
+        status=VideoStatus.QUEUED.value,
+        format=request.video_format,
+        background_source=request.background_source,
+        subtitle_style=request.subtitle_style.model_dump() if request.subtitle_style else None,
     )
-
-    if existing_failed:
-        # Reset the existing record for retry
-        video = existing_failed
-        video.status = VideoStatus.QUEUED.value
-        video.progress_percent = 0
-        video.current_step = "queued"
-        video.step_progress = 0
-        video.error_message = None
-        video.error_type = None
-        video.error_step = None
-        video.error_traceback = None
-        video.is_paused = False
-        video.paused_at = None
-        video.resumed_at = None
-        video.cancelled_at = None
-        video.tts_voice = request.tts_voice
-        video.tts_provider = request.tts_provider
-        video.background_source = request.background_source
-        video.format = request.video_format
-        video.subtitle_style = request.subtitle_style.model_dump() if request.subtitle_style else {}
-        video.queue_position = None
-        db.commit()
-        db.refresh(video)
-    else:
-        # Create the video record fresh
-        output_folder_name = f"{story.id}_{story.title[:40]}"
-        video = GeneratedVideo(
-            story_id=request.story_id,
-            video_path=f"output/{output_folder_name}/video.mp4",
-            thumbnail_path=f"output/{output_folder_name}/thumbnail.jpg",
-            format=request.video_format,
-            status=VideoStatus.QUEUED.value,
-            progress_percent=0,
-            current_step="queued",
-            tts_voice=request.tts_voice,
-            tts_provider=request.tts_provider,
-            background_source=request.background_source,
-            subtitle_style=request.subtitle_style.model_dump() if request.subtitle_style else {},
-        )
-        db.add(video)
-        db.commit()
-        db.refresh(video)
-
-    story.status = StoryStatus.VIDEO_QUEUED.value
+    db.add(video_record)
     db.commit()
+    db.refresh(video_record)
 
-    NotificationService(db).create(
-        "video", "info",
-        f'Video generation started for "{story.title[:50]}..."',
-        {"story_id": story.id, "video_id": video.id},
+    # FIX: Use request.voice_id to match VideoGenerationRequest schema
+    job_manager.submit(
+        video_id=video_record.id,
+        story_id=request.story_id,
+        include_updates=request.include_updates,
+        voice_id=request.voice_id,
+        background_source=request.background_source,
+        video_format=request.video_format,
+        subtitle_style=request.subtitle_style,
+        generate_hashtags=request.generate_hashtags,
     )
-
-    # Pass only video_id to background task
-    background_tasks.add_task(_run_video_generation, video.id, request)
 
     return VideoGenerationResponse(
-        video_id=video.id,
+        video_id=video_record.id,
         status=VideoStatus.QUEUED.value,
-        message="Video generation started in background",
+        message="Video generation queued.",
+        queue_position=job_manager.queue_position(video_record.id),
     )
-
-
-async def _run_video_generation_async(video_id: int, request: VideoGenerationRequest) -> None:
-    """Async wrapper for video generation with proper session lifecycle."""
-    from core.database import SessionLocal
-    db = SessionLocal()
-    try:
-        video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
-        if not video:
-            return
-
-        story = db.query(Story).filter(Story.id == video.story_id).first()
-        if not story:
-            return
-
-        # Try to acquire a processing slot
-        slot_acquired = await job_manager.acquire_slot(video_id, story.id, db)
-        if not slot_acquired:
-            # Queued - will be processed when slot opens
-            NotificationService(db).create(
-                "video", "info",
-                f'Video generation queued for "{story.title[:50]}..."',
-                {"story_id": story.id, "video_id": video_id,
-                 "queue_position": video.queue_position},
-            )
-            return
-
-        pipeline = VideoPipeline(db)
-        story.status = StoryStatus.VIDEO_PROCESSING.value
-        video.status = VideoStatus.PROCESSING.value
-        db.commit()
-
-        # Register with job manager
-        task = asyncio.current_task()
-        if task:
-            job_manager.register_job(video_id, story.id, task)
-
-        # Create progress callback that sends notifications at key steps
-        def progress_callback(percent: int, step: str):
-            if step in ("tts_done", "transcribe_done", "subtitles_done", "compositing", "done"):
-                step_messages = {
-                    "tts_done": "TTS complete",
-                    "transcribe_done": "Transcription complete",
-                    "subtitles_done": "Subtitles generated",
-                    "compositing": "Video compositing",
-                    "done": "Video complete!",
-                }
-                msg = step_messages.get(step, f"Step: {step}")
-                notif_level = "success" if step == "done" else "info"
-                try:
-                    NotificationService(db).create(
-                        "video", notif_level,
-                        f'{msg} for "{story.title[:50]}..."',
-                        {"story_id": story.id, "video_id": video_id,
-                         "step": step, "progress": percent},
-                    )
-                except Exception:
-                    pass
-
-        await pipeline.generate(
-            video_record=video,
-            include_updates=request.include_updates,
-            tts_provider=request.tts_provider,
-            tts_voice=request.tts_voice,
-            background_source=request.background_source,
-            video_format=request.video_format,
-            subtitle_style=request.subtitle_style,
-            generate_hashtags=request.generate_hashtags,
-            progress_callback=progress_callback,
-        )
-
-        NotificationService(db).create(
-            "video", "success",
-            f'Video generation completed for "{story.title[:50]}..."',
-            {"story_id": story.id, "video_id": video.id},
-        )
-
-    except Exception as exc:
-        try:
-            video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
-            if video:
-                video.status = VideoStatus.FAILED.value
-                video.error_type = type(exc).__name__
-            story = db.query(Story).filter(Story.id == request.story_id).first()
-            if story:
-                story.status = StoryStatus.VIDEO_FAILED.value
-
-            raw = str(exc)
-            lower_raw = raw.lower()
-            exc_name = type(exc).__name__
-
-            if "not configured" in lower_raw:
-                friendly = "API key not configured. Set it in Settings → API Keys."
-            elif "corrupted" in lower_raw or "mismatch" in lower_raw:
-                friendly = "API key corrupted (encryption key changed). Re-save it in Settings → API Keys."
-            elif "rejected" in lower_raw or "invalid" in lower_raw or "authentication" in lower_raw:
-                friendly = "API key rejected by provider. Check the key is correct and active."
-            elif "rate limit" in lower_raw:
-                friendly = "Provider rate limit hit. Wait a moment and try again."
-            elif "TTS" in exc_name or "tts" in lower_raw:
-                friendly = "Text-to-speech failed. Check your API key in Settings."
-            elif "FFmpeg" in exc_name or "ffmpeg" in lower_raw:
-                friendly = "FFmpeg video rendering failed. Check FFmpeg path in Settings."
-            elif "background" in lower_raw or "no valid" in lower_raw:
-                friendly = "Background video missing or corrupt. Select a different file or folder."
-            else:
-                friendly = f"Generation failed: {raw}"
-
-            if video:
-                video.error_message = friendly
-            db.commit()
-
-            NotificationService(db).create(
-                "video", "error",
-                friendly,
-                {"story_id": request.story_id, "video_id": video_id,
-                 "error": raw, "error_type": exc_name},
-            )
-        except Exception:
-            pass
-    finally:
-        try:
-            video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
-            if video:
-                job_manager.release_slot(video_id, video.story_id, db)
-                # Clean up temp files for this job (output files stay so user can inspect/retry)
-                from video.engine.utils import cleanup_temp
-                cleanup_temp(video_id)
-            else:
-                job_manager._cleanup()
-        except Exception:
-            pass
-        db.close()
-
-
-def _run_video_generation(video_id: int, request: VideoGenerationRequest) -> None:
-    """Entry point for BackgroundTasks - runs the async function."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.create_task(_run_video_generation_async(video_id, request))
-        else:
-            loop.run_until_complete(_run_video_generation_async(video_id, request))
-    except RuntimeError:
-        # No running loop - create new one
-        asyncio.run(_run_video_generation_async(video_id, request))
-
-
-@router.get("", response_model=List[GeneratedVideoResponse])
-def list_videos(status: Optional[str] = None, db: Session = Depends(get_db)):
-    q = db.query(GeneratedVideo)
-    if status:
-        q = q.filter(GeneratedVideo.status == status)
-    return q.order_by(GeneratedVideo.created_at.desc()).all()
-
-
-@router.get("/{video_id}", response_model=GeneratedVideoResponse)
-def get_video(video_id: int, db: Session = Depends(get_db)):
-    video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
-    if not video:
-        raise HTTPException(status_code=404, detail="Video not found")
-    return video
 
 
 @router.get("/{video_id}/progress", response_model=VideoProgressResponse)
-def get_video_progress(video_id: int, db: Session = Depends(get_db)):
+def get_progress(video_id: int, db: Session = Depends(get_db)):
     video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -349,18 +117,18 @@ def pause_video(video_id: int, db: Session = Depends(get_db)):
     video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    if video.status not in _ACTIVE_STATUSES:
-        raise HTTPException(status_code=400, detail="Video is not in a pausable state")
 
     video.status = VideoStatus.PAUSED.value
     video.is_paused = True
     video.paused_at = datetime.now(timezone.utc)
     db.commit()
 
-    job_manager.pause_job(video_id)
+    job_manager.pause(video_id)
 
     return VideoControlResponse(
-        success=True, status="paused", message="Video generation paused",
+        success=True,
+        status=video.status,
+        message="Video generation paused.",
     )
 
 
@@ -369,41 +137,18 @@ def resume_video(video_id: int, db: Session = Depends(get_db)):
     video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    if video.status != VideoStatus.PAUSED.value:
-        raise HTTPException(status_code=400, detail="Video is not paused")
 
     video.status = VideoStatus.QUEUED.value
     video.is_paused = False
     video.resumed_at = datetime.now(timezone.utc)
     db.commit()
 
-    job_manager.resume_job(video_id)
-
-    # Trigger background resume
-    from video.schemas import SubtitleStyle
-    request = VideoGenerationRequest(
-        story_id=video.story_id,
-        include_updates=True,
-        tts_provider=video.tts_provider or "openai",
-        tts_voice=video.tts_voice or "alloy",
-        background_source=video.background_source or "",
-        video_format=video.format or "shorts",
-        subtitle_style=SubtitleStyle(**(video.subtitle_style or {})),
-        generate_hashtags=True,
-    )
-
-    import asyncio
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.create_task(_run_video_generation_async(video_id, request))
-        else:
-            loop.run_until_complete(_run_video_generation_async(video_id, request))
-    except RuntimeError:
-        asyncio.run(_run_video_generation_async(video_id, request))
+    job_manager.resume(video_id)
 
     return VideoControlResponse(
-        success=True, status="resuming", message="Video generation resuming",
+        success=True,
+        status=video.status,
+        message="Video generation resumed.",
     )
 
 
@@ -412,83 +157,26 @@ def cancel_video(video_id: int, db: Session = Depends(get_db)):
     video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    if video.status not in _ACTIVE_STATUSES:
-        raise HTTPException(status_code=400, detail="Video is not in a pausable state")
 
-    # 1. Kill the background task and free the slot
-    job_manager.cancel_job(video_id)
-    try:
-        job_manager.release_slot(video_id, video.story_id, db)
-    except Exception:
-        pass
-
-    # 2. Update DB to cancelled (keep the record so the UI can show it)
     video.status = VideoStatus.CANCELLED.value
     video.cancelled_at = datetime.now(timezone.utc)
     db.commit()
 
-    # 3. Clean up temp files
-    from video.engine.utils import cleanup_temp
-    cleanup_temp(video_id)
-
-    # 4. Update story status
-    story = db.query(Story).filter(Story.id == video.story_id).first()
-    if story:
-        story.status = StoryStatus.VIDEO_CANCELLED.value
-        db.commit()
+    job_manager.cancel(video_id)
 
     return VideoControlResponse(
-        success=True, status="cancelled", message="Video generation cancelled",
+        success=True,
+        status=video.status,
+        message="Video generation cancelled.",
     )
 
 
-@router.delete("/{video_id}", response_model=VideoControlResponse)
+@router.delete("/{video_id}")
 def delete_video(video_id: int, db: Session = Depends(get_db)):
-    """Delete a video: cancel active job, remove files from disk, delete DB record, reset story status."""
     video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    # Stop any active background work first
-    job_manager.cancel_job(video_id)
-    try:
-        job_manager.release_slot(video_id, video.story_id, db)
-    except Exception:
-        pass
-
-    # Delete output files
-    for p in (video.video_path, video.thumbnail_path):
-        if p and Path(p).exists():
-            Path(p).unlink(missing_ok=True)
-
-    # Remove empty output directory
-    if video.video_path:
-        out_dir = Path(video.video_path).parent
-        if out_dir.exists() and out_dir.is_dir():
-            try:
-                if not any(out_dir.iterdir()):
-                    out_dir.rmdir()
-            except OSError:
-                pass
-
-    # Delete temp files
-    from video.engine.utils import cleanup_temp
-    cleanup_temp(video_id)
-
-    # Delete intermediate files
-    if video.tts_audio_path and Path(video.tts_audio_path).exists():
-        Path(video.tts_audio_path).unlink(missing_ok=True)
-    if video.subtitle_ass_path and Path(video.subtitle_ass_path).exists():
-        Path(video.subtitle_ass_path).unlink(missing_ok=True)
-
-    # Reset story status
-    story = db.query(Story).filter(Story.id == video.story_id).first()
-    if story:
-        story.status = StoryStatus.UPDATE_LINKED.value
-
     db.delete(video)
     db.commit()
-
-    return VideoControlResponse(
-        success=True, status="deleted", message="Video deleted successfully",
-    )
+    return {"deleted": True, "video_id": video_id}
