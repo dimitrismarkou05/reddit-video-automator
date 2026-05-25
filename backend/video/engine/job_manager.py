@@ -216,6 +216,171 @@ class VideoJobManager:
     def add_cleanup_callback(self, callback: callable) -> None:
         self._cleanup_callbacks.append(callback)
 
+    # ===== NEW METHODS FOR INTEGRATION =====
+
+    def submit(
+        self,
+        video_id: int,
+        story_id: int,
+        include_updates: bool = True,
+        voice_id: str = "default",
+        background_source: str = "",
+        video_format: str = "shorts",
+        subtitle_style=None,
+        generate_hashtags: bool = True,
+    ) -> None:
+        """Submit a video generation job to the queue.
+
+        This creates an async task that manages the full pipeline lifecycle
+        including slot acquisition, pipeline execution, and cleanup.
+        """
+        from video.engine.pipeline import VideoPipeline
+        from core.database import SessionLocal
+        from video.models import GeneratedVideo, VideoStatus
+        import asyncio
+
+        async def _run_job():
+            db = SessionLocal()
+            try:
+                # Try to acquire a processing slot
+                acquired = await self.acquire_slot(video_id, story_id, db)
+
+                if not acquired:
+                    # Queued - wait for our turn
+                    return
+
+                # Get the video record
+                video_record = db.query(GeneratedVideo).filter(
+                    GeneratedVideo.id == video_id
+                ).first()
+
+                if not video_record:
+                    return
+
+                # Mark as processing
+                video_record.status = VideoStatus.PROCESSING.value
+                video_record.current_step = "preparing"
+                db.commit()
+
+                # Create and run the pipeline
+                pipeline = VideoPipeline(db)
+
+                try:
+                    await pipeline.generate(
+                        video_record=video_record,
+                        include_updates=include_updates,
+                        voice_id=voice_id,
+                        background_source=background_source,
+                        video_format=video_format,
+                        subtitle_style=subtitle_style,
+                        generate_hashtags=generate_hashtags,
+                    )
+                except Exception as exc:
+                    if video_record.status not in (
+                        VideoStatus.DONE.value,
+                        VideoStatus.FAILED.value,
+                        VideoStatus.CANCELLED.value,
+                        VideoStatus.PAUSED.value,
+                    ):
+                        video_record.status = VideoStatus.FAILED.value
+                        video_record.error_message = str(exc)
+                        video_record.error_type = type(exc).__name__
+                        db.commit()
+                finally:
+                    # Release slot and process next in queue
+                    self.release_slot(video_id, story_id, db)
+
+            finally:
+                db.close()
+
+        # Create the task and register it
+        task = asyncio.create_task(_run_job())
+        self.register_job(video_id, story_id, task)
+
+    def queue_position(self, video_id: int) -> Optional[int]:
+        """Get the queue position for a video."""
+        if video_id in self.active_jobs:
+            job = self.active_jobs[video_id]
+            if job.status == "queued":
+                for chain_root, queued in self._queue.items():
+                    if video_id in queued:
+                        return queued.index(video_id) + 1
+            return None
+        return None
+
+    def pause(self, video_id: int) -> bool:
+        """Pause a video generation job."""
+        result = self.pause_job(video_id)
+
+        from core.database import SessionLocal
+        from video.models import GeneratedVideo, VideoStatus
+        db = SessionLocal()
+        try:
+            video = db.query(GeneratedVideo).filter(
+                GeneratedVideo.id == video_id
+            ).first()
+            if video and video.status not in (
+                VideoStatus.DONE.value,
+                VideoStatus.FAILED.value,
+                VideoStatus.CANCELLED.value,
+            ):
+                video.status = VideoStatus.PAUSED.value
+                video.is_paused = True
+                db.commit()
+        finally:
+            db.close()
+
+        return result
+
+    def resume(self, video_id: int) -> bool:
+        """Resume a paused video generation job."""
+        result = self.resume_job(video_id)
+
+        from core.database import SessionLocal
+        from video.models import GeneratedVideo, VideoStatus
+        db = SessionLocal()
+        try:
+            video = db.query(GeneratedVideo).filter(
+                GeneratedVideo.id == video_id
+            ).first()
+            if video and video.status == VideoStatus.PAUSED.value:
+                video.status = VideoStatus.QUEUED.value
+                video.is_paused = False
+                db.commit()
+
+                # Re-submit the job
+                self.submit(
+                    video_id=video.id,
+                    story_id=video.story_id,
+                )
+        finally:
+            db.close()
+
+        return result
+
+    def cancel(self, video_id: int) -> bool:
+        """Cancel a video generation job."""
+        result = self.cancel_job(video_id)
+
+        from core.database import SessionLocal
+        from video.models import GeneratedVideo, VideoStatus
+        db = SessionLocal()
+        try:
+            video = db.query(GeneratedVideo).filter(
+                GeneratedVideo.id == video_id
+            ).first()
+            if video and video.status not in (
+                VideoStatus.DONE.value,
+                VideoStatus.FAILED.value,
+                VideoStatus.CANCELLED.value,
+            ):
+                video.status = VideoStatus.CANCELLED.value
+                db.commit()
+        finally:
+            db.close()
+
+        return result
+
 
 # Global instance
 job_manager = VideoJobManager()

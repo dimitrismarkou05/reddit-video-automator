@@ -59,13 +59,24 @@ export function GenerateVideoModal({
     subtitle_size: 48,
     generate_hashtags: true,
   });
+
+  // Check if story already has a generated video or is in progress
+  const existingVideo = story.generated_video;
+  const hasExistingVideo = !!existingVideo;
+  const existingVideoIsActive =
+    hasExistingVideo &&
+    !["done", "failed", "cancelled"].includes(existingVideo.status);
+
   const [videoId, setVideoId] = useState<number | null>(
-    existingVideoId ?? null,
+    existingVideoId ?? (existingVideo?.id || null),
   );
-  const [isGenerating, setIsGenerating] = useState(!!existingVideoId);
-  const [showBackgroundPicker, setShowBackgroundPicker] =
-    useState(!existingVideoId);
+  const [isGenerating, setIsGenerating] = useState(existingVideoIsActive);
+  const [showBackgroundPicker, setShowBackgroundPicker] = useState(
+    !existingVideoIsActive &&
+      !(hasExistingVideo && existingVideo?.status === "done"),
+  );
   const [lastError, setLastError] = useState<string | null>(null);
+  const [hasStartedGeneration, setHasStartedGeneration] = useState(false);
 
   const { data: voices } = useQuery({
     queryKey: ["tts-voices"],
@@ -76,6 +87,7 @@ export function GenerateVideoModal({
     staleTime: 60000,
   });
 
+  // Load default voice
   useEffect(() => {
     const loadDefault = async () => {
       try {
@@ -97,6 +109,7 @@ export function GenerateVideoModal({
     loadDefault();
   }, [voices]);
 
+  // Track video progress via SSE
   const { progress } = useVideoProgress({
     videoId,
     onComplete: (data) => {
@@ -108,8 +121,16 @@ export function GenerateVideoModal({
     },
   });
 
+  // Sync progress state with UI
   useEffect(() => {
-    if (!progress) return;
+    if (!progress) {
+      // If no progress but we have an existing active video, still show generating
+      if (existingVideoIsActive && videoId) {
+        setIsGenerating(true);
+        setShowBackgroundPicker(false);
+      }
+      return;
+    }
 
     const terminal = ["done", "failed", "cancelled"];
     if (terminal.includes(progress.status)) {
@@ -121,13 +142,24 @@ export function GenerateVideoModal({
       } else if (progress.status === "cancelled") {
         setShowBackgroundPicker(true);
         setVideoId(null);
+      } else if (progress.status === "done") {
+        setShowBackgroundPicker(false);
       }
     } else {
       setIsGenerating(true);
       setShowBackgroundPicker(false);
       setLastError(null);
     }
-  }, [progress]);
+  }, [progress, existingVideoIsActive, videoId]);
+
+  // On mount, if there's an existing active video, ensure we're tracking it
+  useEffect(() => {
+    if (existingVideoIsActive && existingVideo?.id && !videoId) {
+      setVideoId(existingVideo.id);
+      setIsGenerating(true);
+      setShowBackgroundPicker(false);
+    }
+  }, [existingVideo, existingVideoIsActive, videoId]);
 
   const handleSelectFolder = async () => {
     if (window.electronAPI) {
@@ -194,6 +226,12 @@ export function GenerateVideoModal({
   };
 
   const handleGenerate = async () => {
+    // Prevent double-submission
+    if (hasStartedGeneration || isGenerating) {
+      toast("Generation already in progress");
+      return;
+    }
+
     if (!settings.background_source) {
       toast.error("Please select a background video or folder");
       return;
@@ -202,6 +240,7 @@ export function GenerateVideoModal({
     setLastError(null);
     setIsGenerating(true);
     setShowBackgroundPicker(false);
+    setHasStartedGeneration(true);
 
     try {
       const subtitleStyle: SubtitleStyle = {
@@ -238,6 +277,7 @@ export function GenerateVideoModal({
       setLastError(displayError);
       setIsGenerating(false);
       setShowBackgroundPicker(true);
+      setHasStartedGeneration(false);
     }
   };
 
@@ -269,6 +309,7 @@ export function GenerateVideoModal({
       setIsGenerating(false);
       setShowBackgroundPicker(true);
       setVideoId(null);
+      setHasStartedGeneration(false);
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Failed to cancel");
     }
@@ -279,7 +320,21 @@ export function GenerateVideoModal({
   const isPaused = progress?.status === "paused";
   const currentStepLabel = progress
     ? STEP_LABELS[progress.current_step] || progress.current_step
-    : "";
+    : existingVideoIsActive
+      ? STEP_LABELS[existingVideo.current_step] || "Processing..."
+      : "";
+  const currentProgress =
+    progress?.progress_percent ??
+    (existingVideoIsActive ? existingVideo!.progress_percent : 0);
+
+  // Determine what view to show
+  const showProgress =
+    isGenerating ||
+    (progress && !["done", "failed", "cancelled"].includes(progress.status));
+  const showDone =
+    progress?.status === "done" ||
+    (hasExistingVideo && existingVideo?.status === "done");
+  const showPicker = showBackgroundPicker && !showProgress && !showDone;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -305,7 +360,7 @@ export function GenerateVideoModal({
         </div>
 
         <div className="p-6 space-y-6">
-          {isGenerating && progress ? (
+          {showProgress ? (
             <div className="space-y-4">
               <div className="text-center py-6">
                 <div className="relative w-20 h-20 mx-auto mb-4">
@@ -324,25 +379,31 @@ export function GenerateVideoModal({
                 <p className="text-sm text-gray-500 mb-4">{currentStepLabel}</p>
 
                 <ProgressBar
-                  progress={progress.progress_percent ?? 0}
+                  progress={currentProgress}
                   size="lg"
                   showPercentage
                 />
 
-                {progress.queue_position && progress.queue_position > 0 && (
-                  <p className="text-sm text-yellow-600 mt-2">
-                    Queued at position {progress.queue_position}
-                  </p>
-                )}
+                {(progress?.queue_position || existingVideo?.queue_position) &&
+                  ((progress?.queue_position ?? 0) > 0 ||
+                    (existingVideo?.queue_position ?? 0) > 0) && (
+                    <p className="text-sm text-yellow-600 mt-2">
+                      Queued at position{" "}
+                      {progress?.queue_position ||
+                        existingVideo?.queue_position}
+                    </p>
+                  )}
 
-                {progress.error_message && (
+                {(progress?.error_message || existingVideo?.error_message) && (
                   <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg text-left">
                     <p className="text-sm text-red-600 dark:text-red-400 font-medium">
                       Error{" "}
-                      {progress.error_step ? `at ${progress.error_step}` : ""}
+                      {progress?.error_step || existingVideo?.error_step
+                        ? `at ${progress?.error_step || existingVideo?.error_step}`
+                        : ""}
                     </p>
                     <p className="text-xs text-red-500 mt-1">
-                      {progress.error_message}
+                      {progress?.error_message || existingVideo?.error_message}
                     </p>
                   </div>
                 )}
@@ -382,7 +443,7 @@ export function GenerateVideoModal({
                 </button>
               </div>
             </div>
-          ) : progress?.status === "done" ? (
+          ) : showDone ? (
             <div className="text-center py-8 space-y-4">
               <div className="w-16 h-16 mx-auto rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
                 <CheckCircle className="w-8 h-8 text-green-500" />
@@ -393,11 +454,18 @@ export function GenerateVideoModal({
                   Your video has been generated successfully.
                 </p>
               </div>
+              {hasExistingVideo && existingVideo?.video_path && (
+                <div className="text-xs text-gray-400">
+                  <code className="bg-gray-100 dark:bg-surface-dark px-2 py-1 rounded">
+                    {existingVideo.video_path}
+                  </code>
+                </div>
+              )}
               <button onClick={onClose} className="cursor-pointer btn-primary">
                 Close
               </button>
             </div>
-          ) : showBackgroundPicker ? (
+          ) : showPicker ? (
             <>
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -608,14 +676,14 @@ export function GenerateVideoModal({
           )}
         </div>
 
-        {showBackgroundPicker && (
+        {showPicker && (
           <div className="flex items-center justify-end gap-3 p-6 border-t border-border-light dark:border-border-dark">
             <button onClick={onClose} className="cursor-pointer btn-secondary">
               Cancel
             </button>
             <button
               onClick={handleGenerate}
-              disabled={!settings.background_source}
+              disabled={!settings.background_source || hasStartedGeneration}
               className="cursor-pointer btn-primary flex items-center gap-2 disabled:opacity-50"
             >
               <Film className="w-4 h-4" />

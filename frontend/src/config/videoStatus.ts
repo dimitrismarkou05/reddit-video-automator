@@ -1,119 +1,41 @@
-import {
-  Film,
-  CheckCircle,
-  XCircle,
-  Upload,
-  Globe,
-  AlertCircle,
-  Loader2,
-  PauseCircle,
-  Clock,
-  LucideIcon,
-} from "lucide-react";
-
-export interface StatusConfig {
-  icon: LucideIcon;
-  color: string;
-  bg: string;
-  label: string;
-}
-
-export const STATUS_CONFIG: Record<string, StatusConfig> = {
-  queued: {
-    icon: Clock,
-    color: "text-gray-500",
-    bg: "bg-gray-100 dark:bg-gray-700",
-    label: "Queued",
-  },
-  processing: {
-    icon: Loader2,
-    color: "text-blue-500",
-    bg: "bg-blue-100 dark:bg-blue-900/30",
-    label: "Processing",
-  },
-  tts_done: {
-    icon: Loader2,
-    color: "text-blue-500",
-    bg: "bg-blue-100 dark:bg-blue-900/30",
-    label: "TTS Done",
-  },
-  transcribe_done: {
-    icon: Loader2,
-    color: "text-blue-500",
-    bg: "bg-blue-100 dark:bg-blue-900/30",
-    label: "Transcribing",
-  },
-  subtitles_done: {
-    icon: Loader2,
-    color: "text-blue-500",
-    bg: "bg-blue-100 dark:bg-blue-900/30",
-    label: "Subtitles",
-  },
-  compositing_done: {
-    icon: Loader2,
-    color: "text-blue-500",
-    bg: "bg-blue-100 dark:bg-blue-900/30",
-    label: "Compositing",
-  },
-  paused: {
-    icon: PauseCircle,
-    color: "text-yellow-500",
-    bg: "bg-yellow-100 dark:bg-yellow-900/30",
-    label: "Paused",
-  },
-  done: {
-    icon: CheckCircle,
-    color: "text-green-500",
-    bg: "bg-green-100 dark:bg-green-900/30",
-    label: "Ready",
-  },
-  failed: {
-    icon: XCircle,
-    color: "text-red-500",
-    bg: "bg-red-100 dark:bg-red-900/30",
-    label: "Failed",
-  },
-  cancelled: {
-    icon: XCircle,
-    color: "text-gray-500",
-    bg: "bg-gray-100 dark:bg-gray-700",
-    label: "Cancelled",
-  },
-  uploading: {
-    icon: Upload,
-    color: "text-yellow-500",
-    bg: "bg-yellow-100 dark:bg-yellow-900/30",
-    label: "Uploading",
-  },
-  uploaded: {
-    icon: Globe,
-    color: "text-green-500",
-    bg: "bg-green-100 dark:bg-green-900/30",
-    label: "Uploaded",
-  },
-  upload_failed: {
-    icon: AlertCircle,
-    color: "text-red-500",
-    bg: "bg-red-100 dark:bg-red-900/30",
-    label: "Upload Failed",
-  },
-};
-
-export const YT_STATUS_CONFIG: Record<string, { color: string; label: string }> = {
-  not_uploaded: { color: "text-gray-400", label: "Not Uploaded" },
-  uploading: { color: "text-yellow-500", label: "Uploading..." },
-  uploaded: { color: "text-green-500", label: "Live on YouTube" },
-  upload_failed: { color: "text-red-500", label: "Upload Failed" },
-};
-
 export const ACTIVE_GENERATION_STATUSES = [
   "queued",
-  "processing",
+  "preparing",
+  "tts",
   "tts_done",
   "transcribe_done",
   "subtitles_done",
+  "selecting_background",
+  "compositing",
   "compositing_done",
-  "paused",
+  "thumbnail",
+  "processing",
 ];
 
-export const TERMINAL_STATUSES = ["done", "failed", "cancelled"];
+export const STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
+  queued: { label: "Queued", color: "text-blue-600", bgColor: "bg-blue-100 dark:bg-blue-900/30" },
+  preparing: { label: "Preparing", color: "text-blue-600", bgColor: "bg-blue-100 dark:bg-blue-900/30" },
+  tts: { label: "TTS", color: "text-purple-600", bgColor: "bg-purple-100 dark:bg-purple-900/30" },
+  tts_done: { label: "TTS Done", color: "text-purple-600", bgColor: "bg-purple-100 dark:bg-purple-900/30" },
+  transcribe_done: { label: "Transcribed", color: "text-indigo-600", bgColor: "bg-indigo-100 dark:bg-indigo-900/30" },
+  subtitles_done: { label: "Subtitles", color: "text-indigo-600", bgColor: "bg-indigo-100 dark:bg-indigo-900/30" },
+  selecting_background: { label: "Background", color: "text-cyan-600", bgColor: "bg-cyan-100 dark:bg-cyan-900/30" },
+  compositing: { label: "Compositing", color: "text-orange-600", bgColor: "bg-orange-100 dark:bg-orange-900/30" },
+  compositing_done: { label: "Finalizing", color: "text-orange-600", bgColor: "bg-orange-100 dark:bg-orange-900/30" },
+  thumbnail: { label: "Thumbnail", color: "text-pink-600", bgColor: "bg-pink-100 dark:bg-pink-900/30" },
+  processing: { label: "Processing", color: "text-blue-600", bgColor: "bg-blue-100 dark:bg-blue-900/30" },
+  done: { label: "Done", color: "text-green-600", bgColor: "bg-green-100 dark:bg-green-900/30" },
+  failed: { label: "Failed", color: "text-red-600", bgColor: "bg-red-100 dark:bg-red-900/30" },
+  cancelled: { label: "Cancelled", color: "text-gray-600", bgColor: "bg-gray-100 dark:bg-gray-900/30" },
+  paused: { label: "Paused", color: "text-yellow-600", bgColor: "bg-yellow-100 dark:bg-yellow-900/30" },
+};
+
+export const YT_STATUS_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
+  not_uploaded: { label: "Not Uploaded", color: "text-gray-600", bgColor: "bg-gray-100 dark:bg-gray-900/30" },
+  uploaded: { label: "Uploaded", color: "text-green-600", bgColor: "bg-green-100 dark:bg-green-900/30" },
+  uploading: { label: "Uploading", color: "text-blue-600", bgColor: "bg-blue-100 dark:bg-blue-900/30" },
+  failed: { label: "Upload Failed", color: "text-red-600", bgColor: "bg-red-100 dark:bg-red-900/30" },
+  private: { label: "Private", color: "text-yellow-600", bgColor: "bg-yellow-100 dark:bg-yellow-900/30" },
+  public: { label: "Public", color: "text-green-600", bgColor: "bg-green-100 dark:bg-green-900/30" },
+  unlisted: { label: "Unlisted", color: "text-purple-600", bgColor: "bg-purple-100 dark:bg-purple-900/30" },
+};

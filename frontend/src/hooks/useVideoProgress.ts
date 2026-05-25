@@ -1,49 +1,83 @@
-import { useState, useEffect, useCallback } from "react";
-import { VideoProgressEvent } from "@/types";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { videoProgressSSE } from "@/services/api";
+
+interface VideoProgressData {
+  video_id: number;
+  status: string;
+  progress_percent: number;
+  current_step: string;
+  step_progress: number;
+  error_message: string | null;
+  error_type: string | null;
+  error_step: string | null;
+  queue_position: number | null;
+  is_paused: boolean;
+  thumbnail_path?: string;
+  video_path?: string;
+}
 
 interface UseVideoProgressOptions {
   videoId: number | null;
-  onComplete?: (data: VideoProgressEvent) => void;
+  onComplete?: (data: VideoProgressData) => void;
 }
 
-export function useVideoProgress({
-  videoId,
-  onComplete,
-}: UseVideoProgressOptions) {
-  const [progress, setProgress] = useState<VideoProgressEvent | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+export function useVideoProgress({ videoId, onComplete }: UseVideoProgressOptions) {
+  const [progress, setProgress] = useState<VideoProgressData | null>(null);
+  const lastVideoIdRef = useRef<number | null>(null);
+  const isConnectedRef = useRef(false);
+  const onCompleteRef = useRef(onComplete);
 
-  const handleProgress = useCallback(
-    (data: VideoProgressEvent) => {
-      setProgress(data);
-      setIsConnected(true);
+  // Keep callback ref up to date
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
 
-      if (["done", "failed", "cancelled"].includes(data.status)) {
-        setTimeout(() => {
-          setIsConnected(false);
-          onComplete?.(data);
-        }, 1000);
-      }
-    },
-    [onComplete],
-  );
+  const handleProgress = useCallback((data: VideoProgressData) => {
+    setProgress(data);
+
+    // Call onComplete for terminal states
+    if (["done", "failed", "cancelled"].includes(data.status)) {
+      onCompleteRef.current?.(data);
+    }
+  }, []);
 
   useEffect(() => {
+    // Only connect if we have a valid videoId and it's different from last time
     if (!videoId) {
+      if (isConnectedRef.current) {
+        videoProgressSSE.disconnect();
+        isConnectedRef.current = false;
+      }
       setProgress(null);
-      setIsConnected(false);
+      lastVideoIdRef.current = null;
       return;
     }
 
-    videoProgressSSE.connect(videoId);
+    // If already connected to this videoId, don't reconnect
+    if (lastVideoIdRef.current === videoId && isConnectedRef.current) {
+      return;
+    }
+
+    // Disconnect from previous video if any
+    if (isConnectedRef.current) {
+      videoProgressSSE.disconnect();
+      isConnectedRef.current = false;
+    }
+
+    // Connect to new video
+    lastVideoIdRef.current = videoId;
+    isConnectedRef.current = true;
+
     videoProgressSSE.onProgress(handleProgress);
-    setIsConnected(true);
+    videoProgressSSE.connect(videoId);
 
     return () => {
-      videoProgressSSE.offProgress(handleProgress);
+      // Only disconnect if we're still connected to this video
+      if (lastVideoIdRef.current === videoId) {
+        videoProgressSSE.offProgress(handleProgress);
+      }
     };
   }, [videoId, handleProgress]);
 
-  return { progress, isConnected };
+  return { progress };
 }

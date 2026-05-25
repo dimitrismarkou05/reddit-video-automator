@@ -97,53 +97,91 @@ export class VideoProgressConnection {
   private currentEndpoint: string = "";
   private currentVideoId: number | null = null;
   private isTerminal = false;
+  private isConnecting = false;
+  private connectionCount = 0;
 
   connect(videoId: number) {
     const endpoint = `${API_BASE.replace("/api/v1", "")}/api/v1/sse/videos/${videoId}/progress`;
-    if (this.eventSource && this.currentEndpoint === endpoint) return;
+
+    // Prevent duplicate connections to same endpoint
+    if (
+      this.currentEndpoint === endpoint &&
+      this.eventSource &&
+      !this.isTerminal
+    ) {
+      return;
+    }
+
+    // Prevent concurrent connection attempts
+    if (this.isConnecting) {
+      return;
+    }
 
     this.disconnect();
+    this.isConnecting = true;
     this.currentEndpoint = endpoint;
     this.currentVideoId = videoId;
     this.isTerminal = false;
+    this.connectionCount++;
+    const currentConnection = this.connectionCount;
 
-    this.eventSource = new EventSource(endpoint);
+    try {
+      this.eventSource = new EventSource(endpoint);
+      this.isConnecting = false;
 
-    this.eventSource.addEventListener("progress", (event) => {
-      try {
-        const data = JSON.parse((event as MessageEvent).data);
-        if (["done", "failed", "cancelled"].includes(data.status)) {
-          this.isTerminal = true;
-        }
-        this.listeners.forEach((cb) => cb(data));
-      } catch (e) {
-        console.error("Video progress event error:", e);
-      }
-    });
+      this.eventSource.addEventListener("progress", (event) => {
+        // Ignore events from stale connections
+        if (currentConnection !== this.connectionCount) return;
 
-    this.eventSource.addEventListener("error", (event) => {
-      if (event instanceof MessageEvent) {
         try {
-          const data = JSON.parse(event.data);
-          this.isTerminal = true;
+          const data = JSON.parse((event as MessageEvent).data);
+          if (["done", "failed", "cancelled"].includes(data.status)) {
+            this.isTerminal = true;
+          }
           this.listeners.forEach((cb) => cb(data));
         } catch (e) {
-          console.error("Video SSE error event parse error:", e);
+          console.error("Video progress event error:", e);
         }
-      }
-    });
+      });
 
-    this.eventSource.onerror = () => {
-      this.disconnect();
-      if (!this.isTerminal && this.currentVideoId !== null) {
-        this.reconnectTimer = setTimeout(() => {
-          this.connect(this.currentVideoId!);
-        }, 3000);
-      }
-    };
+      this.eventSource.addEventListener("error", (event) => {
+        if (currentConnection !== this.connectionCount) return;
+
+        if (event instanceof MessageEvent) {
+          try {
+            const data = JSON.parse(event.data);
+            this.isTerminal = true;
+            this.listeners.forEach((cb) => cb(data));
+          } catch (e) {
+            console.error("Video SSE error event parse error:", e);
+          }
+        }
+      });
+
+      this.eventSource.onerror = () => {
+        if (currentConnection !== this.connectionCount) return;
+
+        this.disconnect(false); // Don't clear listeners on error
+
+        if (!this.isTerminal && this.currentVideoId !== null) {
+          this.reconnectTimer = setTimeout(() => {
+            if (this.currentVideoId === videoId && !this.isTerminal) {
+              this.connect(videoId);
+            }
+          }, 3000);
+        }
+      };
+
+      this.eventSource.onopen = () => {
+        if (currentConnection !== this.connectionCount) return;
+      };
+    } catch (e) {
+      this.isConnecting = false;
+      console.error("Failed to create EventSource:", e);
+    }
   }
 
-  disconnect() {
+  disconnect(clearListeners = true) {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -151,6 +189,13 @@ export class VideoProgressConnection {
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
+    }
+    if (clearListeners) {
+      this.listeners.clear();
+      this.currentEndpoint = "";
+      this.currentVideoId = null;
+      this.isTerminal = false;
+      this.connectionCount++;
     }
   }
 
@@ -162,8 +207,6 @@ export class VideoProgressConnection {
     this.listeners.delete(callback);
     if (this.listeners.size === 0) {
       this.disconnect();
-      this.currentEndpoint = "";
-      this.currentVideoId = null;
     }
   }
 }
