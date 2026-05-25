@@ -1,13 +1,10 @@
-"""Core local TTS detection, installation, and management service."""
+"""Core local TTS detection and management service."""
 
-import asyncio
-from pathlib import Path
 from typing import List, Dict, Optional
 
 from sqlalchemy.orm import Session
 
 from tts_local.detector import TtsDetector
-from tts_local.installer import TtsModelInstaller, cancel_active_install
 
 
 class TTSService:
@@ -23,21 +20,8 @@ class TTSService:
     def list_voices(self) -> List[Dict]:
         return self.detector.detect_voices()
 
-    def get_voice_path(self, voice_id: str) -> Optional[Path]:
-        return self.detector.get_voice_path(voice_id)
-
     def get_voice_model_name(self, voice_id: str) -> Optional[str]:
         return self.detector.get_voice_model_name(voice_id)
-
-    def install_sync(self) -> dict:
-        installer = TtsModelInstaller()
-        return installer.install()
-
-    async def install(self) -> dict:
-        return await asyncio.to_thread(self.install_sync)
-
-    def cancel_install(self) -> None:
-        cancel_active_install()
 
     def preload_default(self) -> None:
         """Preload the default TTS model to warm up cache."""

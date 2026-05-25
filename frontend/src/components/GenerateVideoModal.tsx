@@ -82,11 +82,20 @@ export function GenerateVideoModal({
         const { data } = await settingsApi.get("default_tts_voice");
         if (data?.value) {
           setSettings((s) => ({ ...s, voice_id: data.value }));
+          return;
         }
-      } catch (e) {}
+      } catch (e: any) {
+        if (e?.response?.status !== 404) {
+          console.debug("Failed to load default voice:", e);
+        }
+      }
+      // No saved default: auto-select first available voice
+      if (voices && voices.length > 0) {
+        setSettings((s) => ({ ...s, voice_id: voices[0].id }));
+      }
     };
     loadDefault();
-  }, []);
+  }, [voices]);
 
   const { progress } = useVideoProgress({
     videoId,
@@ -417,6 +426,11 @@ export function GenerateVideoModal({
                       <option value="default">No voices available</option>
                     )}
                   </select>
+                  {voices && voices.length > 0 && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      First use downloads the voice model (~500MB).
+                    </p>
+                  )}
                   {(!voices || voices.length === 0) && (
                     <p className="text-xs text-yellow-600 mt-1">
                       Install a TTS model in Settings to enable voice selection.

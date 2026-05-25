@@ -1,76 +1,23 @@
 """Local TTS model detection logic using Coqui TTS API.
 
-Models are auto-managed by Coqui TTS via pip. We detect which models
-have been downloaded by querying TTS().list_models() and checking
-local cache directories.
+Models are auto-managed by Coqui TTS via pip. We return a static curated
+list from mirrors.py. First-use download happens naturally in the engine.
 """
 
-import json
-import os
-from pathlib import Path
+import logging
 from typing import List, Dict, Optional
 
-from core.config import TTS_MODELS_DIR
+logger = logging.getLogger(__name__)
 
 
 class TtsDetector:
     """Detects installed local TTS voice models via Coqui TTS API."""
 
-    def __init__(self):
-        self._models_cache: Optional[List[Dict]] = None
-
-    def _get_tts_manager(self):
-        """Lazy import TTS ModelManager."""
-        try:
-            from TTS.utils.manage import ModelManager
-            return ModelManager()
-        except Exception:
-            return None
-
-    def _list_downloaded_models(self) -> List[str]:
-        """Return list of model names that have been downloaded locally."""
-        manager = self._get_tts_manager()
-        if not manager:
-            return []
-
-        try:
-            from TTS.utils.generic_utils import get_user_data_dir
-            tts_dir = Path(get_user_data_dir("tts"))
-
-            downloaded = []
-            if tts_dir.exists():
-                for model_type_dir in tts_dir.iterdir():
-                    if not model_type_dir.is_dir():
-                        continue
-                    for lang_dir in model_type_dir.iterdir():
-                        if not lang_dir.is_dir():
-                            continue
-                        for dataset_dir in lang_dir.iterdir():
-                            if not dataset_dir.is_dir():
-                                continue
-                            for model_dir in dataset_dir.iterdir():
-                                if not model_dir.is_dir():
-                                    continue
-                                model_files = list(model_dir.glob("*.pth")) + list(model_dir.glob("*.onnx"))
-                                config_file = model_dir / "config.json"
-                                if model_files and config_file.exists():
-                                    model_name = f"{model_type_dir.name}/{lang_dir.name}/{dataset_dir.name}/{model_dir.name}"
-                                    downloaded.append(model_name)
-            return downloaded
-        except Exception:
-            return []
-
     def detect_voices(self) -> List[Dict]:
-        """Return list of available/downloaded voice models."""
-        voices: List[Dict] = []
-
-        downloaded = self._list_downloaded_models()
-
+        """Return static curated list from mirrors.py."""
         from tts_local.mirrors import get_available_models
-        available = get_available_models()
-
-        for model in available:
-            is_downloaded = model["model_name"] in downloaded
+        voices = []
+        for model in get_available_models():
             voices.append({
                 "id": model["id"],
                 "name": model["name"],
@@ -78,49 +25,27 @@ class TtsDetector:
                 "language": model["language"],
                 "speaker_count": model["speaker_count"],
                 "description": model["description"],
-                "installed": is_downloaded,
+                "installed": False,  # unknown until first use, but schema expects bool
                 "path": None,
             })
-
-        if not voices and self._is_tts_package_installed():
-            voices.append({
-                "id": "coqui_tts_default",
-                "name": "Coqui TTS (Auto-download)",
-                "model_name": "tts_models/en/ljspeech/tacotron2-DDC",
-                "language": "en",
-                "speaker_count": 1,
-                "description": "Models auto-downloaded on first use via Coqui TTS.",
-                "installed": True,
-                "path": None,
-            })
-
         return voices
 
     def _is_tts_package_installed(self) -> bool:
         """Check if the TTS Python package is installed."""
         try:
             import TTS
+            logger.info("[TtsDetector] TTS package imported successfully")
             return True
-        except ImportError:
+        except ImportError as e:
+            logger.warning(f"[TtsDetector] TTS package not found: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"[TtsDetector] Unexpected error importing TTS: {type(e).__name__}: {e}")
             return False
 
     def is_installed(self) -> bool:
-        """Return True if TTS package is installed and models are available."""
-        if not self._is_tts_package_installed():
-            return False
-        voices = self.detect_voices()
-        return len(voices) > 0
-
-    def get_voice_path(self, voice_id: str) -> Optional[Path]:
-        """Return path to voice model files — DEPRECATED.
-
-        Coqui TTS now uses model_name strings, not file paths.
-        """
-        voices = self.detect_voices()
-        for v in voices:
-            if v["id"] == voice_id:
-                return Path(v["model_name"]) if v.get("installed") else None
-        return None
+        """Return True if TTS package is importable."""
+        return self._is_tts_package_installed()
 
     def get_voice_model_name(self, voice_id: str) -> Optional[str]:
         """Return the Coqui TTS model_name for a voice_id."""
@@ -137,15 +62,14 @@ class TtsDetector:
         voices = self.detect_voices() if tts_installed else []
 
         return {
-            "installed": tts_installed and len(voices) > 0,
+            "installed": tts_installed,
             "tts_package_installed": tts_installed,
             "voices": voices,
-            "models_dir": str(TTS_MODELS_DIR),
+            "models_dir": "",
             "auto_download": True,
             "message": (
-                "TTS models are auto-downloaded by Coqui TTS on first use. "
-                "No manual download required."
+                "TTS ready. Voice model downloads on first use (~500MB)."
             ) if tts_installed else (
-                "TTS Python package not installed. Run: pip install TTS"
+                "TTS Python package not installed. Reinstall the application."
             ),
         }

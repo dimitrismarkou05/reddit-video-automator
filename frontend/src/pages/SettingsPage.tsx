@@ -14,13 +14,12 @@ import {
   FolderInput,
   TestTube,
   Loader2,
-  Volume2,
+  ChevronDown,
 } from "lucide-react";
 import { useThemeStore, useAuthStore } from "@/store";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { FfmpegStatus } from "@/components/ffmpeg/FfmpegStatus";
 import { FfmpegInstallModal } from "@/components/ffmpeg/FfmpegInstallModal";
-import { TtsInstallModal } from "@/components/tts/TtsInstallModal";
 import { ffmpegApi, settingsApi } from "@/services/api";
 import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
 import { useTtsLocalStatus } from "@/hooks/useTtsLocalStatus";
@@ -30,7 +29,6 @@ export function SettingsPage() {
   const { isDark, toggle } = useThemeStore();
   const { authStatus } = useAuthStore();
   const [showInstallModal, setShowInstallModal] = useState(false);
-  const [showTtsInstallModal, setShowTtsInstallModal] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
@@ -42,7 +40,7 @@ export function SettingsPage() {
   const [voices, setVoices] = useState<{ id: string; name: string }[]>([]);
 
   const { status: ffmpegStatus, refetch: refetchFfmpeg } = useFfmpegStatus();
-  const { status: ttsStatus } = useTtsLocalStatus();
+  const { data: ttsStatus } = useTtsLocalStatus();
 
   useEffect(() => {
     if (ttsStatus?.voices) {
@@ -54,11 +52,23 @@ export function SettingsPage() {
     const loadDefaultVoice = async () => {
       try {
         const { data } = await settingsApi.get("default_tts_voice");
-        if (data?.value) setDefaultVoice(data.value);
-      } catch (e) {}
+        if (data?.value) {
+          setDefaultVoice(data.value);
+          return;
+        }
+      } catch (e: any) {
+        // 404 means no saved default — fall through to auto-select
+        if (e?.response?.status !== 404) {
+          console.debug("Failed to load default voice:", e);
+        }
+      }
+      // No saved default: auto-select first available voice
+      if (voices.length > 0) {
+        setDefaultVoice(voices[0].id);
+      }
     };
     loadDefaultVoice();
-  }, []);
+  }, [voices]);
 
   const handleSelectOutputDir = async () => {
     if (window.electronAPI) {
@@ -154,10 +164,6 @@ export function SettingsPage() {
     }
   };
 
-  const handleInstallTts = () => {
-    setShowTtsInstallModal(true);
-  };
-
   const handleSaveDefaultVoice = async () => {
     try {
       await settingsApi.set("default_tts_voice", defaultVoice);
@@ -171,28 +177,31 @@ export function SettingsPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <h2 className="text-2xl font-bold mb-6">Settings</h2>
 
-      <SettingsSection title="Video Generation" icon={Volume2}>
+      <SettingsSection title="Video Generation" icon={Film}>
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">
               Default Voice
             </label>
             <div className="flex gap-3">
-              <select
-                value={defaultVoice}
-                onChange={(e) => setDefaultVoice(e.target.value)}
-                className="input flex-1"
-                disabled={!ttsStatus?.installed}
-              >
-                {voices.length === 0 && (
-                  <option value="default">No voices installed</option>
-                )}
-                {voices.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </select>
+              <div className="relative flex-1">
+                <select
+                  value={defaultVoice}
+                  onChange={(e) => setDefaultVoice(e.target.value)}
+                  className="input w-full appearance-none pr-10"
+                  disabled={!ttsStatus?.installed}
+                >
+                  {voices.length === 0 && (
+                    <option value="default">No voices available</option>
+                  )}
+                  {voices.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
               <button
                 onClick={handleSaveDefaultVoice}
                 disabled={!ttsStatus?.installed}
@@ -204,7 +213,7 @@ export function SettingsPage() {
             </div>
             {!ttsStatus?.installed && (
               <p className="text-xs text-yellow-600 mt-1">
-                Install a TTS model to enable voice selection.
+                TTS package not found. Reinstall the application.
               </p>
             )}
           </div>
@@ -249,30 +258,17 @@ export function SettingsPage() {
           </div>
 
           <div className="border-t border-border-light dark:border-border-dark pt-4">
-            <h4 className="text-sm font-medium mb-2">TTS Model Status</h4>
+            <h4 className="text-sm font-medium mb-2">Text-to-Speech</h4>
             {ttsStatus?.installed ? (
               <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 dark:bg-green-900/20 p-3 rounded-lg">
                 <Check className="w-4 h-4" />
                 <span>
-                  TTS model installed ({voices.length} voice
-                  {voices.length !== 1 ? "s" : ""})
+                  TTS ready. Voice model downloads on first use (~500MB).
                 </span>
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="flex items-start gap-2 text-sm text-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-lg">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>
-                    TTS model not installed. Voice generation is disabled.
-                  </span>
-                </div>
-                <button
-                  onClick={handleInstallTts}
-                  className="cursor-pointer btn-primary flex items-center gap-2"
-                >
-                  <Download className="w-4 h-4" />
-                  Install TTS Model
-                </button>
+              <div className="text-sm text-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-lg">
+                TTS package not found. Reinstall the application.
               </div>
             )}
           </div>
@@ -483,9 +479,6 @@ export function SettingsPage() {
 
       {showInstallModal && (
         <FfmpegInstallModal onClose={() => setShowInstallModal(false)} />
-      )}
-      {showTtsInstallModal && (
-        <TtsInstallModal onClose={() => setShowTtsInstallModal(false)} />
       )}
     </div>
   );

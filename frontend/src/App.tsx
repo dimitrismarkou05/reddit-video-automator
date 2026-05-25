@@ -14,10 +14,6 @@ import { PublicSettingsPage } from "@/pages/PublicSettingsPage";
 import { TitleBar } from "@/components/TitleBar";
 import { FfmpegMissingModal } from "@/components/ffmpeg/FfmpegMissingModal";
 import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
-import { useTtsLocalStatus } from "@/hooks/useTtsLocalStatus";
-import { SetupWizardModal } from "@/components/setup/SetupWizardModal";
-import { useSetupStore } from "@/store/setup";
-import { TtsMissingModal } from "@/components/tts/TtsMissingModal";
 
 function ProtectedRoute() {
   const { authStatus, isLoading } = useAuthStore();
@@ -72,13 +68,8 @@ function App() {
   const isElectron = !!window.electronAPI;
   const [showFfmpegMissing, setShowFfmpegMissing] = useState(false);
   const [ffmpegSkipped, setFfmpegSkipped] = useState(false);
-  const [showSetupWizard, setShowSetupWizard] = useState(false);
-  const [showTtsMissing, setShowTtsMissing] = useState(false);
-  const [ttsSkipped, setTtsSkipped] = useState(false);
 
   const { status: ffmpegStatus, isLoading: ffmpegLoading } = useFfmpegStatus();
-  const { status: ttsStatus, isLoading: ttsLoading } = useTtsLocalStatus();
-  const { wizardComplete, setWizardComplete } = useSetupStore();
 
   useEffect(() => {
     if (isDark) {
@@ -104,47 +95,25 @@ function App() {
 
   useEffect(() => {
     const isAuthenticated = authStatus?.is_authenticated;
-    if (!isAuthenticated || ffmpegLoading || ttsLoading || wizardComplete) {
+    if (!isAuthenticated || ffmpegLoading) {
       if (!isAuthenticated) {
         setShowFfmpegMissing(false);
         setFfmpegSkipped(false);
-        setShowTtsMissing(false);
-        setTtsSkipped(false);
-        setShowSetupWizard(false);
       }
       return;
     }
 
     const ffmpegOk = ffmpegStatus?.can_generate_videos ?? false;
-    const ttsOk = ttsStatus?.installed ?? false;
 
-    if (!ffmpegOk && !ttsOk) {
-      setShowSetupWizard(true);
-    } else if (!ffmpegOk && !ffmpegSkipped) {
+    if (!ffmpegOk && !ffmpegSkipped) {
       setShowFfmpegMissing(true);
-    } else if (
-      !ttsOk &&
-      !ttsSkipped &&
-      !showSetupWizard &&
-      !showFfmpegMissing
-    ) {
-      setShowTtsMissing(true);
     }
   }, [
     ffmpegLoading,
-    ttsLoading,
     ffmpegStatus,
-    ttsStatus,
     ffmpegSkipped,
-    ttsSkipped,
     authStatus?.is_authenticated,
-    wizardComplete,
   ]);
-
-  const handleWizardComplete = () => {
-    setWizardComplete(true);
-    setShowSetupWizard(false);
-  };
 
   return (
     <div
@@ -179,21 +148,10 @@ function App() {
         </Routes>
       </div>
 
-      {showSetupWizard && (
-        <SetupWizardModal onComplete={handleWizardComplete} />
-      )}
-
-      {showFfmpegMissing && !showSetupWizard && (
+      {showFfmpegMissing && (
         <FfmpegMissingModal
           onClose={() => setShowFfmpegMissing(false)}
           onSkip={() => setFfmpegSkipped(true)}
-        />
-      )}
-
-      {showTtsMissing && !showSetupWizard && (
-        <TtsMissingModal
-          onClose={() => setShowTtsMissing(false)}
-          onSkip={() => setTtsSkipped(true)}
         />
       )}
     </div>

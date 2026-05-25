@@ -275,7 +275,4 @@ export const ffmpegApi = {
 export const ttsLocalApi = {
   getStatus: () => api.get("/tts_local/status"),
   listVoices: () => api.get("/tts_local/voices"),
-  install: () => api.post("/tts_local/install"),
-  retry: () => api.post("/tts_local/retry"),
-  cancel: () => api.post("/tts_local/cancel"),
 };
