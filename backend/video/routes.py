@@ -14,7 +14,6 @@ from video.schemas import (
 )
 from video.models import GeneratedVideo, VideoStatus
 from stories.models import Story
-from video.engine.pipeline import VideoPipeline, VideoPipelineError
 from video.engine.job_manager import job_manager
 
 router = APIRouter()
@@ -61,6 +60,8 @@ def generate_video(
             queue_position=existing.queue_position,
         )
 
+    # FIX: Create video record without video_path/thumbnail_path (nullable now)
+    # The pipeline sets these during execution
     video_record = GeneratedVideo(
         story_id=request.story_id,
         status=VideoStatus.QUEUED.value,
@@ -72,7 +73,6 @@ def generate_video(
     db.commit()
     db.refresh(video_record)
 
-    # FIX: Use request.voice_id to match VideoGenerationRequest schema
     job_manager.submit(
         video_id=video_record.id,
         story_id=request.story_id,

@@ -25,8 +25,9 @@ class GeneratedVideo(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     story_id: Mapped[int] = mapped_column(ForeignKey("stories.id"), unique=True)
 
-    video_path: Mapped[str] = mapped_column(Text)
-    thumbnail_path: Mapped[str] = mapped_column(Text)
+    # FIX: Made nullable since paths are set during pipeline execution, not at creation
+    video_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    thumbnail_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     audio_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subtitle_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
