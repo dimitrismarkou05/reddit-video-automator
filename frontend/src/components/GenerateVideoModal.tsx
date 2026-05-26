@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   X,
@@ -86,7 +86,8 @@ export function GenerateVideoModal({
   isUpdate = false,
   parentStory = null,
 }: GenerateVideoModalProps) {
-  const { setActiveModal, registerJob, updateJob, jobs } = useVideoJobsStore();
+  const { setActiveModal, registerJob, updateJob, removeJob } =
+    useVideoJobsStore();
 
   const [settings, setSettings] = useState({
     voice_id: "default",
@@ -108,14 +109,12 @@ export function GenerateVideoModal({
   const [videoId, setVideoId] = useState<number | null>(
     existingVideoId ?? (existingVideo?.id || null),
   );
-  const [isGenerating, setIsGenerating] = useState(existingVideoIsActive);
-  const [showBackgroundPicker, setShowBackgroundPicker] = useState(
-    !existingVideoIsActive &&
-      !(hasExistingVideo && existingVideo?.status === "done"),
-  );
   const [lastError, setLastError] = useState<string | null>(null);
   const [hasStartedGeneration, setHasStartedGeneration] = useState(false);
-  const [notifiedTerminal, setNotifiedTerminal] = useState(false);
+
+  // CRITICAL FIX: Track if we already showed the cancel toast to prevent double-toast
+  const cancelToastShownRef = useRef(false);
+  const notifiedTerminalRef = useRef(false);
 
   // Set active modal in store for global tracking
   useEffect(() => {
@@ -123,7 +122,6 @@ export function GenerateVideoModal({
       setActiveModal(videoId, story.id);
     }
     return () => {
-      // Only clear if this is our modal
       const state = useVideoJobsStore.getState();
       if (state.activeModalVideoId === videoId) {
         setActiveModal(null, null);
@@ -154,7 +152,6 @@ export function GenerateVideoModal({
           console.debug("Failed to load default voice:", e);
         }
       }
-      // No saved default: auto-select first available voice
       if (voices && voices.length > 0) {
         setSettings((s) => ({ ...s, voice_id: voices[0].id }));
       }
@@ -164,22 +161,25 @@ export function GenerateVideoModal({
 
   // Track video progress via SSE
   const handleComplete = useCallback((data: any) => {
-    if (data.status === "done" && !notifiedTerminal) {
-      setNotifiedTerminal(true);
+    if (data.status === "done" && !notifiedTerminalRef.current) {
+      notifiedTerminalRef.current = true;
       toast.success("Video generation complete!");
     }
-  }, [notifiedTerminal]);
+  }, []);
 
   const handleError = useCallback((data: any) => {
-    if (!notifiedTerminal) {
-      setNotifiedTerminal(true);
+    if (!notifiedTerminalRef.current) {
+      notifiedTerminalRef.current = true;
       if (data.status === "failed") {
         toast.error(data.error_message || "Video generation failed");
       } else if (data.status === "cancelled") {
-        toast("Generation cancelled", { icon: "⚠️" });
+        // CRITICAL FIX: Only show toast if we haven't already shown it from handleCancel
+        if (!cancelToastShownRef.current) {
+          toast("Generation cancelled", { icon: "⚠️" });
+        }
       }
     }
-  }, [notifiedTerminal]);
+  }, []);
 
   const { progress } = useVideoProgress({
     videoId,
@@ -187,18 +187,22 @@ export function GenerateVideoModal({
     onError: handleError,
   });
 
-  // Sync progress state with UI and store
-  useEffect(() => {
-    if (!progress) {
-      // If no progress but we have an existing active video, still show generating
-      if (existingVideoIsActive && videoId) {
-        setIsGenerating(true);
-        setShowBackgroundPicker(false);
-      }
-      return;
-    }
+  // Derive UI state from progress
+  const isGenerating = progress
+    ? ACTIVE_GENERATION_STATUSES.includes(progress.status)
+    : existingVideoIsActive;
 
-    // Update job in store
+  const isPaused = progress?.status === "paused";
+  const isFailed = progress?.status === "failed" || lastError !== null;
+  const isDone =
+    progress?.status === "done" ||
+    (hasExistingVideo && existingVideo?.status === "done");
+  const isCancelled = progress?.status === "cancelled";
+
+  // Sync progress state with store
+  useEffect(() => {
+    if (!progress) return;
+
     if (videoId) {
       updateJob(videoId, {
         status: progress.status,
@@ -210,34 +214,25 @@ export function GenerateVideoModal({
       });
     }
 
-    const terminal = ["done", "failed", "cancelled"];
-    if (terminal.includes(progress.status)) {
-      setIsGenerating(false);
+    // Reset terminal notification when we see a non-terminal state
+    if (!["done", "failed", "cancelled"].includes(progress.status)) {
+      notifiedTerminalRef.current = false;
+      cancelToastShownRef.current = false;
+    }
+
+    if (["done", "failed", "cancelled"].includes(progress.status)) {
       if (progress.status === "failed") {
         setLastError(progress.error_message || "Unknown error");
-        setShowBackgroundPicker(true);
-        setVideoId(null);
-        setHasStartedGeneration(false);
-      } else if (progress.status === "cancelled") {
-        setShowBackgroundPicker(true);
-        setVideoId(null);
-        setHasStartedGeneration(false);
-      } else if (progress.status === "done") {
-        setShowBackgroundPicker(false);
       }
     } else {
-      setIsGenerating(true);
-      setShowBackgroundPicker(false);
       setLastError(null);
     }
-  }, [progress, existingVideoIsActive, videoId, updateJob]);
+  }, [progress, videoId, updateJob]);
 
-  // On mount, if there's an existing active video, ensure we're tracking it
+  // On mount, track existing active video
   useEffect(() => {
     if (existingVideoIsActive && existingVideo?.id && !videoId) {
       setVideoId(existingVideo.id);
-      setIsGenerating(true);
-      setShowBackgroundPicker(false);
       registerJob(existingVideo.id, story.id, existingVideo.status);
     }
   }, [existingVideo, existingVideoIsActive, videoId, story.id, registerJob]);
@@ -307,8 +302,7 @@ export function GenerateVideoModal({
   };
 
   const handleGenerate = async () => {
-    // Prevent double-submission
-    if (hasStartedGeneration || isGenerating) {
+    if (hasStartedGeneration && isGenerating) {
       toast("Generation already in progress");
       return;
     }
@@ -318,11 +312,14 @@ export function GenerateVideoModal({
       return;
     }
 
+    // Clean up previous state
+    if (videoId) {
+      removeJob(videoId);
+    }
     setLastError(null);
-    setIsGenerating(true);
-    setShowBackgroundPicker(false);
     setHasStartedGeneration(true);
-    setNotifiedTerminal(false);
+    notifiedTerminalRef.current = false;
+    cancelToastShownRef.current = false;
 
     try {
       const subtitleStyle: SubtitleStyleType = {
@@ -349,9 +346,18 @@ export function GenerateVideoModal({
         registerJob(data.video_id, story.id, data.status || "queued");
 
         if (data.queue_position) {
-          toast.success(`Generation queued at position #${data.queue_position}`);
+          toast.success(
+            `Generation queued at position #${data.queue_position}`,
+          );
         } else if (data.message?.includes("already exists")) {
+          // This is the "already exists" case - just show info toast, don't open progress
           toast(data.message);
+          // Don't track this as an active generation
+          setHasStartedGeneration(false);
+          // But still set videoId so user can see progress if they want
+          setVideoId(data.video_id);
+        } else if (data.message?.includes("retry")) {
+          toast.success(data.message);
         } else {
           toast.success(data.message || "Generation started!");
         }
@@ -368,31 +374,28 @@ export function GenerateVideoModal({
 
       toast.error(displayError);
       setLastError(displayError);
-      setIsGenerating(false);
-      setShowBackgroundPicker(true);
       setHasStartedGeneration(false);
     }
   };
 
   const handleRetry = async () => {
     if (!videoId) return;
+
+    removeJob(videoId);
     setLastError(null);
-    setIsGenerating(true);
-    setShowBackgroundPicker(false);
     setHasStartedGeneration(true);
-    setNotifiedTerminal(false);
+    notifiedTerminalRef.current = false;
+    cancelToastShownRef.current = false;
 
     try {
       const { data } = await videoApi.retry(videoId);
       if (data.video_id) {
         setVideoId(data.video_id);
         registerJob(data.video_id, story.id, "queued");
-        toast.success("Generation retry queued");
+        toast.success(data.message || "Generation retry queued");
       }
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Retry failed");
-      setIsGenerating(false);
-      setShowBackgroundPicker(true);
       setHasStartedGeneration(false);
     }
   };
@@ -421,21 +424,14 @@ export function GenerateVideoModal({
     if (!videoId) return;
     try {
       await videoApi.cancel(videoId);
+      // CRITICAL FIX: Mark that we showed the toast, so SSE handler won't double-toast
+      cancelToastShownRef.current = true;
       toast.success("Generation cancelled");
-      setIsGenerating(false);
-      setShowBackgroundPicker(true);
-      setVideoId(null);
       setHasStartedGeneration(false);
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Failed to cancel");
     }
   };
-
-  const isActive =
-    progress && ACTIVE_GENERATION_STATUSES.includes(progress.status);
-  const isPaused = progress?.status === "paused";
-  const isFailed = progress?.status === "failed" || lastError !== null;
-  const isDone = progress?.status === "done";
 
   const currentStepLabel = progress
     ? STEP_LABELS[progress.current_step] || progress.current_step
@@ -447,21 +443,18 @@ export function GenerateVideoModal({
     progress?.progress_percent ??
     (existingVideoIsActive ? existingVideo!.progress_percent : 0);
 
-  const queuePosition = progress?.queue_position ?? existingVideo?.queue_position;
+  const queuePosition =
+    progress?.queue_position ?? existingVideo?.queue_position;
 
-  // Build pipeline step visualization
   const currentStepIndex = progress
     ? STEP_ORDER.indexOf(progress.current_step)
     : -1;
 
   // Determine what view to show
-  const showProgress =
-    isGenerating ||
-    (progress && !["done", "failed", "cancelled"].includes(progress.status));
-  const showDone =
-    progress?.status === "done" ||
-    (hasExistingVideo && existingVideo?.status === "done");
-  const showPicker = showBackgroundPicker && !showProgress && !showDone;
+  const showProgress = isGenerating && !isDone;
+  const showDone = isDone;
+  const showPicker = !showProgress && !showDone && !isCancelled;
+  const showCancelled = isCancelled && !showPicker;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -511,7 +504,6 @@ export function GenerateVideoModal({
                 </h3>
                 <p className="text-sm text-gray-500 mb-4">{currentStepLabel}</p>
 
-                {/* Progress bar */}
                 <div className="w-full max-w-md mx-auto mb-4">
                   <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                     <div
@@ -532,7 +524,6 @@ export function GenerateVideoModal({
                   </div>
                 </div>
 
-                {/* Granular pipeline steps */}
                 {currentStepIndex >= 0 && (
                   <div className="w-full max-w-md mx-auto mt-4">
                     <div className="grid grid-cols-4 gap-1 text-xs">
@@ -571,7 +562,6 @@ export function GenerateVideoModal({
                   </div>
                 )}
 
-                {/* Error display */}
                 {(progress?.error_message || existingVideo?.error_message) && (
                   <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg text-left max-w-md mx-auto">
                     <p className="text-sm text-red-600 dark:text-red-400 font-medium">
@@ -587,7 +577,7 @@ export function GenerateVideoModal({
                 )}
 
                 <p className="text-xs text-gray-400 mt-3">
-                  {isActive
+                  {isGenerating && !isDone
                     ? "Generation continues in background if you close this modal"
                     : ""}
                 </p>
@@ -613,7 +603,7 @@ export function GenerateVideoModal({
                 ) : (
                   <button
                     onClick={handlePause}
-                    disabled={!isActive}
+                    disabled={!isGenerating || isDone}
                     className="cursor-pointer btn-secondary flex items-center gap-2 disabled:opacity-50"
                   >
                     <Pause className="w-4 h-4" />
@@ -622,7 +612,8 @@ export function GenerateVideoModal({
                 )}
                 <button
                   onClick={handleCancel}
-                  className="cursor-pointer px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 flex items-center gap-2 font-medium"
+                  disabled={isDone || isCancelled}
+                  className="cursor-pointer px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 flex items-center gap-2 font-medium disabled:opacity-50"
                 >
                   <Square className="w-4 h-4" />
                   Cancel
@@ -651,9 +642,38 @@ export function GenerateVideoModal({
                 Close
               </button>
             </div>
+          ) : showCancelled ? (
+            <div className="text-center py-8 space-y-4">
+              <div className="w-16 h-16 mx-auto rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+                <Square className="w-8 h-8 text-gray-500" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">Generation Cancelled</h3>
+                <p className="text-sm text-gray-500">
+                  The video generation was cancelled.
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  onClick={() => {
+                    setVideoId(null);
+                    notifiedTerminalRef.current = false;
+                    cancelToastShownRef.current = false;
+                  }}
+                  className="cursor-pointer btn-primary"
+                >
+                  Start New Generation
+                </button>
+                <button
+                  onClick={onClose}
+                  className="cursor-pointer btn-secondary"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           ) : showPicker ? (
             <>
-              {/* Update mode info */}
               {isUpdate && parentStory && (
                 <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                   <p className="text-sm text-blue-700 dark:text-blue-300">

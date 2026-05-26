@@ -101,8 +101,8 @@ export class VideoProgressConnection {
   private isConnecting = false;
   private connectionCount = 0;
   private lastEventId = "";
-  private _lastEmittedStatus: string | null = null;
-  private _emitCount = 0;
+  private _lastEmittedData: any = null;
+  private _duplicateCount = 0;
 
   connect(videoId: number) {
     const endpoint = `${API_BASE.replace("/api/v1", "")}/api/v1/sse/videos/${videoId}/progress`;
@@ -129,8 +129,8 @@ export class VideoProgressConnection {
     this.currentVideoId = videoId;
     this.isTerminal = false;
     this.connectionCount++;
-    this._lastEmittedStatus = null;
-    this._emitCount = 0;
+    this._lastEmittedData = null;
+    this._duplicateCount = 0;
     const currentConnection = this.connectionCount;
 
     try {
@@ -144,22 +144,39 @@ export class VideoProgressConnection {
         try {
           const data = JSON.parse((event as MessageEvent).data);
 
-          // Debounce: don't emit identical status more than 3 times in a row
-          if (data.status === this._lastEmittedStatus) {
-            this._emitCount++;
-            if (this._emitCount > 3) {
-              return; // Skip duplicate
+          // CRITICAL FIX: Always emit terminal states immediately
+          const isTerminal = ["done", "failed", "cancelled"].includes(
+            data.status,
+          );
+
+          // Check for duplicate events (same status AND same progress)
+          const isDuplicate =
+            this._lastEmittedData &&
+            this._lastEmittedData.status === data.status &&
+            this._lastEmittedData.progress_percent === data.progress_percent &&
+            this._lastEmittedData.current_step === data.current_step;
+
+          if (isDuplicate && !isTerminal) {
+            this._duplicateCount++;
+            // Only skip if we've seen the exact same non-terminal event more than 5 times
+            if (this._duplicateCount > 5) {
+              return;
             }
           } else {
-            this._lastEmittedStatus = data.status;
-            this._emitCount = 0;
+            this._lastEmittedData = data;
+            this._duplicateCount = 0;
           }
 
-          if (["done", "failed", "cancelled"].includes(data.status)) {
+          if (isTerminal) {
             this.isTerminal = true;
           }
+
           this.listeners.forEach((cb) => {
-            try { cb(data); } catch (e) { /* ignore callback errors */ }
+            try {
+              cb(data);
+            } catch (e) {
+              /* ignore callback errors */
+            }
           });
         } catch (e) {
           console.error("Video progress event error:", e);
@@ -185,7 +202,6 @@ export class VideoProgressConnection {
       this.eventSource.onopen = () => {
         if (currentConnection !== this.connectionCount) return;
       };
-
     } catch (e) {
       this.isConnecting = false;
       console.error("Failed to create EventSource:", e);
@@ -213,8 +229,8 @@ export class VideoProgressConnection {
     this.currentVideoId = null;
     this.isTerminal = false;
     this.isConnecting = false;
-    this._lastEmittedStatus = null;
-    this._emitCount = 0;
+    this._lastEmittedData = null;
+    this._duplicateCount = 0;
   }
 
   onProgress(callback: (data: any) => void) {

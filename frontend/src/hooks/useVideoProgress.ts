@@ -24,7 +24,12 @@ interface UseVideoProgressOptions {
   onQueue?: (data: VideoProgressData) => void;
 }
 
-export function useVideoProgress({ videoId, onComplete, onError, onQueue }: UseVideoProgressOptions) {
+export function useVideoProgress({
+  videoId,
+  onComplete,
+  onError,
+  onQueue,
+}: UseVideoProgressOptions) {
   const [progress, setProgress] = useState<VideoProgressData | null>(null);
   const lastVideoIdRef = useRef<number | null>(null);
   const isConnectedRef = useRef(false);
@@ -32,8 +37,6 @@ export function useVideoProgress({ videoId, onComplete, onError, onQueue }: UseV
   const onErrorRef = useRef(onError);
   const onQueueRef = useRef(onQueue);
   const terminalNotifiedRef = useRef(false);
-  const lastStatusRef = useRef<string | null>(null);
-  const statusChangeCountRef = useRef(0);
 
   // Keep callback refs up to date
   useEffect(() => {
@@ -43,24 +46,44 @@ export function useVideoProgress({ videoId, onComplete, onError, onQueue }: UseV
   }, [onComplete, onError, onQueue]);
 
   const handleProgress = useCallback((data: VideoProgressData) => {
-    setProgress(data);
+    setProgress((prev) => {
+      // Always update for terminal states or status changes
+      const isTerminal = ["done", "failed", "cancelled"].includes(data.status);
+      const isNewStatus = prev?.status !== data.status;
 
-    // Notify queue status
-    if (data.status === "queued" && data.queue_position && onQueueRef.current) {
-      onQueueRef.current(data);
-    }
+      const shouldUpdate =
+        !prev ||
+        isNewStatus ||
+        isTerminal ||
+        data.progress_percent > (prev.progress_percent || 0);
 
-    // Handle terminal states - only notify once
-    if (["done", "failed", "cancelled"].includes(data.status)) {
-      if (!terminalNotifiedRef.current) {
-        terminalNotifiedRef.current = true;
-        if (data.status === "done") {
-          onCompleteRef.current?.(data);
-        } else {
-          onErrorRef.current?.(data);
+      if (!shouldUpdate) {
+        return prev;
+      }
+
+      // Notify queue status
+      if (
+        data.status === "queued" &&
+        data.queue_position &&
+        onQueueRef.current
+      ) {
+        onQueueRef.current(data);
+      }
+
+      // Handle terminal states - only notify once per videoId
+      if (isTerminal) {
+        if (!terminalNotifiedRef.current) {
+          terminalNotifiedRef.current = true;
+          if (data.status === "done") {
+            onCompleteRef.current?.(data);
+          } else {
+            onErrorRef.current?.(data);
+          }
         }
       }
-    }
+
+      return data;
+    });
   }, []);
 
   useEffect(() => {
@@ -73,8 +96,6 @@ export function useVideoProgress({ videoId, onComplete, onError, onQueue }: UseV
       setProgress(null);
       lastVideoIdRef.current = null;
       terminalNotifiedRef.current = false;
-      lastStatusRef.current = null;
-      statusChangeCountRef.current = 0;
       return;
     }
 
@@ -91,8 +112,6 @@ export function useVideoProgress({ videoId, onComplete, onError, onQueue }: UseV
 
     // Reset terminal notification for new video
     terminalNotifiedRef.current = false;
-    lastStatusRef.current = null;
-    statusChangeCountRef.current = 0;
 
     // Connect to new video
     lastVideoIdRef.current = videoId;
@@ -102,7 +121,6 @@ export function useVideoProgress({ videoId, onComplete, onError, onQueue }: UseV
     videoProgressSSE.connect(videoId);
 
     return () => {
-      // Only disconnect if we're still connected to this video
       if (lastVideoIdRef.current === videoId) {
         videoProgressSSE.offProgress(handleProgress);
         isConnectedRef.current = false;

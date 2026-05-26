@@ -35,6 +35,7 @@ interface VideoJobsState {
   ) => number | null;
 }
 
+// CRITICAL FIX: 'paused' is NOT terminal - it's an active state
 const TERMINAL_STATUSES = ["done", "failed", "cancelled"];
 
 export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
@@ -49,7 +50,6 @@ export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
   registerJob: (videoId, storyId, status = "queued") =>
     set((state) => {
       const existing = state.jobs[videoId];
-      // Step 1: start from existing job or create fresh defaults
       const base: VideoJob = existing
         ? { ...existing }
         : {
@@ -63,7 +63,6 @@ export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
             isPaused: false,
             openedAt: Date.now(),
           };
-      // Step 2: always override these three fields to ensure consistency
       const newJob: VideoJob = {
         ...base,
         videoId,
@@ -149,10 +148,6 @@ export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
     });
   },
 
-  /**
-   * Get the videoId to show in the modal for a given story.
-   * Checks: active tracked job, story's generated_video, parent story's video (for updates).
-   */
   getModalVideoId: (storyId, storyGeneratedVideo) => {
     const state = get();
 
@@ -167,7 +162,6 @@ export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
       storyGeneratedVideo &&
       !TERMINAL_STATUSES.includes(storyGeneratedVideo.status)
     ) {
-      // Register it so we track it
       state.registerJob(
         storyGeneratedVideo.id,
         storyId,

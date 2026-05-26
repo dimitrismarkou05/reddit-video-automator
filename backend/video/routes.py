@@ -122,6 +122,9 @@ def generate_video(
 
     # If there's a failed/cancelled record, reuse it
     if existing and existing.status in (VideoStatus.FAILED.value, VideoStatus.CANCELLED.value):
+        # CRITICAL FIX: Clean up any stale job state first
+        job_manager.cleanup_job(existing.id)
+
         # Reset the existing record for retry
         existing.status = VideoStatus.QUEUED.value
         existing.error_message = None
@@ -135,6 +138,8 @@ def generate_video(
         existing.queue_position = None
         existing.cancelled_at = None
         existing.completed_at = None
+        existing.is_paused = False
+        existing.paused_at = None
         video_record = existing
         logger.info(f"Retrying video generation for story {request.story_id}, video_id={existing.id}")
     else:
@@ -166,10 +171,14 @@ def generate_video(
 
     qpos = job_manager.queue_position(video_record.id)
 
+    # CRITICAL FIX: Different message for retry vs new generation
+    is_retry = video_record.retry_count > 0
+    message = "Video generation queued." if not is_retry else "Generation retry queued."
+
     return VideoGenerationResponse(
         video_id=video_record.id,
         status=VideoStatus.QUEUED.value,
-        message="Video generation queued.",
+        message=message,
         queue_position=qpos,
     )
 
@@ -306,6 +315,8 @@ def retry_video(video_id: int, db: Session = Depends(get_db)):
     video.retry_count = video.retry_count + 1
     video.queue_position = None
     video.cancelled_at = None
+    video.is_paused = False
+    video.paused_at = None
     db.commit()
 
     # Re-submit with original parameters
