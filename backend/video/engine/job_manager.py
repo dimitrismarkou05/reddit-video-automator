@@ -1,7 +1,17 @@
-"""Video job manager: singleton for tracking active jobs, queue, pause/resume/cancel."""
+"""Video job manager: singleton for tracking active jobs, queue, pause/resume/cancel.
+
+CRITICAL FIXES APPLIED:
+- Added missing datetime imports
+- Fixed asyncio.create_task in sync contexts (cancel/pause/cleanup)
+- Set job.task when starting jobs
+- Added comprehensive debug logging
+- Fixed queue position updates in sync contexts
+- Ensured proper cleanup of all state
+"""
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 from dataclasses import dataclass, field
 
@@ -98,14 +108,17 @@ class VideoJobManager:
 
             # Check if we can acquire a slot
             if self._semaphore.locked():
+                logger.debug("[JobManager] Semaphore locked, waiting for slot")
                 return
 
             # Get next video_id from queue
             video_id = self._queue.pop(0)
+            logger.info(f"[JobManager] Processing next queued item: video_id={video_id}")
 
             # Check if job still exists and is in queued state
             job = self.active_jobs.get(video_id)
             if not job or job.status not in ("queued",):
+                logger.warning(f"[JobManager] Skipping job {video_id}, status={job.status if job else 'missing'}")
                 # Skip this item and reprocess
                 if self._queue:
                     self._queue_event.set()
@@ -113,7 +126,13 @@ class VideoJobManager:
 
         # Start the job
         logger.info(f"[JobManager] Starting queued job video_id={video_id}")
-        asyncio.create_task(self._start_job(video_id), name=f"job_{video_id}")
+        task = asyncio.create_task(self._start_job(video_id), name=f"job_{video_id}")
+
+        # CRITICAL FIX: Store the task reference
+        job = self.active_jobs.get(video_id)
+        if job:
+            job.task = task
+            logger.debug(f"[JobManager] Stored task for job {video_id}")
 
     async def _start_job(self, video_id: int) -> None:
         """Start a video generation job with semaphore acquisition."""
@@ -126,6 +145,7 @@ class VideoJobManager:
             # Acquire semaphore slot
             async with self._semaphore:
                 job.status = "processing"
+                logger.info(f"[JobManager] Acquired semaphore slot for video_id={video_id}")
 
                 from core.database import SessionLocal
                 from video.models import GeneratedVideo, VideoStatus
@@ -155,13 +175,13 @@ class VideoJobManager:
                     video_record.current_step = "preparing"
                     video_record.queue_position = None
                     db.commit()
-
-                    logger.info(f"[JobManager] Running pipeline for video_id={video_id}")
+                    logger.info(f"[JobManager] DB status updated to PROCESSING for video_id={video_id}")
 
                     # Run the pipeline
                     pipeline = VideoPipeline(db)
 
                     try:
+                        logger.info(f"[JobManager] Running pipeline for video_id={video_id}")
                         await pipeline.generate(
                             video_record=video_record,
                             include_updates=job.include_updates,
@@ -173,7 +193,7 @@ class VideoJobManager:
                         )
                         logger.info(f"[JobManager] Pipeline completed for video_id={video_id}")
                     except Exception as pipeline_exc:
-                        logger.error(f"[JobManager] Pipeline error for video_id={video_id}: {pipeline_exc}")
+                        logger.error(f"[JobManager] Pipeline error for video_id={video_id}: {pipeline_exc}", exc_info=True)
                         # Error is already recorded in the pipeline
 
                 finally:
@@ -207,9 +227,11 @@ class VideoJobManager:
                         ).first()
                         if video:
                             video.queue_position = i + 1
+                            logger.debug(f"[JobManager] Updated queue position for {vid}: {i + 1}")
                     except Exception as e:
                         logger.warning(f"[JobManager] Error updating queue position for {vid}: {e}")
                 db.commit()
+                logger.info(f"[JobManager] Updated queue positions for {len(self._queue)} items")
         except Exception as e:
             logger.error(f"[JobManager] Error updating queue positions: {e}")
         finally:
@@ -295,15 +317,7 @@ class VideoJobManager:
                 video.cancelled_at = datetime.now(timezone.utc)
                 video.queue_position = None
                 db.commit()
-
-            # Cancel the pipeline if it's running
-            try:
-                from video.engine.pipeline import VideoPipeline
-                # We can't easily get the pipeline instance, but the DB status change
-                # will be picked up by check_cancelled in the pipeline
-            except Exception:
-                pass
-
+                logger.info(f"[JobManager] Updated DB status to CANCELLED for {video_id}")
         except Exception as e:
             logger.error(f"[JobManager] Error during cancel DB update: {e}")
         finally:
@@ -313,21 +327,33 @@ class VideoJobManager:
         try:
             from video.engine.utils import cleanup_temp
             cleanup_temp(video_id)
+            logger.info(f"[JobManager] Cleaned up temp files for {video_id}")
         except Exception as e:
             logger.warning(f"[JobManager] Temp cleanup error during cancel: {e}")
 
-        # Update queue positions
-        asyncio.create_task(self._update_queue_positions())
+        # CRITICAL FIX: Schedule queue position update via event loop if available,
+        # otherwise skip (positions will be updated on next queue processing)
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                asyncio.create_task(self._update_queue_positions())
+                logger.debug(f"[JobManager] Scheduled queue position update after cancel")
+        except RuntimeError:
+            # No event loop - this is expected when called from sync context
+            logger.debug(f"[JobManager] No event loop for queue update, will update on next cycle")
+            pass
 
         return True
 
     def pause(self, video_id: int) -> bool:
         """Pause a video generation job."""
+        logger.info(f"[JobManager] Pausing job {video_id}")
         job = self.active_jobs.get(video_id)
         if job and job.status == "processing":
             job.status = "paused"
             if job.task and not job.task.done():
                 job.task.cancel()
+                logger.info(f"[JobManager] Cancelled task for pause {video_id}")
 
         from core.database import SessionLocal
         from video.models import GeneratedVideo, VideoStatus
@@ -345,6 +371,7 @@ class VideoJobManager:
                 video.is_paused = True
                 video.paused_at = datetime.now(timezone.utc)
                 db.commit()
+                logger.info(f"[JobManager] Updated DB status to PAUSED for {video_id}")
         except Exception as e:
             logger.error(f"[JobManager] Error during pause: {e}")
         finally:
@@ -354,6 +381,7 @@ class VideoJobManager:
 
     def resume(self, video_id: int) -> bool:
         """Resume a paused video generation job."""
+        logger.info(f"[JobManager] Resuming job {video_id}")
         job = self.active_jobs.get(video_id)
 
         from core.database import SessionLocal
@@ -365,6 +393,7 @@ class VideoJobManager:
             ).first()
 
             if not video:
+                logger.warning(f"[JobManager] Video {video_id} not found for resume")
                 return False
 
             # Reset status to queued
@@ -372,6 +401,7 @@ class VideoJobManager:
             video.is_paused = False
             video.resumed_at = datetime.now(timezone.utc)
             db.commit()
+            logger.info(f"[JobManager] Updated DB status to QUEUED for resume {video_id}")
 
             # Re-submit the job with original parameters
             if job:
@@ -385,12 +415,14 @@ class VideoJobManager:
                     subtitle_style=job.subtitle_style,
                     generate_hashtags=job.generate_hashtags,
                 )
+                logger.info(f"[JobManager] Re-submitted job {video_id} with original params")
             else:
                 # If no job state, submit with defaults
                 self.submit(
                     video_id=video.id,
                     story_id=video.story_id,
                 )
+                logger.info(f"[JobManager] Re-submitted job {video_id} with defaults")
         except Exception as e:
             logger.error(f"[JobManager] Error during resume: {e}")
         finally:
@@ -433,14 +465,17 @@ class VideoJobManager:
         self._shutdown = True
         if self._queue_processor_task and not self._queue_processor_task.done():
             self._queue_processor_task.cancel()
+            logger.info("[JobManager] Cancelled queue processor")
 
         # Cancel all active jobs
         for vid, job in list(self.active_jobs.items()):
             if job.task and not job.task.done():
                 job.task.cancel()
+                logger.info(f"[JobManager] Cancelled task for {vid}")
             job.status = "paused"
             paused_ids.append(vid)
 
+        logger.info(f"[JobManager] Shut down complete, paused {len(paused_ids)} jobs")
         return paused_ids
 
     def cleanup_job(self, video_id: int) -> None:
@@ -450,6 +485,7 @@ class VideoJobManager:
         # Remove from queue
         if video_id in self._queue:
             self._queue.remove(video_id)
+            logger.info(f"[JobManager] Removed {video_id} from queue during cleanup")
 
         # Remove from active jobs
         if video_id in self.active_jobs:
@@ -457,9 +493,11 @@ class VideoJobManager:
             if job.task and not job.task.done():
                 try:
                     job.task.cancel()
+                    logger.info(f"[JobManager] Cancelled task during cleanup for {video_id}")
                 except Exception:
                     pass
             del self.active_jobs[video_id]
+            logger.info(f"[JobManager] Removed {video_id} from active_jobs")
 
         # Update DB
         from core.database import SessionLocal
@@ -472,6 +510,7 @@ class VideoJobManager:
             if video:
                 video.queue_position = None
                 db.commit()
+                logger.info(f"[JobManager] Cleared queue_position in DB for {video_id}")
         except Exception as e:
             logger.error(f"[JobManager] Cleanup DB error: {e}")
         finally:
@@ -481,8 +520,17 @@ class VideoJobManager:
         try:
             from video.engine.utils import cleanup_temp
             cleanup_temp(video_id)
+            logger.info(f"[JobManager] Cleaned up temp files for {video_id}")
         except Exception as e:
             logger.warning(f"[JobManager] Temp cleanup error: {e}")
+
+        # CRITICAL FIX: Handle sync context for queue position updates
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running():
+                asyncio.create_task(self._update_queue_positions())
+        except RuntimeError:
+            pass
 
 
 # Global instance

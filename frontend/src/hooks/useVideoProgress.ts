@@ -32,6 +32,8 @@ export function useVideoProgress({ videoId, onComplete, onError, onQueue }: UseV
   const onErrorRef = useRef(onError);
   const onQueueRef = useRef(onQueue);
   const terminalNotifiedRef = useRef(false);
+  const lastStatusRef = useRef<string | null>(null);
+  const statusChangeCountRef = useRef(0);
 
   // Keep callback refs up to date
   useEffect(() => {
@@ -71,6 +73,8 @@ export function useVideoProgress({ videoId, onComplete, onError, onQueue }: UseV
       setProgress(null);
       lastVideoIdRef.current = null;
       terminalNotifiedRef.current = false;
+      lastStatusRef.current = null;
+      statusChangeCountRef.current = 0;
       return;
     }
 
@@ -87,6 +91,8 @@ export function useVideoProgress({ videoId, onComplete, onError, onQueue }: UseV
 
     // Reset terminal notification for new video
     terminalNotifiedRef.current = false;
+    lastStatusRef.current = null;
+    statusChangeCountRef.current = 0;
 
     // Connect to new video
     lastVideoIdRef.current = videoId;

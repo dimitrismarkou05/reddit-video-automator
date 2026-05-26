@@ -1,4 +1,4 @@
-"""Server-Sent Events for real-time notifications."""
+"""Server-Sent Events for real-time notifications with robust error handling."""
 
 import asyncio
 import json
@@ -48,15 +48,19 @@ class SSEQueue:
             return
         message = f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
         dead: list[asyncio.Queue] = []
+        sent_count = 0
         for queue in list(self._queues):
             try:
                 queue.put_nowait(message)
+                sent_count += 1
             except asyncio.QueueFull:
                 dead.append(queue)
             except Exception:
                 dead.append(queue)
         for q in dead:
             self.disconnect(q)
+        if sent_count > 0:
+            logger.debug(f"[NotificationSSE] Broadcast {event_type} to {sent_count} queues")
 
 
 notification_queue = SSEQueue()

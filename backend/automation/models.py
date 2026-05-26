@@ -33,6 +33,7 @@ class AutomationTemplate(Base):
     subtitle_style: Mapped[dict] = mapped_column(JSON, default=dict)
     include_updates: Mapped[bool] = mapped_column(Boolean, default=True)
     generate_hashtags: Mapped[bool] = mapped_column(Boolean, default=True)
+    voice_id: Mapped[str] = mapped_column(String(100), default="default")
 
     youtube_title_template: Mapped[str] = mapped_column(Text, default="{story_title}")
     youtube_description_template: Mapped[str] = mapped_column(Text, default="")

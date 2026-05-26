@@ -1,4 +1,4 @@
-"""Async FFmpeg video composer with timeout and proper stream handling."""
+"""Async FFmpeg video composer with timeout, proper stream handling, and debug logging."""
 
 import asyncio
 import os

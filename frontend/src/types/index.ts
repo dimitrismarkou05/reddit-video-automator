@@ -21,8 +21,8 @@ export interface Story {
 export interface GeneratedVideo {
   id: number;
   story_id: number;
-  video_path: string;
-  thumbnail_path: string;
+  video_path: string | null;
+  thumbnail_path: string | null;
   audio_path: string | null;
   subtitle_path: string | null;
   format: string;
@@ -109,6 +109,7 @@ export interface AutomationTemplate {
   subtitle_style: Record<string, any>;
   include_updates: boolean;
   generate_hashtags: boolean;
+  voice_id: string;
   youtube_title_template: string;
   youtube_description_template: string;
   youtube_tags: string[];

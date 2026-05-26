@@ -1,4 +1,10 @@
-"""VideoProgressBroadcaster: polls DB every 1.5s and streams SSE events with proper cleanup."""
+"""VideoProgressBroadcaster: polls DB every 1.5s and streams SSE events with proper cleanup.
+
+FIXES:
+- Better error handling
+- Proper terminal state detection
+- Enhanced logging
+"""
 
 import asyncio
 import json
@@ -63,6 +69,7 @@ class VideoProgressBroadcaster:
         terminal_states = {"done", "failed", "cancelled"}
         last_data = None
         last_keep_alive = asyncio.get_event_loop().time()
+        event_count = 0
 
         logger.debug(f"[ProgressBroadcaster {self.video_id}] Stream started")
 
@@ -108,7 +115,9 @@ class VideoProgressBroadcaster:
                 if data != last_data:
                     try:
                         last_data = data.copy()
+                        event_count += 1
                         yield f"event: progress\ndata: {json.dumps(data)}\n\n"
+                        logger.debug(f"[ProgressBroadcaster {self.video_id}] Event #{event_count} sent: {data['status']} {data['progress_percent']}%")
                     except Exception as e:
                         logger.debug(f"[ProgressBroadcaster {self.video_id}] Yield error: {e}")
                         break
@@ -121,6 +130,7 @@ class VideoProgressBroadcaster:
 
                 # Check terminal state
                 if data["status"] in terminal_states:
+                    logger.info(f"[ProgressBroadcaster {self.video_id}] Terminal state reached: {data['status']}, total events: {event_count}")
                     # Send one final update, wait, then close
                     await asyncio.sleep(0.5)
                     break
@@ -138,4 +148,4 @@ class VideoProgressBroadcaster:
             logger.error(f"[ProgressBroadcaster {self.video_id}] Stream error: {e}")
         finally:
             self._closed = True
-            logger.debug(f"[ProgressBroadcaster {self.video_id}] Stream ended")
+            logger.debug(f"[ProgressBroadcaster {self.video_id}] Stream ended, total events: {event_count}")

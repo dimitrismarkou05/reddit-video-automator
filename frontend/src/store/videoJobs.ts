@@ -24,9 +24,15 @@ interface VideoJobsState {
   getJobForStory: (storyId: number) => VideoJob | null;
   isStoryActive: (storyId: number) => boolean;
   getActiveJobForStory: (storyId: number) => VideoJob | null;
-  openModalForStory: (storyId: number, jobsState?: Record<number, VideoJob>) => number | null;
+  openModalForStory: (
+    storyId: number,
+    jobsState?: Record<number, VideoJob>,
+  ) => number | null;
   cleanupTerminalJobs: () => void;
-  getModalVideoId: (storyId: number, storyGeneratedVideo?: { id: number; status: string } | null) => number | null;
+  getModalVideoId: (
+    storyId: number,
+    storyGeneratedVideo?: { id: number; status: string } | null,
+  ) => number | null;
 }
 
 const TERMINAL_STATUSES = ["done", "failed", "cancelled"];
@@ -41,23 +47,36 @@ export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
   },
 
   registerJob: (videoId, storyId, status = "queued") =>
-    set((state) => ({
-      jobs: {
-        ...state.jobs,
-        [videoId]: {
-          videoId,
-          storyId,
-          status,
-          progress: 0,
-          currentStep: "queued",
-          queuePosition: null,
-          errorMessage: null,
-          isPaused: false,
-          openedAt: Date.now(),
-          ...state.jobs[videoId],
+    set((state) => {
+      const existing = state.jobs[videoId];
+      // Step 1: start from existing job or create fresh defaults
+      const base: VideoJob = existing
+        ? { ...existing }
+        : {
+            videoId,
+            storyId,
+            status,
+            progress: 0,
+            currentStep: "queued",
+            queuePosition: null,
+            errorMessage: null,
+            isPaused: false,
+            openedAt: Date.now(),
+          };
+      // Step 2: always override these three fields to ensure consistency
+      const newJob: VideoJob = {
+        ...base,
+        videoId,
+        storyId,
+        status,
+      };
+      return {
+        jobs: {
+          ...state.jobs,
+          [videoId]: newJob,
         },
-      },
-    })),
+      };
+    }),
 
   updateJob: (videoId, updates) =>
     set((state) => {
@@ -78,9 +97,13 @@ export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
       return {
         jobs: next,
         activeModalVideoId:
-          state.activeModalVideoId === videoId ? null : state.activeModalVideoId,
+          state.activeModalVideoId === videoId
+            ? null
+            : state.activeModalVideoId,
         activeModalStoryId:
-          state.activeModalVideoId === videoId ? null : state.activeModalStoryId,
+          state.activeModalVideoId === videoId
+            ? null
+            : state.activeModalStoryId,
       };
     }),
 
@@ -88,8 +111,7 @@ export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
     const jobs = Object.values(get().jobs);
     return (
       jobs.find(
-        (j) =>
-          j.storyId === storyId && !TERMINAL_STATUSES.includes(j.status)
+        (j) => j.storyId === storyId && !TERMINAL_STATUSES.includes(j.status),
       ) || null
     );
   },
@@ -105,7 +127,7 @@ export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
   openModalForStory: (storyId, jobsState) => {
     const jobs = jobsState || get().jobs;
     const job = Object.values(jobs).find(
-      (j) => j.storyId === storyId && !TERMINAL_STATUSES.includes(j.status)
+      (j) => j.storyId === storyId && !TERMINAL_STATUSES.includes(j.status),
     );
     if (job) {
       set({ activeModalVideoId: job.videoId, activeModalStoryId: storyId });
@@ -141,9 +163,16 @@ export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
     }
 
     // 2. Check if story has an active generated_video in DB
-    if (storyGeneratedVideo && !TERMINAL_STATUSES.includes(storyGeneratedVideo.status)) {
+    if (
+      storyGeneratedVideo &&
+      !TERMINAL_STATUSES.includes(storyGeneratedVideo.status)
+    ) {
       // Register it so we track it
-      state.registerJob(storyGeneratedVideo.id, storyId, storyGeneratedVideo.status);
+      state.registerJob(
+        storyGeneratedVideo.id,
+        storyId,
+        storyGeneratedVideo.status,
+      );
       return storyGeneratedVideo.id;
     }
 

@@ -1,4 +1,4 @@
-"""Video generation API routes."""
+"""Video generation API routes with robust error handling and cleanup."""
 
 import logging
 from datetime import datetime, timezone
@@ -102,7 +102,7 @@ def generate_video(
     # Case 3: If include_updates is True and this is a root story,
     # check for any active child update generations
     if request.include_updates:
-        child_ids = [u.id for u in root_story.updates] if hasattr(root_story, 'updates') and root_story.updates else []
+        child_ids = [u.id for u in root_story.updates] if hasattr(root_story, "updates") and root_story.updates else []
         if child_ids:
             child_videos = db.query(GeneratedVideo).filter(
                 GeneratedVideo.story_id.in_(child_ids),

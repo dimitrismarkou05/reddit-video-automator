@@ -1,3 +1,5 @@
+"""Video generation schemas with proper nullable handling."""
+
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
@@ -34,8 +36,8 @@ class GeneratedVideoResponse(BaseModel):
 
     id: int
     story_id: int
-    video_path: str
-    thumbnail_path: str
+    video_path: Optional[str] = None
+    thumbnail_path: Optional[str] = None
     audio_path: Optional[str] = None
     subtitle_path: Optional[str] = None
     format: str
@@ -63,13 +65,13 @@ class GeneratedVideoResponse(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime] = None
 
-    @field_serializer('created_at', 'completed_at', 'paused_at')
+    @field_serializer("created_at", "completed_at", "paused_at")
     def serialize_datetime(self, value: Optional[datetime]) -> str:
         if value is None:
             return ""
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
+        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class VideoProgressResponse(BaseModel):

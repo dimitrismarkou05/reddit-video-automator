@@ -115,6 +115,7 @@ export function GenerateVideoModal({
   );
   const [lastError, setLastError] = useState<string | null>(null);
   const [hasStartedGeneration, setHasStartedGeneration] = useState(false);
+  const [notifiedTerminal, setNotifiedTerminal] = useState(false);
 
   // Set active modal in store for global tracking
   useEffect(() => {
@@ -163,18 +164,22 @@ export function GenerateVideoModal({
 
   // Track video progress via SSE
   const handleComplete = useCallback((data: any) => {
-    if (data.status === "done") {
+    if (data.status === "done" && !notifiedTerminal) {
+      setNotifiedTerminal(true);
       toast.success("Video generation complete!");
     }
-  }, []);
+  }, [notifiedTerminal]);
 
   const handleError = useCallback((data: any) => {
-    if (data.status === "failed") {
-      toast.error(data.error_message || "Video generation failed");
-    } else if (data.status === "cancelled") {
-      toast("Generation cancelled", { icon: "⚠" });
+    if (!notifiedTerminal) {
+      setNotifiedTerminal(true);
+      if (data.status === "failed") {
+        toast.error(data.error_message || "Video generation failed");
+      } else if (data.status === "cancelled") {
+        toast("Generation cancelled", { icon: "⚠️" });
+      }
     }
-  }, []);
+  }, [notifiedTerminal]);
 
   const { progress } = useVideoProgress({
     videoId,
@@ -317,6 +322,7 @@ export function GenerateVideoModal({
     setIsGenerating(true);
     setShowBackgroundPicker(false);
     setHasStartedGeneration(true);
+    setNotifiedTerminal(false);
 
     try {
       const subtitleStyle: SubtitleStyleType = {
@@ -374,6 +380,7 @@ export function GenerateVideoModal({
     setIsGenerating(true);
     setShowBackgroundPicker(false);
     setHasStartedGeneration(true);
+    setNotifiedTerminal(false);
 
     try {
       const { data } = await videoApi.retry(videoId);
