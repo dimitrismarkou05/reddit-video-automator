@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   X,
@@ -14,42 +14,80 @@ import {
   FileVideo,
   CheckCircle,
   AlertTriangle,
+  RotateCw,
+  ListOrdered,
 } from "lucide-react";
 import { videoApi, ttsLocalApi, settingsApi } from "@/services/api";
-import type { Story, SubtitleStyle } from "@/types";
+import type { Story, SubtitleStyle as SubtitleStyleType } from "@/types";
 import { useVideoProgress } from "@/hooks/useVideoProgress";
-import { ProgressBar } from "@/components/common/ProgressBar";
+import { useVideoJobsStore } from "@/store/videoJobs";
 import { ACTIVE_GENERATION_STATUSES } from "@/config/videoStatus";
 import toast from "react-hot-toast";
 
 const STEP_LABELS: Record<string, string> = {
-  queued: "Queued...",
+  queued: "Waiting in queue...",
   preparing: "Preparing narrative...",
-  tts: "Generating speech...",
-  tts_done: "TTS complete",
+  downloading_model: "Downloading TTS model...",
+  initializing_pipeline: "Initializing pipeline...",
+  generating_script: "Generating script...",
+  tts: "Generating speech (TTS)...",
+  tts_synthesizing: "Synthesizing audio...",
+  tts_done: "Speech synthesis complete",
+  transcribing: "Transcribing audio...",
   transcribe_done: "Transcription complete",
+  generating_subtitles: "Generating subtitles...",
   subtitles_done: "Subtitles generated",
-  selecting_background: "Selecting background...",
-  compositing: "Compositing video...",
-  compositing_done: "Finalizing...",
+  selecting_background: "Selecting background video...",
+  compositing: "Compositing video with FFmpeg...",
+  ffmpeg_processing: "FFmpeg processing...",
+  compositing_done: "Video compositing complete",
   thumbnail: "Generating thumbnail...",
+  generating_thumbnail: "Creating thumbnail...",
+  uploading: "Uploading/exporting...",
+  cleanup: "Finalizing and cleaning up...",
   done: "Complete!",
-  failed: "Failed",
+  failed: "Generation failed",
   cancelled: "Cancelled",
-  paused: "Paused",
+  paused: "Generation paused",
+  processing: "Processing...",
 };
+
+const STEP_ORDER: string[] = [
+  "queued",
+  "preparing",
+  "tts",
+  "tts_synthesizing",
+  "tts_done",
+  "transcribing",
+  "transcribe_done",
+  "generating_subtitles",
+  "subtitles_done",
+  "selecting_background",
+  "compositing",
+  "ffmpeg_processing",
+  "compositing_done",
+  "generating_thumbnail",
+  "thumbnail",
+  "done",
+];
 
 interface GenerateVideoModalProps {
   story: Story;
   onClose: () => void;
   existingVideoId?: number | null;
+  isUpdate?: boolean;
+  parentStory?: Story | null;
 }
 
 export function GenerateVideoModal({
   story,
   onClose,
   existingVideoId,
+  isUpdate = false,
+  parentStory = null,
 }: GenerateVideoModalProps) {
+  const { setActiveModal, registerJob, updateJob, jobs } = useVideoJobsStore();
+
   const [settings, setSettings] = useState({
     voice_id: "default",
     background_source: "",
@@ -77,6 +115,20 @@ export function GenerateVideoModal({
   );
   const [lastError, setLastError] = useState<string | null>(null);
   const [hasStartedGeneration, setHasStartedGeneration] = useState(false);
+
+  // Set active modal in store for global tracking
+  useEffect(() => {
+    if (videoId) {
+      setActiveModal(videoId, story.id);
+    }
+    return () => {
+      // Only clear if this is our modal
+      const state = useVideoJobsStore.getState();
+      if (state.activeModalVideoId === videoId) {
+        setActiveModal(null, null);
+      }
+    };
+  }, [videoId, story.id, setActiveModal]);
 
   const { data: voices } = useQuery({
     queryKey: ["tts-voices"],
@@ -110,18 +162,27 @@ export function GenerateVideoModal({
   }, [voices]);
 
   // Track video progress via SSE
+  const handleComplete = useCallback((data: any) => {
+    if (data.status === "done") {
+      toast.success("Video generation complete!");
+    }
+  }, []);
+
+  const handleError = useCallback((data: any) => {
+    if (data.status === "failed") {
+      toast.error(data.error_message || "Video generation failed");
+    } else if (data.status === "cancelled") {
+      toast("Generation cancelled", { icon: "⚠" });
+    }
+  }, []);
+
   const { progress } = useVideoProgress({
     videoId,
-    onComplete: (data) => {
-      if (data.status === "done") {
-        toast.success("Video generation complete!");
-      } else if (data.status === "failed") {
-        toast.error(data.error_message || "Video generation failed");
-      }
-    },
+    onComplete: handleComplete,
+    onError: handleError,
   });
 
-  // Sync progress state with UI
+  // Sync progress state with UI and store
   useEffect(() => {
     if (!progress) {
       // If no progress but we have an existing active video, still show generating
@@ -132,6 +193,18 @@ export function GenerateVideoModal({
       return;
     }
 
+    // Update job in store
+    if (videoId) {
+      updateJob(videoId, {
+        status: progress.status,
+        progress: progress.progress_percent,
+        currentStep: progress.current_step,
+        queuePosition: progress.queue_position,
+        errorMessage: progress.error_message,
+        isPaused: progress.is_paused,
+      });
+    }
+
     const terminal = ["done", "failed", "cancelled"];
     if (terminal.includes(progress.status)) {
       setIsGenerating(false);
@@ -139,9 +212,11 @@ export function GenerateVideoModal({
         setLastError(progress.error_message || "Unknown error");
         setShowBackgroundPicker(true);
         setVideoId(null);
+        setHasStartedGeneration(false);
       } else if (progress.status === "cancelled") {
         setShowBackgroundPicker(true);
         setVideoId(null);
+        setHasStartedGeneration(false);
       } else if (progress.status === "done") {
         setShowBackgroundPicker(false);
       }
@@ -150,7 +225,7 @@ export function GenerateVideoModal({
       setShowBackgroundPicker(false);
       setLastError(null);
     }
-  }, [progress, existingVideoIsActive, videoId]);
+  }, [progress, existingVideoIsActive, videoId, updateJob]);
 
   // On mount, if there's an existing active video, ensure we're tracking it
   useEffect(() => {
@@ -158,8 +233,9 @@ export function GenerateVideoModal({
       setVideoId(existingVideo.id);
       setIsGenerating(true);
       setShowBackgroundPicker(false);
+      registerJob(existingVideo.id, story.id, existingVideo.status);
     }
-  }, [existingVideo, existingVideoIsActive, videoId]);
+  }, [existingVideo, existingVideoIsActive, videoId, story.id, registerJob]);
 
   const handleSelectFolder = async () => {
     if (window.electronAPI) {
@@ -243,7 +319,7 @@ export function GenerateVideoModal({
     setHasStartedGeneration(true);
 
     try {
-      const subtitleStyle: SubtitleStyle = {
+      const subtitleStyle: SubtitleStyleType = {
         position: settings.subtitle_position,
         font_size: settings.subtitle_size,
         font_color: "#FFFFFF",
@@ -262,7 +338,18 @@ export function GenerateVideoModal({
         generate_hashtags: settings.generate_hashtags,
       });
 
-      setVideoId(data.video_id);
+      if (data.video_id !== undefined) {
+        setVideoId(data.video_id);
+        registerJob(data.video_id, story.id, data.status || "queued");
+
+        if (data.queue_position) {
+          toast.success(`Generation queued at position #${data.queue_position}`);
+        } else if (data.message?.includes("already exists")) {
+          toast(data.message);
+        } else {
+          toast.success(data.message || "Generation started!");
+        }
+      }
     } catch (e: any) {
       const backendDetail = e.response?.data?.detail;
       const msg = backendDetail || "Failed to start video generation";
@@ -275,6 +362,28 @@ export function GenerateVideoModal({
 
       toast.error(displayError);
       setLastError(displayError);
+      setIsGenerating(false);
+      setShowBackgroundPicker(true);
+      setHasStartedGeneration(false);
+    }
+  };
+
+  const handleRetry = async () => {
+    if (!videoId) return;
+    setLastError(null);
+    setIsGenerating(true);
+    setShowBackgroundPicker(false);
+    setHasStartedGeneration(true);
+
+    try {
+      const { data } = await videoApi.retry(videoId);
+      if (data.video_id) {
+        setVideoId(data.video_id);
+        registerJob(data.video_id, story.id, "queued");
+        toast.success("Generation retry queued");
+      }
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || "Retry failed");
       setIsGenerating(false);
       setShowBackgroundPicker(true);
       setHasStartedGeneration(false);
@@ -318,14 +427,25 @@ export function GenerateVideoModal({
   const isActive =
     progress && ACTIVE_GENERATION_STATUSES.includes(progress.status);
   const isPaused = progress?.status === "paused";
+  const isFailed = progress?.status === "failed" || lastError !== null;
+  const isDone = progress?.status === "done";
+
   const currentStepLabel = progress
     ? STEP_LABELS[progress.current_step] || progress.current_step
     : existingVideoIsActive
       ? STEP_LABELS[existingVideo.current_step] || "Processing..."
       : "";
+
   const currentProgress =
     progress?.progress_percent ??
     (existingVideoIsActive ? existingVideo!.progress_percent : 0);
+
+  const queuePosition = progress?.queue_position ?? existingVideo?.queue_position;
+
+  // Build pipeline step visualization
+  const currentStepIndex = progress
+    ? STEP_ORDER.indexOf(progress.current_step)
+    : -1;
 
   // Determine what view to show
   const showProgress =
@@ -374,28 +494,79 @@ export function GenerateVideoModal({
                   <Film className="absolute inset-0 m-auto w-8 h-8 text-primary" />
                 </div>
                 <h3 className="text-lg font-semibold mb-1">
-                  {isPaused ? "Generation Paused" : "Generating Video..."}
+                  {isPaused
+                    ? "Generation Paused"
+                    : isFailed
+                      ? "Generation Failed"
+                      : queuePosition
+                        ? `Queued #${queuePosition}`
+                        : "Generating Video..."}
                 </h3>
                 <p className="text-sm text-gray-500 mb-4">{currentStepLabel}</p>
 
-                <ProgressBar
-                  progress={currentProgress}
-                  size="lg"
-                  showPercentage
-                />
+                {/* Progress bar */}
+                <div className="w-full max-w-md mx-auto mb-4">
+                  <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-500"
+                      style={{ width: `${currentProgress}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-xs text-gray-400">
+                      {currentProgress}%
+                    </span>
+                    {queuePosition && queuePosition > 0 && (
+                      <span className="text-xs text-yellow-600 flex items-center gap-1">
+                        <ListOrdered className="w-3 h-3" />
+                        Queue #{queuePosition}
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-                {(progress?.queue_position || existingVideo?.queue_position) &&
-                  ((progress?.queue_position ?? 0) > 0 ||
-                    (existingVideo?.queue_position ?? 0) > 0) && (
-                    <p className="text-sm text-yellow-600 mt-2">
-                      Queued at position{" "}
-                      {progress?.queue_position ||
-                        existingVideo?.queue_position}
-                    </p>
-                  )}
+                {/* Granular pipeline steps */}
+                {currentStepIndex >= 0 && (
+                  <div className="w-full max-w-md mx-auto mt-4">
+                    <div className="grid grid-cols-4 gap-1 text-xs">
+                      {[
+                        { key: "queued", label: "Queue" },
+                        { key: "preparing", label: "Prepare" },
+                        { key: "tts", label: "TTS" },
+                        { key: "tts_done", label: "TTS Done" },
+                        { key: "transcribe_done", label: "Transcribe" },
+                        { key: "subtitles_done", label: "Subtitles" },
+                        { key: "selecting_background", label: "BG" },
+                        { key: "compositing", label: "Compose" },
+                        { key: "compositing_done", label: "Finalize" },
+                        { key: "generating_thumbnail", label: "Thumb" },
+                        { key: "done", label: "Done" },
+                      ].map((step) => {
+                        const stepIdx = STEP_ORDER.indexOf(step.key);
+                        const isActive = currentStepIndex === stepIdx;
+                        const isDone = currentStepIndex > stepIdx;
+                        return (
+                          <div
+                            key={step.key}
+                            className={`px-1 py-1 rounded text-center transition-all ${
+                              isActive
+                                ? "bg-primary text-white font-medium"
+                                : isDone
+                                  ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
+                                  : "bg-gray-100 dark:bg-gray-800 text-gray-400"
+                            }`}
+                          >
+                            {step.label}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
+                {/* Error display */}
                 {(progress?.error_message || existingVideo?.error_message) && (
-                  <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg text-left">
+                  <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg text-left max-w-md mx-auto">
                     <p className="text-sm text-red-600 dark:text-red-400 font-medium">
                       Error{" "}
                       {progress?.error_step || existingVideo?.error_step
@@ -423,6 +594,14 @@ export function GenerateVideoModal({
                   >
                     <Play className="w-4 h-4" />
                     Resume
+                  </button>
+                ) : isFailed ? (
+                  <button
+                    onClick={handleRetry}
+                    className="cursor-pointer btn-primary flex items-center gap-2"
+                  >
+                    <RotateCw className="w-4 h-4" />
+                    Retry
                   </button>
                 ) : (
                   <button
@@ -467,6 +646,19 @@ export function GenerateVideoModal({
             </div>
           ) : showPicker ? (
             <>
+              {/* Update mode info */}
+              {isUpdate && parentStory && (
+                <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <p className="text-sm text-blue-700 dark:text-blue-300">
+                    This is an update to{" "}
+                    <span className="font-medium">{parentStory.title}</span>.
+                    {settings.include_updates
+                      ? " It will be included in the parent video."
+                      : " Generating separately from the parent story."}
+                  </p>
+                </div>
+              )}
+
               <div className="space-y-3">
                 <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
                   <Mic className="w-4 h-4" />

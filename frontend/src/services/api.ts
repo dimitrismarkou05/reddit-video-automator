@@ -90,6 +90,7 @@ export class SSEConnection {
 
 export const sse = new SSEConnection();
 
+/** Robust Video Progress SSE connection with proper cleanup and dedup */
 export class VideoProgressConnection {
   private eventSource: EventSource | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -99,13 +100,16 @@ export class VideoProgressConnection {
   private isTerminal = false;
   private isConnecting = false;
   private connectionCount = 0;
+  private lastEventId = "";
+  private _lastEmittedStatus: string | null = null;
+  private _emitCount = 0;
 
   connect(videoId: number) {
     const endpoint = `${API_BASE.replace("/api/v1", "")}/api/v1/sse/videos/${videoId}/progress`;
 
-    // Prevent duplicate connections to same endpoint
+    // Already connected to this video and not terminal - skip
     if (
-      this.currentEndpoint === endpoint &&
+      this.currentVideoId === videoId &&
       this.eventSource &&
       !this.isTerminal
     ) {
@@ -117,12 +121,16 @@ export class VideoProgressConnection {
       return;
     }
 
-    this.disconnect();
+    // Disconnect previous connection
+    this._disconnectInternal();
+
     this.isConnecting = true;
     this.currentEndpoint = endpoint;
     this.currentVideoId = videoId;
     this.isTerminal = false;
     this.connectionCount++;
+    this._lastEmittedStatus = null;
+    this._emitCount = 0;
     const currentConnection = this.connectionCount;
 
     try {
@@ -135,35 +143,37 @@ export class VideoProgressConnection {
 
         try {
           const data = JSON.parse((event as MessageEvent).data);
+
+          // Debounce: don't emit identical status more than 3 times in a row
+          if (data.status === this._lastEmittedStatus) {
+            this._emitCount++;
+            if (this._emitCount > 3) {
+              return; // Skip duplicate
+            }
+          } else {
+            this._lastEmittedStatus = data.status;
+            this._emitCount = 0;
+          }
+
           if (["done", "failed", "cancelled"].includes(data.status)) {
             this.isTerminal = true;
           }
-          this.listeners.forEach((cb) => cb(data));
+          this.listeners.forEach((cb) => {
+            try { cb(data); } catch (e) { /* ignore callback errors */ }
+          });
         } catch (e) {
           console.error("Video progress event error:", e);
-        }
-      });
-
-      this.eventSource.addEventListener("error", (event) => {
-        if (currentConnection !== this.connectionCount) return;
-
-        if (event instanceof MessageEvent) {
-          try {
-            const data = JSON.parse(event.data);
-            this.isTerminal = true;
-            this.listeners.forEach((cb) => cb(data));
-          } catch (e) {
-            console.error("Video SSE error event parse error:", e);
-          }
         }
       });
 
       this.eventSource.onerror = () => {
         if (currentConnection !== this.connectionCount) return;
 
-        this.disconnect(false); // Don't clear listeners on error
+        const wasTerminal = this.isTerminal;
+        this._disconnectInternal();
 
-        if (!this.isTerminal && this.currentVideoId !== null) {
+        // Auto-reconnect if not terminal and still tracking this video
+        if (!wasTerminal && this.currentVideoId === videoId) {
           this.reconnectTimer = setTimeout(() => {
             if (this.currentVideoId === videoId && !this.isTerminal) {
               this.connect(videoId);
@@ -175,13 +185,15 @@ export class VideoProgressConnection {
       this.eventSource.onopen = () => {
         if (currentConnection !== this.connectionCount) return;
       };
+
     } catch (e) {
       this.isConnecting = false;
       console.error("Failed to create EventSource:", e);
     }
   }
 
-  disconnect(clearListeners = true) {
+  /** Disconnect but preserve listeners for reconnect */
+  private _disconnectInternal() {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -190,13 +202,19 @@ export class VideoProgressConnection {
       this.eventSource.close();
       this.eventSource = null;
     }
-    if (clearListeners) {
-      this.listeners.clear();
-      this.currentEndpoint = "";
-      this.currentVideoId = null;
-      this.isTerminal = false;
-      this.connectionCount++;
-    }
+    this.connectionCount++; // Increment to invalidate stale callbacks
+  }
+
+  /** Full disconnect with listener cleanup */
+  disconnect() {
+    this._disconnectInternal();
+    this.listeners.clear();
+    this.currentEndpoint = "";
+    this.currentVideoId = null;
+    this.isTerminal = false;
+    this.isConnecting = false;
+    this._lastEmittedStatus = null;
+    this._emitCount = 0;
   }
 
   onProgress(callback: (data: any) => void) {
@@ -252,6 +270,7 @@ export const videoApi = {
   pause: (id: number) => api.post(`/videos/${id}/pause`),
   resume: (id: number) => api.post(`/videos/${id}/resume`),
   cancel: (id: number) => api.post(`/videos/${id}/cancel`),
+  retry: (id: number) => api.post(`/videos/${id}/retry`),
   delete: (id: number) => api.delete(`/videos/${id}`),
 };
 

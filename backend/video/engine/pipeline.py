@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import re
 import shutil
 import traceback
@@ -25,6 +26,9 @@ from video.engine.utils import (
     select_background_video,
 )
 from video.schemas import SubtitleStyle
+from notifications.sse import notification_queue
+
+logger = logging.getLogger(__name__)
 
 
 class VideoPipelineError(Exception):
@@ -39,17 +43,28 @@ class PipelinePausedError(Exception):
     pass
 
 
+# Granular step progress mapping
 STEP_PROGRESS = {
     "queued": 0,
-    "preparing": 5,
+    "preparing": 2,
+    "downloading_model": 5,
+    "initializing_pipeline": 5,
+    "generating_script": 5,
     "tts": 10,
+    "tts_synthesizing": 15,
     "tts_done": 30,
+    "transcribing": 32,
     "transcribe_done": 45,
+    "generating_subtitles": 47,
     "subtitles_done": 55,
     "selecting_background": 55,
     "compositing": 60,
+    "ffmpeg_processing": 65,
     "compositing_done": 92,
-    "thumbnail": 92,
+    "thumbnail": 94,
+    "generating_thumbnail": 95,
+    "uploading": 98,
+    "cleanup": 99,
     "done": 100,
     "failed": 0,
 }
@@ -64,6 +79,7 @@ class VideoPipeline:
         self.thumbnail_gen = ThumbnailGenerator()
         self._cancelled = False
         self._paused = False
+        self._progress_callback: Optional[Callable[[int, str], None]] = None
 
     def _update_progress(
         self,
@@ -72,13 +88,20 @@ class VideoPipeline:
         step_progress: int = 0,
         callback: Optional[Callable[[int, str], None]] = None,
     ) -> None:
-        base_percent = STEP_PROGRESS.get(step, 0)
-        video_record.progress_percent = min(base_percent + step_progress, 99)
-        video_record.current_step = step
-        video_record.step_progress = step_progress
-        self.db.commit()
-        if callback:
-            callback(video_record.progress_percent, step)
+        """Update video progress in DB and call optional callback."""
+        try:
+            base_percent = STEP_PROGRESS.get(step, 0)
+            video_record.progress_percent = min(base_percent + step_progress, 99)
+            video_record.current_step = step
+            video_record.step_progress = step_progress
+            self.db.commit()
+            if callback:
+                try:
+                    callback(video_record.progress_percent, step)
+                except Exception as cb_err:
+                    logger.warning(f"Progress callback error: {cb_err}")
+        except Exception as db_err:
+            logger.error(f"DB progress update error: {db_err}")
 
     def _save_checkpoint(
         self,
@@ -86,9 +109,12 @@ class VideoPipeline:
         step: str,
         temp_data: dict,
     ) -> None:
-        video_record.current_step = step
-        video_record.temp_files_json = temp_data
-        self.db.commit()
+        try:
+            video_record.current_step = step
+            video_record.temp_files_json = temp_data
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"Checkpoint save error: {e}")
 
     def _load_checkpoint(self, video_record: GeneratedVideo) -> dict:
         return video_record.temp_files_json or {}
@@ -118,11 +144,11 @@ class VideoPipeline:
                      "is", "was", "were", "be", "been", "being", "have", "has", "had",
                      "do", "does", "did", "will", "would", "shall", "should", "may",
                      "might", "can", "could", "must", "ought", "need", "dare", "used",
-                     "i\'m", "it\'s", "that\'s", "there\'s", "here\'s", "what\'s", "who\'s",
-                     "where\'s", "when\'s", "why\'s", "how\'s", "don\'t", "doesn\'t", "didn\'t",
-                     "won\'t", "wouldn\'t", "shan\'t", "shouldn\'t", "can\'t", "cannot",
-                     "couldn\'t", "mustn\'t", "let\'s", "that\'s", "who\'s", "what\'s",
-                     "here\'s", "there\'s", "when\'s", "where\'s", "why\'s", "how\'s"}
+                     "i'm", "it's", "that's", "there's", "here's", "what's", "who's",
+                     "where's", "when's", "why's", "how's", "don't", "doesn't", "didn't",
+                     "won't", "wouldn't", "shan't", "shouldn't", "can't", "cannot",
+                     "couldn't", "mustn't", "let's", "that's", "who's", "what's",
+                     "here's", "there's", "when's", "where's", "why's", "how's"}
 
         freq = {}
         for word in words:
@@ -139,7 +165,10 @@ class VideoPipeline:
     def check_cancelled(self, video_record: GeneratedVideo) -> None:
         if self._cancelled:
             raise PipelineCancelledError("Video generation was cancelled")
-        self.db.refresh(video_record)
+        try:
+            self.db.refresh(video_record)
+        except Exception as e:
+            logger.warning(f"DB refresh error during cancel check: {e}")
         if video_record.status == VideoStatus.CANCELLED.value:
             raise PipelineCancelledError("Video generation was cancelled")
         if video_record.status == VideoStatus.PAUSED.value:
@@ -179,7 +208,10 @@ class VideoPipeline:
         video_record.error_step = step
         video_record.error_traceback = traceback.format_exc()
         video_record.current_step = step
-        self.db.commit()
+        try:
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"DB error commit during error recording: {e}")
 
     async def generate(
         self,
@@ -192,6 +224,11 @@ class VideoPipeline:
         generate_hashtags: bool = True,
         progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> GeneratedVideo:
+        """Async video generation pipeline."""
+        self._progress_callback = progress_callback
+        self._cancelled = False
+        self._paused = False
+
         story = self.db.query(Story).filter(Story.id == video_record.story_id).first()
         if not story:
             raise VideoPipelineError(f"Story {video_record.story_id} not found")
@@ -206,7 +243,10 @@ class VideoPipeline:
 
         checkpoint = self._load_checkpoint(video_record)
 
+        logger.info(f"[Pipeline {video_id}] Starting generation for story {story.id}")
+
         try:
+            # Step: preparing
             if checkpoint.get("step", "queued") in ("queued", "failed"):
                 self.check_cancelled(video_record)
                 self._update_progress(video_record, "preparing", 0, progress_callback)
@@ -223,15 +263,20 @@ class VideoPipeline:
                 video_record.background_source = background_source
                 self.db.commit()
                 self._save_checkpoint(video_record, "preparing", {})
+                logger.info(f"[Pipeline {video_id}] Narrative prepared, length={len(narrative)}")
             else:
                 narrative = self._build_narrative_text(story, include_updates)
 
+            # Step: TTS
             audio_path = temp_folder / "narration.wav"
             if checkpoint.get("step", "preparing") in ("queued", "preparing", "failed"):
                 self.check_cancelled(video_record)
                 self._update_progress(video_record, "tts", 0, progress_callback)
 
                 tts_engine = TTSEngine(self.db)
+                logger.info(f"[Pipeline {video_id}] Starting TTS synthesis")
+
+                # Run TTS in thread pool
                 audio_duration = await asyncio.to_thread(
                     tts_engine.synthesize,
                     narrative, voice_id, audio_path,
@@ -245,15 +290,17 @@ class VideoPipeline:
                 self._save_checkpoint(video_record, "tts_done", {
                     "audio_path": str(audio_path),
                 })
+                logger.info(f"[Pipeline {video_id}] TTS complete, duration={audio_duration:.1f}s")
             else:
                 audio_path = Path(checkpoint.get("audio_path", str(audio_path)))
 
             self._update_progress(video_record, "tts_done", 0, progress_callback)
 
+            # Step: Transcribe
             whisper_result = None
             if checkpoint.get("step", "tts_done") in ("queued", "preparing", "tts_done", "failed"):
                 self.check_cancelled(video_record)
-                self._update_progress(video_record, "transcribe_done", 0, progress_callback)
+                self._update_progress(video_record, "transcribing", 0, progress_callback)
 
                 whisper_result = await asyncio.to_thread(
                     self.subtitle_gen.transcribe, str(audio_path)
@@ -266,17 +313,19 @@ class VideoPipeline:
                     **checkpoint,
                     "whisper_result": True,
                 })
+                logger.info(f"[Pipeline {video_id}] Transcription complete")
             else:
                 whisper_result = video_record.whisper_result_json
 
             self._update_progress(video_record, "transcribe_done", 0, progress_callback)
 
+            # Step: Subtitles
             subtitle_path = temp_folder / "subtitles.ass"
             if checkpoint.get("step", "transcribe_done") in (
                 "queued", "preparing", "tts_done", "transcribe_done", "failed"
             ):
                 self.check_cancelled(video_record)
-                self._update_progress(video_record, "subtitles_done", 0, progress_callback)
+                self._update_progress(video_record, "generating_subtitles", 0, progress_callback)
 
                 if whisper_result is None:
                     whisper_result = await asyncio.to_thread(
@@ -301,11 +350,13 @@ class VideoPipeline:
                     **checkpoint,
                     "subtitle_path": str(subtitle_path),
                 })
+                logger.info(f"[Pipeline {video_id}] Subtitles generated")
             else:
                 subtitle_path = Path(checkpoint.get("subtitle_path", str(subtitle_path)))
 
             self._update_progress(video_record, "subtitles_done", 0, progress_callback)
 
+            # Step: Select background
             if checkpoint.get("step", "subtitles_done") in (
                 "queued", "preparing", "tts_done", "transcribe_done", "subtitles_done", "failed"
             ):
@@ -318,11 +369,13 @@ class VideoPipeline:
                     **checkpoint,
                     "bg_video": bg_video,
                 })
+                logger.info(f"[Pipeline {video_id}] Background selected: {bg_video}")
             else:
                 bg_video = checkpoint.get("bg_video") or video_record.selected_background_video
                 if not bg_video:
                     bg_video = await asyncio.to_thread(select_background_video, background_source)
 
+            # Step: Compositing
             if checkpoint.get("step", "selecting_background") in (
                 "queued", "preparing", "tts_done", "transcribe_done",
                 "subtitles_done", "selecting_background", "failed"
@@ -349,11 +402,13 @@ class VideoPipeline:
                     **checkpoint,
                     "video_path": str(output_folder / "video.mp4"),
                 })
+                logger.info(f"[Pipeline {video_id}] Compositing complete, duration={final_duration:.1f}s")
 
             self._update_progress(video_record, "compositing_done", 0, progress_callback)
 
+            # Step: Thumbnail
             self.check_cancelled(video_record)
-            self._update_progress(video_record, "thumbnail", 0, progress_callback)
+            self._update_progress(video_record, "generating_thumbnail", 0, progress_callback)
             await asyncio.to_thread(
                 self.thumbnail_gen.generate,
                 story.title,
@@ -362,19 +417,37 @@ class VideoPipeline:
                 score=story.score,
             )
 
+            # Step: Done
             video_record.status = VideoStatus.DONE.value
             video_record.progress_percent = 100
             video_record.current_step = "done"
             video_record.completed_at = datetime.now(timezone.utc)
-            video_record.file_size_bytes = Path(video_record.video_path).stat().st_size
+            try:
+                video_record.file_size_bytes = Path(video_record.video_path).stat().st_size
+            except (OSError, FileNotFoundError):
+                video_record.file_size_bytes = None
 
             story.status = StoryStatus.VIDEO_DONE.value
-
             self.db.commit()
 
+            # Cleanup
             cleanup_temp(video_id)
 
             self._update_progress(video_record, "done", 0, progress_callback)
+
+            logger.info(f"[Pipeline {video_id}] Generation complete!")
+
+            # Broadcast completion notification
+            try:
+                await notification_queue.broadcast("video_complete", {
+                    "video_id": video_id,
+                    "story_id": story.id,
+                    "status": "done",
+                    "title": story.title,
+                })
+            except Exception:
+                pass
+
             return video_record
 
         except PipelineCancelledError:
@@ -383,6 +456,17 @@ class VideoPipeline:
             story.status = StoryStatus.VIDEO_CANCELLED.value
             self.db.commit()
             cleanup_temp(video_id)
+            logger.info(f"[Pipeline {video_id}] Generation cancelled")
+
+            # Broadcast cancel notification
+            try:
+                await notification_queue.broadcast("video_cancelled", {
+                    "video_id": video_id,
+                    "story_id": story.id,
+                    "status": "cancelled",
+                })
+            except Exception:
+                pass
             raise
 
         except PipelinePausedError:
@@ -391,18 +475,47 @@ class VideoPipeline:
             video_record.paused_at = datetime.now(timezone.utc)
             story.status = StoryStatus.VIDEO_PAUSED.value
             self.db.commit()
+            logger.info(f"[Pipeline {video_id}] Generation paused")
             raise
 
         except (TTSProviderError, FFmpegComposerError, OSError) as exc:
             self._record_error(video_record, exc, video_record.current_step)
             story.status = StoryStatus.VIDEO_FAILED.value
             self.db.commit()
+            cleanup_temp(video_id)
+            logger.error(f"[Pipeline {video_id}] Pipeline error: {exc}")
+
+            # Broadcast failure notification
+            try:
+                await notification_queue.broadcast("video_failed", {
+                    "video_id": video_id,
+                    "story_id": story.id,
+                    "status": "failed",
+                    "error": str(exc),
+                    "step": video_record.current_step,
+                })
+            except Exception:
+                pass
             raise VideoPipelineError(f"Video generation failed at {video_record.current_step}: {exc}")
 
         except Exception as exc:
             self._record_error(video_record, exc, video_record.current_step)
             story.status = StoryStatus.VIDEO_FAILED.value
             self.db.commit()
+            cleanup_temp(video_id)
+            logger.error(f"[Pipeline {video_id}] Unexpected error: {exc}", exc_info=True)
+
+            # Broadcast failure notification
+            try:
+                await notification_queue.broadcast("video_failed", {
+                    "video_id": video_id,
+                    "story_id": story.id,
+                    "status": "failed",
+                    "error": str(exc),
+                    "step": video_record.current_step,
+                })
+            except Exception:
+                pass
             raise VideoPipelineError(f"Video generation failed at {video_record.current_step}: {exc}")
 
     def get_progress(self, video_id: int) -> dict:

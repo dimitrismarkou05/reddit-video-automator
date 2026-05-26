@@ -1,4 +1,4 @@
-import { Film, ExternalLink, Trash2, Loader2 } from "lucide-react";
+import { Film, ExternalLink, Trash2, Loader2, Loader } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface StoryActionsProps {
@@ -8,6 +8,7 @@ interface StoryActionsProps {
   onDelete: () => void;
   canGenerate?: boolean;
   isDetectingFfmpeg?: boolean;
+  isGenerating?: boolean;
 }
 
 export function StoryActions({
@@ -17,6 +18,7 @@ export function StoryActions({
   onDelete,
   canGenerate = true,
   isDetectingFfmpeg = false,
+  isGenerating = false,
 }: StoryActionsProps) {
   const handleGenerateClick = () => {
     if (isDetectingFfmpeg) return;
@@ -33,26 +35,32 @@ export function StoryActions({
         onClick={handleGenerateClick}
         disabled={hasVideo || isDetectingFfmpeg}
         className={`p-2 rounded-lg  ${
-          hasVideo
-            ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
-            : isDetectingFfmpeg
-              ? "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-wait"
-              : canGenerate
-                ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
-                : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
+          isGenerating
+            ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 cursor-pointer animate-pulse"
+            : hasVideo
+              ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
+              : isDetectingFfmpeg
+                ? "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-wait"
+                : canGenerate
+                  ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
+                  : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
         }`}
         title={
-          hasVideo
-            ? "Video ready"
-            : isDetectingFfmpeg
-              ? "Searching for FFmpeg..."
-              : canGenerate
-                ? "Generate video"
-                : "FFmpeg not installed"
+          isGenerating
+            ? "Generation in progress..."
+            : hasVideo
+              ? "Video ready"
+              : isDetectingFfmpeg
+                ? "Searching for FFmpeg..."
+                : canGenerate
+                  ? "Generate video"
+                  : "FFmpeg not installed"
         }
       >
         {isDetectingFfmpeg ? (
           <Loader2 className="w-5 h-5 animate-spin" />
+        ) : isGenerating ? (
+          <Loader className="w-5 h-5 animate-spin" />
         ) : (
           <Film className="w-5 h-5" />
         )}
