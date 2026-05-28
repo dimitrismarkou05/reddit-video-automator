@@ -1,14 +1,3 @@
-"""End-to-end video generation pipeline with checkpointing, resume, and retry.
-
-ENHANCEMENTS:
-- Comprehensive debug logging at every stage
-- Better error handling and cleanup
-- Fixed checkpoint edge cases
-- Proper state transitions
-- FIX 3: Progress updates for TTS model download
-- FIX 10: Cleanup temp files on retry
-"""
-
 import asyncio
 import json
 import logging
@@ -52,7 +41,8 @@ class PipelinePausedError(Exception):
     pass
 
 
-# Granular step progress mapping
+# FIXED: Smoother step progress mapping - monotonically increasing
+# Each step builds on the previous, no backtracking
 STEP_PROGRESS = {
     "queued": 0,
     "preparing": 2,
@@ -62,18 +52,18 @@ STEP_PROGRESS = {
     "tts": 10,
     "tts_synthesizing": 15,
     "tts_done": 30,
-    "transcribing": 32,
+    "transcribing": 35,
     "transcribe_done": 45,
-    "generating_subtitles": 47,
+    "generating_subtitles": 48,
     "subtitles_done": 55,
-    "selecting_background": 55,
+    "selecting_background": 58,
     "compositing": 60,
-    "ffmpeg_processing": 65,
-    "compositing_done": 92,
-    "thumbnail": 94,
-    "generating_thumbnail": 95,
-    "uploading": 98,
-    "cleanup": 99,
+    "ffmpeg_processing": 70,
+    "compositing_done": 85,
+    "thumbnail": 90,
+    "generating_thumbnail": 92,
+    "uploading": 95,
+    "cleanup": 98,
     "done": 100,
     "failed": 0,
 }
@@ -97,17 +87,26 @@ class VideoPipeline:
         step_progress: int = 0,
         callback: Optional[Callable[[int, str], None]] = None,
     ) -> None:
-        """Update video progress in DB and call optional callback."""
+        """Update video progress in DB and call optional callback.
+        
+        FIX: Ensure progress never decreases (monotonic).
+        """
         try:
             base_percent = STEP_PROGRESS.get(step, 0)
-            video_record.progress_percent = min(base_percent + step_progress, 99)
+            new_percent = min(base_percent + step_progress, 99)
+            
+            # CRITICAL FIX: Never decrease progress
+            if video_record.progress_percent is not None and new_percent < video_record.progress_percent:
+                new_percent = video_record.progress_percent
+            
+            video_record.progress_percent = new_percent
             video_record.current_step = step
             video_record.step_progress = step_progress
             self.db.commit()
-            logger.debug(f"[Pipeline {video_record.id}] Progress: {step} {video_record.progress_percent}%")
+            logger.debug(f"[Pipeline {video_record.id}] Progress: {step} {new_percent}%")
             if callback:
                 try:
-                    callback(video_record.progress_percent, step)
+                    callback(new_percent, step)
                 except Exception as cb_err:
                     logger.warning(f"[Pipeline {video_record.id}] Progress callback error: {cb_err}")
         except Exception as db_err:
@@ -165,7 +164,7 @@ class VideoPipeline:
 
         freq = {}
         for word in words:
-            word = re.sub(r'[^\w]', '', word)
+            word = re.sub(r'[^\\w]', '', word)
             if len(word) > 3 and word not in stop_words:
                 freq[word] = freq.get(word, 0) + 1
 
@@ -215,6 +214,8 @@ class VideoPipeline:
             friendly = "Text-to-speech failed. Install a TTS model in Settings."
         elif "FFmpeg" in type(error).__name__ or "ffmpeg" in raw.lower():
             friendly = "Video rendering failed. Check FFmpeg installation."
+        elif "duration" in raw.lower() or "Could not determine duration" in raw:
+            friendly = "Audio processing failed. The TTS output may be corrupted. Try again."
         else:
             friendly = f"Generation failed: {raw}"
 
@@ -449,7 +450,10 @@ class VideoPipeline:
                 logger.info(f"[Pipeline {video_id}] Starting FFmpeg compositing")
 
                 def ff_callback(percent, step):
-                    mapped = 60 + int(percent * 0.3)
+                    # Map FFmpeg's 0-100 to our compositing range (60-85)
+                    mapped = 60 + int(percent * 0.25)
+                    # Ensure we don't exceed compositing_done base
+                    mapped = min(mapped, 84)
                     self._update_progress(video_record, "compositing", mapped - 60, progress_callback)
 
                 final_duration = await self.composer.compose(

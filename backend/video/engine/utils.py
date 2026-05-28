@@ -1,5 +1,3 @@
-"""Utility helpers for video generation."""
-
 import os
 import re
 import shutil
@@ -22,9 +20,9 @@ def sanitize_filename(name: str) -> str:
         return result
     except ImportError:
         # Fallback if python-slugify not installed
-        name = re.sub(r'[<>:"/\\|?*]', "", name)
-        name = re.sub(r'\s+', "_", name).strip("._")
-        name = re.sub(r'[^\w\-_.]', "", name)
+        name = re.sub(r'[<>:"/\\\\|?*]', "", name)
+        name = re.sub(r'\\s+', "_", name).strip("._")
+        name = re.sub(r'[^\\w\\-_.]', "", name)
         return name[:80] or "untitled"
 
 
@@ -176,14 +174,33 @@ def format_duration(seconds: float) -> str:
 
 
 def get_audio_duration(path: str) -> float:
-    """Get audio duration using mutagen (pure-Python) without ffprobe."""
+    """Get audio duration using multiple methods for robustness.
+    
+    FIX: Added proper WAV file support and better fallback chain.
+    """
+    path_obj = Path(path)
+    if not path_obj.exists():
+        raise RuntimeError(f"Audio file does not exist: {path}")
+    
+    # Method 1: Try mutagen with specific WAV handler
     try:
-        from mutagen.mp3 import MP3
-        audio = MP3(path)
-        return audio.info.length
+        from mutagen.wave import WAVE
+        audio = WAVE(path)
+        if audio and audio.info:
+            return audio.info.length
     except Exception:
         pass
 
+    # Method 2: Try mutagen MP3
+    try:
+        from mutagen.mp3 import MP3
+        audio = MP3(path)
+        if audio and audio.info:
+            return audio.info.length
+    except Exception:
+        pass
+
+    # Method 3: Try mutagen generic File
     try:
         from mutagen import File
         audio = File(path)
@@ -192,15 +209,42 @@ def get_audio_duration(path: str) -> float:
     except Exception:
         pass
 
-    # Final fallback to ffprobe
+    # Method 4: Use ffprobe (most reliable for any format)
     try:
+        # Determine which ffprobe to use
+        ffprobe_cmd = FFPROBE_PATH
+        if not shutil.which(ffprobe_cmd):
+            # Try to find ffprobe in PATH
+            ffprobe_cmd = shutil.which("ffprobe") or "ffprobe"
+        
         result = subprocess.run(
-            [FFPROBE_PATH, "-v", "error", "-show_entries", "format=duration",
+            [ffprobe_cmd, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", path],
             capture_output=True, text=True, timeout=15,
         )
         if result.returncode == 0:
-            return float(result.stdout.strip())
+            duration_str = result.stdout.strip()
+            if duration_str:
+                return float(duration_str)
+    except Exception:
+        pass
+
+    # Method 5: Use soundfile as final fallback (good for WAV)
+    try:
+        import soundfile as sf
+        info = sf.info(path)
+        return info.duration
+    except Exception:
+        pass
+
+    # Method 6: Use wave module from stdlib (WAV only)
+    try:
+        import wave
+        with wave.open(path, 'rb') as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate()
+            if rate > 0:
+                return frames / float(rate)
     except Exception:
         pass
 

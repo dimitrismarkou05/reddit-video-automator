@@ -1,9 +1,3 @@
-"""Local TTS orchestration using Coqui TTS.
-
-Uses model_name-based initialization (e.g. "tts_models/en/ljspeech/tacotron2-DDC")
-instead of manual path-based loading. Coqui TTS auto-downloads on first use.
-"""
-
 from pathlib import Path
 from typing import Optional, Callable
 
@@ -46,9 +40,33 @@ class LocalTTSProvider:
     def synthesize(self, text: str, output_path: Path, progress_callback: Optional[Callable[[int, str], None]] = None) -> float:
         try:
             self._load(progress_callback)
+            
+            # Ensure output directory exists
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Synthesize to file
             self.tts.tts_to_file(text=text, file_path=str(output_path))
-            duration = get_audio_duration(str(output_path))
-            return duration
+            
+            # Verify file was created
+            if not output_path.exists():
+                raise TTSProviderError(f"TTS output file was not created: {output_path}")
+            
+            if output_path.stat().st_size == 0:
+                raise TTSProviderError(f"TTS output file is empty: {output_path}")
+            
+            # Get duration
+            try:
+                duration = get_audio_duration(str(output_path))
+                return duration
+            except Exception as duration_err:
+                logger.error(f"Failed to get audio duration for {output_path}: {duration_err}")
+                # Fallback: estimate duration based on text length
+                # Average speaking rate is ~150 words per minute, ~2.5 words per second
+                words = len(text.split())
+                estimated_duration = words / 2.5
+                logger.warning(f"Using estimated duration: {estimated_duration:.1f}s for {words} words")
+                return estimated_duration
+                
         except Exception as exc:
             raise TTSProviderError(f"Local TTS synthesis failed: {exc}")
 

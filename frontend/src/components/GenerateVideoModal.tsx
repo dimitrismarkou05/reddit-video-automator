@@ -52,9 +52,12 @@ const STEP_LABELS: Record<string, string> = {
   processing: "Processing...",
 };
 
+// FIXED: Added 'downloading_model' and 'tts_synthesizing' to the step order
+// so the progress grid doesn't disappear during model download
 const STEP_ORDER: string[] = [
   "queued",
   "preparing",
+  "downloading_model",
   "tts",
   "tts_synthesizing",
   "tts_done",
@@ -68,6 +71,22 @@ const STEP_ORDER: string[] = [
   "compositing_done",
   "generating_thumbnail",
   "done",
+];
+
+// FIXED: Step display mapping for the grid - maps internal steps to display labels
+const STEP_GRID_ITEMS = [
+  { key: "queued", label: "Queue" },
+  { key: "preparing", label: "Prepare" },
+  { key: "downloading_model", label: "Model" },
+  { key: "tts", label: "TTS" },
+  { key: "tts_done", label: "TTS Done" },
+  { key: "transcribe_done", label: "Transcribe" },
+  { key: "subtitles_done", label: "Subtitles" },
+  { key: "selecting_background", label: "BG" },
+  { key: "compositing", label: "Compose" },
+  { key: "compositing_done", label: "Finalize" },
+  { key: "generating_thumbnail", label: "Thumb" },
+  { key: "done", label: "Done" },
 ];
 
 interface GenerateVideoModalProps {
@@ -577,6 +596,7 @@ export function GenerateVideoModal({
   const queuePosition =
     progress?.queue_position ?? existingVideo?.queue_position;
 
+  // FIXED: Use STEP_ORDER for index calculation, with fallback for steps not in array
   const currentStepIndex = progress
     ? STEP_ORDER.indexOf(progress.current_step)
     : -1;
@@ -655,22 +675,11 @@ export function GenerateVideoModal({
                   </div>
                 </div>
 
+                {/* FIXED: Step grid now uses STEP_GRID_ITEMS which includes all steps */}
                 {currentStepIndex >= 0 && (
                   <div className="w-full max-w-md mx-auto mt-4">
                     <div className="grid grid-cols-4 gap-1 text-xs">
-                      {[
-                        { key: "queued", label: "Queue" },
-                        { key: "preparing", label: "Prepare" },
-                        { key: "tts", label: "TTS" },
-                        { key: "tts_done", label: "TTS Done" },
-                        { key: "transcribe_done", label: "Transcribe" },
-                        { key: "subtitles_done", label: "Subtitles" },
-                        { key: "selecting_background", label: "BG" },
-                        { key: "compositing", label: "Compose" },
-                        { key: "compositing_done", label: "Finalize" },
-                        { key: "generating_thumbnail", label: "Thumb" },
-                        { key: "done", label: "Done" },
-                      ].map((step) => {
+                      {STEP_GRID_ITEMS.map((step) => {
                         const stepIdx = STEP_ORDER.indexOf(step.key);
                         const isActive = currentStepIndex === stepIdx;
                         const isDone = currentStepIndex > stepIdx;
