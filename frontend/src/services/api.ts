@@ -297,7 +297,12 @@ export const videoApi = {
   list: (status?: string) => api.get("/videos", { params: { status } }),
   get: (id: number) => api.get(`/videos/${id}`),
   generate: (data: Record<string, any>) => api.post("/videos/generate", data),
-  validateBackground: (data: Record<string, any>) => api.post("/videos/validate-background", data),
+  validateBackground: (data: Record<string, any>) =>
+    api.post("/videos/validate-background", data),
+  uploadBackground: (formData: FormData) =>
+    api.post("/videos/upload-background", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
   getProgress: (id: number) => api.get(`/videos/${id}/progress`),
   pause: (id: number) => api.post(`/videos/${id}/pause`),
   resume: (id: number) => api.post(`/videos/${id}/resume`),

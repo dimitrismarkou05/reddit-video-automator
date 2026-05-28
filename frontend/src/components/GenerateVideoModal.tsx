@@ -272,67 +272,157 @@ export function GenerateVideoModal({
     return () => clearTimeout(timer);
   }, [settings.background_source]);
 
+  // ─── ELECTRON: Native file system dialogs ───
+  const handleSelectFolderElectron = async () => {
+    if (!window.electronAPI) return;
+    const path = await window.electronAPI.selectDirectory();
+    if (path) setSettings((s) => ({ ...s, background_source: path }));
+  };
+
+  const handleSelectFileElectron = async () => {
+    if (!window.electronAPI) return;
+    const path = await window.electronAPI.selectFile([
+      { name: "Videos", extensions: ["mp4", "mov", "avi", "mkv", "webm"] },
+    ]);
+    if (path) setSettings((s) => ({ ...s, background_source: path }));
+  };
+
+  // ─── BROWSER: File System Access API ───
+  const uploadSingleFile = async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    toast.loading("Uploading video...", { id: "bg-upload" });
+    try {
+      const { data } = await videoApi.uploadBackground(formData);
+      toast.dismiss("bg-upload");
+      if (data.valid) {
+        setSettings((s) => ({ ...s, background_source: data.path }));
+        toast.success("Video uploaded");
+      } else {
+        toast.error(data.error || "Upload failed");
+      }
+    } catch (e: any) {
+      toast.dismiss("bg-upload");
+      toast.error(e.response?.data?.detail || "Upload failed");
+    }
+  };
+
+  const uploadDirectoryFiles = async (files: File[]) => {
+    const videoExts = [".mp4", ".mov", ".avi", ".mkv", ".webm"];
+    const videoFiles = files.filter((f) =>
+      videoExts.some((ext) => f.name.toLowerCase().endsWith(ext)),
+    );
+
+    if (videoFiles.length === 0) {
+      toast.error("No video files found in selection");
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("is_directory", "true");
+    videoFiles.forEach((f) => formData.append("directory_files", f));
+
+    toast.loading(`Uploading ${videoFiles.length} video(s)...`, {
+      id: "bg-upload",
+    });
+    try {
+      const { data } = await videoApi.uploadBackground(formData);
+      toast.dismiss("bg-upload");
+      if (data.valid) {
+        setSettings((s) => ({ ...s, background_source: data.path }));
+        toast.success(`${data.file_count} video(s) uploaded`);
+      } else {
+        toast.error(data.error || "Upload failed");
+      }
+    } catch (e: any) {
+      toast.dismiss("bg-upload");
+      toast.error(e.response?.data?.detail || "Upload failed");
+    }
+  };
+
+  const handleSelectFolderBrowser = async () => {
+    // Try File System Access API first
+    try {
+      const dirHandle = await (window as any).showDirectoryPicker?.();
+      if (!dirHandle) return;
+
+      const files: File[] = [];
+      for await (const entry of dirHandle.values()) {
+        if (entry.kind === "file") {
+          const file = await entry.getFile();
+          files.push(file);
+        }
+      }
+      await uploadDirectoryFiles(files);
+    } catch (err: any) {
+      if (err.name === "AbortError") return;
+      // Fallback to legacy input
+      fallbackDirectoryUpload();
+    }
+  };
+
+  const handleSelectFileBrowser = async () => {
+    // Try File System Access API first
+    try {
+      const fileHandle = await (window as any).showOpenFilePicker?.({
+        types: [
+          {
+            description: "Videos",
+            accept: {
+              "video/*": [".mp4", ".mov", ".avi", ".mkv", ".webm"],
+            },
+          },
+        ],
+      });
+      if (fileHandle && fileHandle[0]) {
+        const file = await fileHandle[0].getFile();
+        await uploadSingleFile(file);
+      }
+    } catch (err: any) {
+      if (err.name === "AbortError") return;
+      // Fallback to legacy input
+      fallbackFileUpload();
+    }
+  };
+
+  // ─── BROWSER FALLBACKS: Legacy <input> ───
+  const fallbackDirectoryUpload = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    (input as any).webkitdirectory = true;
+    input.onchange = async (e: any) => {
+      const files = Array.from(e.target.files as FileList);
+      await uploadDirectoryFiles(files);
+    };
+    input.click();
+  };
+
+  const fallbackFileUpload = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "video/*";
+    input.onchange = async (e: any) => {
+      const file = e.target.files?.[0];
+      if (file) await uploadSingleFile(file);
+    };
+    input.click();
+  };
+
+  // ─── Unified handlers ───
   const handleSelectFolder = async () => {
     if (window.electronAPI) {
-      const path = await window.electronAPI.selectDirectory();
-      if (path) setSettings((s) => ({ ...s, background_source: path }));
+      await handleSelectFolderElectron();
     } else {
-      try {
-        const dirHandle = await (window as any).showDirectoryPicker?.();
-        if (dirHandle)
-          setSettings((s) => ({ ...s, background_source: dirHandle.name }));
-      } catch (err: any) {
-        if (err.name === "AbortError") return;
-        const input = document.createElement("input");
-        input.type = "file";
-        (input as any).webkitdirectory = true;
-        input.onchange = (e: any) => {
-          const files = e.target.files;
-          if (files.length > 0) {
-            const firstFile = files[0];
-            const path = firstFile.webkitRelativePath
-              ? firstFile.webkitRelativePath.split("/")[0]
-              : firstFile.name;
-            setSettings((s) => ({ ...s, background_source: path }));
-          }
-        };
-        input.click();
-      }
+      await handleSelectFolderBrowser();
     }
   };
 
   const handleSelectFile = async () => {
     if (window.electronAPI) {
-      const path = await window.electronAPI.selectFile([
-        { name: "Videos", extensions: ["mp4", "mov", "avi", "mkv", "webm"] },
-      ]);
-      if (path) setSettings((s) => ({ ...s, background_source: path }));
+      await handleSelectFileElectron();
     } else {
-      try {
-        const fileHandle = await (window as any).showOpenFilePicker?.({
-          types: [
-            {
-              description: "Videos",
-              accept: { "video/*": [".mp4", ".mov", ".avi", ".mkv", ".webm"] },
-            },
-          ],
-        });
-        if (fileHandle && fileHandle[0]) {
-          const file = await fileHandle[0].getFile();
-          setSettings((s) => ({ ...s, background_source: file.name }));
-        }
-      } catch (err: any) {
-        if (err.name === "AbortError") return;
-        const input = document.createElement("input");
-        input.type = "file";
-        input.accept = "video/*";
-        input.onchange = (e: any) => {
-          const file = e.target.files?.[0];
-          if (file)
-            setSettings((s) => ({ ...s, background_source: file.name }));
-        };
-        input.click();
-      }
+      await handleSelectFileBrowser();
     }
   };
 
@@ -813,8 +903,9 @@ export function GenerateVideoModal({
                   </p>
                 )}
                 <p className="text-xs text-gray-500">
-                  Select a folder with video files (one will be picked randomly)
-                  or a specific video file.
+                  {window.electronAPI
+                    ? "Select a folder with video files or a specific video file."
+                    : "In browser mode, videos are uploaded to the server for processing."}
                 </p>
               </div>
 

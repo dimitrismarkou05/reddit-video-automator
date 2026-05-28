@@ -1,12 +1,15 @@
 """Video generation API routes with robust error handling and cleanup."""
 
 import logging
+import shutil
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from core.database import get_db
+from core.config import TEMP_DIR
 from video.schemas import (
     VideoGenerationRequest,
     VideoGenerationResponse,
@@ -51,12 +54,76 @@ def get_video(video_id: int, db: Session = Depends(get_db)):
     return video
 
 
+@router.post("/upload-background")
+async def upload_background(
+    file: UploadFile = File(None),
+    is_directory: bool = False,
+    directory_files: list[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+):
+    """Upload background video(s) to server temp storage for browser mode."""
+    upload_dir = TEMP_DIR / "uploaded_backgrounds"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    video_extensions = (".mp4", ".mov", ".avi", ".mkv", ".webm")
+
+    if is_directory and directory_files:
+        # Save all directory files
+        saved_paths = []
+        for f in directory_files:
+            if not f.filename.lower().endswith(video_extensions):
+                continue
+            # Sanitize filename
+            safe_name = Path(f.filename).name
+            dest = upload_dir / safe_name
+            with open(dest, "wb") as buffer:
+                shutil.copyfileobj(f.file, buffer)
+            saved_paths.append(str(dest))
+
+        if not saved_paths:
+            return {"valid": False, "error": "No valid video files in upload"}
+
+        return {
+            "valid": True,
+            "path": str(upload_dir),
+            "is_uploaded": True,
+            "file_count": len(saved_paths),
+        }
+
+    elif file:
+        # Single file upload
+        if not file.filename.lower().endswith(video_extensions):
+            return {"valid": False, "error": "File must be a video (.mp4, .mov, .avi, .mkv, .webm)"}
+
+        safe_name = Path(file.filename).name
+        dest = upload_dir / safe_name
+        with open(dest, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        return {
+            "valid": True,
+            "path": str(dest),
+            "is_uploaded": True,
+        }
+
+    return {"valid": False, "error": "No file provided"}
+
+
 @router.post("/validate-background")
 def validate_background(data: dict, db: Session = Depends(get_db)):
     """Validate a background video source before submission."""
     source = data.get("background_source", "")
     if not source:
         return {"valid": False, "error": "No background source provided"}
+
+    # Check if it's an uploaded path (in temp directory)
+    uploaded_prefix = str(TEMP_DIR / "uploaded_backgrounds")
+    if source.startswith(uploaded_prefix):
+        path = Path(source)
+        if path.exists():
+            return {"valid": True}
+        return {"valid": False, "error": "Uploaded files expired, please re-upload"}
+
     try:
         select_background_video(source)
         return {"valid": True}
