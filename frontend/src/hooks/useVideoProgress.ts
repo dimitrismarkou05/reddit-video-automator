@@ -24,6 +24,9 @@ interface UseVideoProgressOptions {
   onQueue?: (data: VideoProgressData) => void;
 }
 
+// Terminal statuses that should trigger reconnection on change
+const TERMINAL_STATUSES = ["done", "failed", "cancelled"];
+
 export function useVideoProgress({
   videoId,
   onComplete,
@@ -37,6 +40,9 @@ export function useVideoProgress({
   const onErrorRef = useRef(onError);
   const onQueueRef = useRef(onQueue);
   const terminalNotifiedRef = useRef(false);
+  // FIX 11: Track previous status to detect terminal -> non-terminal transitions
+  const prevStatusRef = useRef<string | null>(null);
+  const forceReconnectRef = useRef(false);
 
   // Keep callback refs up to date
   useEffect(() => {
@@ -47,8 +53,16 @@ export function useVideoProgress({
 
   const handleProgress = useCallback((data: VideoProgressData) => {
     setProgress((prev) => {
+      // FIX 11: Detect transition from terminal to non-terminal (retry case)
+      const wasTerminal = prev && TERMINAL_STATUSES.includes(prev.status);
+      const isNowNonTerminal = !TERMINAL_STATUSES.includes(data.status);
+      if (wasTerminal && isNowNonTerminal) {
+        forceReconnectRef.current = true;
+        terminalNotifiedRef.current = false;
+      }
+
       // Always update for terminal states or status changes
-      const isTerminal = ["done", "failed", "cancelled"].includes(data.status);
+      const isTerminal = TERMINAL_STATUSES.includes(data.status);
       const isNewStatus = prev?.status !== data.status;
 
       const shouldUpdate =
@@ -80,13 +94,24 @@ export function useVideoProgress({
             onErrorRef.current?.(data);
           }
         }
+      } else {
+        // Reset terminal notification when we see a non-terminal state
+        terminalNotifiedRef.current = false;
       }
 
+      prevStatusRef.current = data.status;
       return data;
     });
   }, []);
 
   useEffect(() => {
+    // FIX 11: Force reconnect on retry (terminal -> non-terminal transition detected)
+    if (forceReconnectRef.current && videoId && lastVideoIdRef.current === videoId) {
+      forceReconnectRef.current = false;
+      videoProgressSSE.disconnect();
+      isConnectedRef.current = false;
+    }
+
     // No videoId - disconnect and reset
     if (!videoId) {
       if (isConnectedRef.current) {
@@ -96,10 +121,11 @@ export function useVideoProgress({
       setProgress(null);
       lastVideoIdRef.current = null;
       terminalNotifiedRef.current = false;
+      prevStatusRef.current = null;
       return;
     }
 
-    // Same videoId already connected - skip
+    // Same videoId already connected - skip unless force reconnect
     if (lastVideoIdRef.current === videoId && isConnectedRef.current) {
       return;
     }
@@ -112,6 +138,7 @@ export function useVideoProgress({
 
     // Reset terminal notification for new video
     terminalNotifiedRef.current = false;
+    prevStatusRef.current = null;
 
     // Connect to new video
     lastVideoIdRef.current = videoId;

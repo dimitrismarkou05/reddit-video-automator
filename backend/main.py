@@ -20,6 +20,30 @@ async def lifespan(app: FastAPI):
     logger.info("[Lifespan] Starting up...")
     init_db()
 
+    # FIX 7: Resume paused videos after server restart
+    try:
+        from core.database import SessionLocal
+        from video.models import GeneratedVideo, VideoStatus
+        db = SessionLocal()
+        try:
+            paused_videos = db.query(GeneratedVideo).filter(
+                GeneratedVideo.is_paused == True,
+                GeneratedVideo.status == VideoStatus.PAUSED.value,
+            ).all()
+            for video in paused_videos:
+                logger.info(f"[Lifespan] Re-queueing paused video {video.id} for story {video.story_id}")
+                # Reset to queued so user can resume manually, or auto-resume
+                video.status = VideoStatus.QUEUED.value
+                video.is_paused = False
+                video.resumed_at = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
+            db.commit()
+            if paused_videos:
+                logger.info(f"[Lifespan] Reset {len(paused_videos)} paused videos to queued state")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"[Lifespan] Could not resume paused videos: {e}")
+
     # Pre-load models
     try:
         from video.engine.subtitles import _load_whisper_model

@@ -14,6 +14,10 @@ CRITICAL FIXES APPLIED:
 - FIXED: pause no longer causes task CancelledError to overwrite status
 - FIXED: queue processor loop always checks queue after waking up
 - FIXED: use asyncio.Condition for reliable queue signaling
+- FIXED (Issue 2): Resume reads parameters from DB if not in active_jobs
+- FIXED (Issue 6): Queue progress updates with position message
+- FIXED (Issue 8): Reliable queue wake-up with immediate notify
+- FIXED (Issue 13): Preserve queue_position for paused jobs
 """
 
 import asyncio
@@ -88,7 +92,7 @@ class VideoJobManager:
         while not self._shutdown:
             try:
                 async with self._queue_condition:
-                    # CRITICAL FIX: Always check queue first, then wait if empty
+                    # CRITICAL FIX (Issue 8): Always check queue first, then wait if empty
                     while not self._queue and not self._shutdown:
                         try:
                             await asyncio.wait_for(self._queue_condition.wait(), timeout=5.0)
@@ -297,6 +301,8 @@ class VideoJobManager:
                     ).first()
                     if video:
                         video.queue_position = i + 1
+                        # FIX 6: Update current_step with queue message
+                        video.current_step = f"Waiting in queue... Position {i + 1}"
                         logger.debug(f"[JobManager] Updated queue position for {vid}: {i + 1}")
                 except Exception as e:
                     logger.warning(f"[JobManager] Error updating queue position for {vid}: {e}")
@@ -355,11 +361,11 @@ class VideoJobManager:
         # Ensure queue processor is running
         self._ensure_queue_processor()
 
-        # Signal that queue has items - use Condition for reliability
+        # FIX 8: Signal that queue has items - use Condition for reliability
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():
-                # Schedule the notify on the event loop
+                # Schedule the notify on the event loop immediately
                 asyncio.create_task(self._notify_queue())
         except RuntimeError:
             pass
@@ -441,8 +447,8 @@ class VideoJobManager:
             if job.task and not job.task.done():
                 job.task.cancel()
                 logger.info(f"[JobManager] Cancelled task for pause {video_id}")
-            # CRITICAL FIX: Keep job in active_jobs so resume can find it
-            # Don't remove it!
+            # CRITICAL FIX (Issue 13): Keep job in active_jobs so resume can find it
+            # Don't remove it! Also preserve queue_position in DB
 
         from core.database import SessionLocal
         from video.models import GeneratedVideo, VideoStatus
@@ -459,6 +465,8 @@ class VideoJobManager:
                 video.status = VideoStatus.PAUSED.value
                 video.is_paused = True
                 video.paused_at = datetime.now(timezone.utc)
+                # FIX 13: Do NOT clear queue_position for paused jobs
+                # Keep it so user knows position when resumed
                 db.commit()
                 logger.info(f"[JobManager] Updated DB status to PAUSED for {video_id}")
         except Exception as e:
@@ -491,12 +499,33 @@ class VideoJobManager:
             db.commit()
             logger.info(f"[JobManager] Updated DB status to QUEUED for resume {video_id}")
 
-            # Get original job params if available
+            # FIX 2: Get original job params - first try active_jobs, then fall back to DB
             old_job = None
             if video_id in self.active_jobs:
                 old_job = self.active_jobs[video_id]
                 # Remove old state
                 del self.active_jobs[video_id]
+            else:
+                # After server restart, active_jobs is empty - read from DB record
+                logger.info(f"[JobManager] No in-memory job for {video_id}, reading params from DB")
+                from video.schemas import SubtitleStyle
+                subtitle_style = None
+                if video.subtitle_style:
+                    try:
+                        subtitle_style = SubtitleStyle(**video.subtitle_style)
+                    except Exception:
+                        subtitle_style = None
+
+                old_job = JobState(
+                    video_id=video.id,
+                    story_id=video.story_id,
+                    include_updates=getattr(video, "include_updates", True),
+                    voice_id=getattr(video, "voice_id", "default"),
+                    background_source=video.background_source or "",
+                    video_format=video.format or "shorts",
+                    subtitle_style=subtitle_style,
+                    generate_hashtags=getattr(video, "generate_hashtags", True),
+                )
 
             # Re-submit the job
             self.submit(

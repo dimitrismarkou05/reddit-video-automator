@@ -33,7 +33,8 @@ export function StoryActions({
     <div className="flex flex-col gap-2">
       <button
         onClick={handleGenerateClick}
-        disabled={hasVideo || isDetectingFfmpeg}
+        // FIX 4b: Enable button when generating (to reopen progress modal)
+        disabled={isDetectingFfmpeg || (!canGenerate && !isGenerating)}
         className={`p-2 rounded-lg  ${
           isGenerating
             ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 cursor-pointer animate-pulse"

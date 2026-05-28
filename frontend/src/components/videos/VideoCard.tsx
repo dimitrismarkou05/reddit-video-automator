@@ -11,6 +11,10 @@ import {
   Loader2,
   Trash2,
   AlertTriangle,
+  CheckCircle,
+  XCircle,
+  MinusCircle,
+  CircleDot,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -18,7 +22,6 @@ import {
   YT_STATUS_CONFIG,
   ACTIVE_GENERATION_STATUSES,
 } from "@/config/videoStatus";
-import { ProgressBar } from "@/components/common/ProgressBar";
 import { videoApi } from "@/services/api";
 import type { GeneratedVideo } from "@/types";
 import toast from "react-hot-toast";
@@ -41,6 +44,24 @@ const STEP_LABELS: Record<string, string> = {
   paused: "Paused",
 };
 
+// Map status to an appropriate icon since STATUS_CONFIG doesn't include icons
+function getStatusIcon(status: string) {
+  switch (status) {
+    case "done":
+      return CheckCircle;
+    case "failed":
+      return XCircle;
+    case "cancelled":
+      return MinusCircle;
+    case "paused":
+      return Pause;
+    case "queued":
+      return CircleDot;
+    default:
+      return Loader2;
+  }
+}
+
 interface VideoCardProps {
   video: GeneratedVideo;
 }
@@ -57,7 +78,7 @@ export function VideoCard({ video }: VideoCardProps) {
   const ytStatus =
     YT_STATUS_CONFIG[video.youtube_upload_status] ||
     YT_STATUS_CONFIG.not_uploaded;
-  const StatusIcon = status.icon;
+  const StatusIcon = getStatusIcon(video.status);
   const isGenerating = ACTIVE_GENERATION_STATUSES.includes(video.status);
   const isPaused = video.status === "paused";
   const isTerminal = ["done", "failed", "cancelled"].includes(video.status);
@@ -107,6 +128,9 @@ export function VideoCard({ video }: VideoCardProps) {
     }
   };
 
+  // Build class strings from STATUS_CONFIG (uses bgColor, not bg)
+  const statusBadgeClasses = `${status.bgColor} ${status.color}`;
+
   return (
     <div className="card overflow-hidden">
       {/* Thumbnail */}
@@ -146,7 +170,7 @@ export function VideoCard({ video }: VideoCardProps) {
 
         {/* Status badge */}
         <div
-          className={`absolute top-2 right-2 px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 ${status.bg} ${status.color}`}
+          className={`absolute top-2 right-2 px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 ${statusBadgeClasses}`}
         >
           <StatusIcon className="w-3 h-3" />
           {status.label}
@@ -183,11 +207,13 @@ export function VideoCard({ video }: VideoCardProps) {
               {stepLabel}
               {video.queue_position ? ` (Queue #${video.queue_position})` : ""}
             </span>
-            <ProgressBar
-              progress={video.progress_percent}
-              size="sm"
-              showPercentage={false}
-            />
+            {/* Simple progress bar since ProgressBar component may not exist */}
+            <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1 overflow-hidden">
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-500"
+                style={{ width: `${video.progress_percent}%` }}
+              />
+            </div>
           </div>
         )}
 

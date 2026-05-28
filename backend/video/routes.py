@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from core.database import get_db
 from video.schemas import (
@@ -16,6 +17,7 @@ from video.schemas import (
 from video.models import GeneratedVideo, VideoStatus
 from stories.models import Story
 from video.engine.job_manager import job_manager
+from video.engine.utils import cleanup_temp, select_background_video
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -47,6 +49,22 @@ def get_video(video_id: int, db: Session = Depends(get_db)):
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     return video
+
+
+@router.post("/validate-background")
+def validate_background(data: dict, db: Session = Depends(get_db)):
+    """Validate a background video source before submission."""
+    source = data.get("background_source", "")
+    if not source:
+        return {"valid": False, "error": "No background source provided"}
+    try:
+        select_background_video(source)
+        return {"valid": True}
+    except ValueError as e:
+        return {"valid": False, "error": str(e)}
+    except Exception as e:
+        logger.error(f"Background validation error: {e}")
+        return {"valid": False, "error": f"Validation failed: {e}"}
 
 
 @router.post("/generate", response_model=VideoGenerationResponse)
@@ -143,17 +161,40 @@ def generate_video(
         video_record = existing
         logger.info(f"Retrying video generation for story {request.story_id}, video_id={existing.id}")
     else:
-        # Create new video record
+        # Create new video record - FIX 1: Store all generation parameters
         video_record = GeneratedVideo(
             story_id=request.story_id,
             status=VideoStatus.QUEUED.value,
             format=request.video_format,
             background_source=request.background_source,
             subtitle_style=request.subtitle_style.model_dump() if request.subtitle_style else None,
+            # FIX 1: Store generation parameters in DB for retry/resume
+            voice_id=request.voice_id,
+            include_updates=request.include_updates,
+            generate_hashtags=request.generate_hashtags,
         )
         db.add(video_record)
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # FIX 5: Handle race condition - another request may have created the record
+        db.rollback()
+        logger.warning(f"IntegrityError during video generation for story {request.story_id}: {exc}")
+        # Query the existing record
+        existing = db.query(GeneratedVideo).filter(
+            GeneratedVideo.story_id == request.story_id
+        ).first()
+        if existing:
+            qpos = job_manager.queue_position(existing.id)
+            return VideoGenerationResponse(
+                video_id=existing.id,
+                status=existing.status,
+                message="Video already exists for this story.",
+                queue_position=qpos,
+            )
+        raise HTTPException(status_code=500, detail="Failed to create video record due to concurrent request")
+
     db.refresh(video_record)
 
     logger.info(f"Submitting generation job: video_id={video_record.id}, story_id={request.story_id}")
@@ -300,6 +341,9 @@ def retry_video(video_id: int, db: Session = Depends(get_db)):
             message=f"Cannot retry video in {video.status} state.",
         )
 
+    # FIX 10: Clean up previous temp files before retry
+    cleanup_temp(video_id)
+
     # Clean up old job state
     job_manager.cleanup_job(video_id)
 
@@ -319,10 +363,24 @@ def retry_video(video_id: int, db: Session = Depends(get_db)):
     video.paused_at = None
     db.commit()
 
-    # Re-submit with original parameters
+    # FIX 1: Re-submit with original parameters from DB record
+    from video.schemas import SubtitleStyle
+    subtitle_style = None
+    if video.subtitle_style:
+        try:
+            subtitle_style = SubtitleStyle(**video.subtitle_style)
+        except Exception:
+            subtitle_style = None
+
     job_manager.submit(
         video_id=video.id,
         story_id=video.story_id,
+        include_updates=getattr(video, "include_updates", True),
+        voice_id=getattr(video, "voice_id", "default"),
+        background_source=video.background_source or "",
+        video_format=video.format or "shorts",
+        subtitle_style=subtitle_style,
+        generate_hashtags=getattr(video, "generate_hashtags", True),
     )
 
     qpos = job_manager.queue_position(video.id)

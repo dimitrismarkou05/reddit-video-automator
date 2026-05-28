@@ -25,7 +25,7 @@ class GeneratedVideo(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     story_id: Mapped[int] = mapped_column(ForeignKey("stories.id"), unique=True)
 
-    # FIX: Made nullable since paths are set during pipeline execution, not at creation
+    # FIX 1: Made nullable since paths are set during pipeline execution, not at creation
     video_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     thumbnail_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     audio_path: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -62,6 +62,11 @@ class GeneratedVideo(Base):
 
     background_source: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     subtitle_style: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    # FIX 1: Store generation parameters for retry/resume
+    voice_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    include_updates: Mapped[bool] = mapped_column(Boolean, default=True)
+    generate_hashtags: Mapped[bool] = mapped_column(Boolean, default=True)
 
     youtube_video_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     youtube_upload_status: Mapped[str] = mapped_column(String(50), default="not_uploaded")

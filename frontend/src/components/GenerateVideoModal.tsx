@@ -67,7 +67,6 @@ const STEP_ORDER: string[] = [
   "ffmpeg_processing",
   "compositing_done",
   "generating_thumbnail",
-  "thumbnail",
   "done",
 ];
 
@@ -98,6 +97,13 @@ export function GenerateVideoModal({
     subtitle_size: 48,
     generate_hashtags: true,
   });
+
+  // FIX 12b: Background validation state
+  const [bgValidation, setBgValidation] = useState<{
+    valid: boolean | null;
+    error: string | null;
+    checking: boolean;
+  }>({ valid: null, error: null, checking: false });
 
   // Check if story already has a generated video or is in progress
   const existingVideo = story.generated_video;
@@ -237,6 +243,35 @@ export function GenerateVideoModal({
     }
   }, [existingVideo, existingVideoIsActive, videoId, story.id, registerJob]);
 
+  // FIX 12b: Validate background when it changes
+  useEffect(() => {
+    const validateBg = async () => {
+      if (!settings.background_source) {
+        setBgValidation({ valid: null, error: null, checking: false });
+        return;
+      }
+      setBgValidation((prev) => ({ ...prev, checking: true }));
+      try {
+        const { data } = await videoApi.validateBackground({
+          background_source: settings.background_source,
+        });
+        setBgValidation({
+          valid: data.valid,
+          error: data.error || null,
+          checking: false,
+        });
+      } catch (e: any) {
+        setBgValidation({
+          valid: false,
+          error: "Validation request failed",
+          checking: false,
+        });
+      }
+    };
+    const timer = setTimeout(validateBg, 500); // debounce
+    return () => clearTimeout(timer);
+  }, [settings.background_source]);
+
   const handleSelectFolder = async () => {
     if (window.electronAPI) {
       const path = await window.electronAPI.selectDirectory();
@@ -309,6 +344,12 @@ export function GenerateVideoModal({
 
     if (!settings.background_source) {
       toast.error("Please select a background video or folder");
+      return;
+    }
+
+    // FIX 12b: Block generation if background is invalid
+    if (bgValidation.valid === false) {
+      toast.error(bgValidation.error || "Invalid background video source");
       return;
     }
 
@@ -752,6 +793,25 @@ export function GenerateVideoModal({
                     {settings.background_source}
                   </span>
                 )}
+                {/* FIX 12b: Show validation status */}
+                {bgValidation.checking && (
+                  <p className="text-xs text-blue-500 flex items-center gap-1">
+                    <span className="inline-block w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    Validating background...
+                  </p>
+                )}
+                {bgValidation.valid === true && (
+                  <p className="text-xs text-green-600 flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" />
+                    Background source is valid
+                  </p>
+                )}
+                {bgValidation.valid === false && (
+                  <p className="text-xs text-red-500 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" />
+                    {bgValidation.error || "Invalid background source"}
+                  </p>
+                )}
                 <p className="text-xs text-gray-500">
                   Select a folder with video files (one will be picked randomly)
                   or a specific video file.
@@ -902,7 +962,12 @@ export function GenerateVideoModal({
             </button>
             <button
               onClick={handleGenerate}
-              disabled={!settings.background_source || hasStartedGeneration}
+              disabled={
+                !settings.background_source ||
+                hasStartedGeneration ||
+                bgValidation.valid === false ||
+                bgValidation.checking
+              }
               className="cursor-pointer btn-primary flex items-center gap-2 disabled:opacity-50"
             >
               <Film className="w-4 h-4" />

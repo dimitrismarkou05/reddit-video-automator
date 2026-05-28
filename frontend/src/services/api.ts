@@ -144,17 +144,27 @@ export class VideoProgressConnection {
         try {
           const data = JSON.parse((event as MessageEvent).data);
 
-          // CRITICAL FIX: Always emit terminal states immediately
+          // FIX 9: Always emit terminal states immediately
           const isTerminal = ["done", "failed", "cancelled"].includes(
             data.status,
           );
 
-          // Check for duplicate events (same status AND same progress)
+          // FIX 9: Enhanced duplicate detection - compare queue_position and current_step too
           const isDuplicate =
             this._lastEmittedData &&
             this._lastEmittedData.status === data.status &&
             this._lastEmittedData.progress_percent === data.progress_percent &&
-            this._lastEmittedData.current_step === data.current_step;
+            this._lastEmittedData.current_step === data.current_step &&
+            this._lastEmittedData.queue_position === data.queue_position;
+
+          // FIX 9: Reset duplicate counter when entering a new non-terminal status
+          if (
+            this._lastEmittedData &&
+            this._lastEmittedData.status !== data.status &&
+            !isTerminal
+          ) {
+            this._duplicateCount = 0;
+          }
 
           if (isDuplicate && !isTerminal) {
             this._duplicateCount++;
@@ -188,6 +198,11 @@ export class VideoProgressConnection {
 
         const wasTerminal = this.isTerminal;
         this._disconnectInternal();
+
+        // FIX 9: Do NOT reconnect after terminal state
+        if (wasTerminal) {
+          return;
+        }
 
         // Auto-reconnect if not terminal and still tracking this video
         if (!wasTerminal && this.currentVideoId === videoId) {
@@ -282,6 +297,7 @@ export const videoApi = {
   list: (status?: string) => api.get("/videos", { params: { status } }),
   get: (id: number) => api.get(`/videos/${id}`),
   generate: (data: Record<string, any>) => api.post("/videos/generate", data),
+  validateBackground: (data: Record<string, any>) => api.post("/videos/validate-background", data),
   getProgress: (id: number) => api.get(`/videos/${id}/progress`),
   pause: (id: number) => api.post(`/videos/${id}/pause`),
   resume: (id: number) => api.post(`/videos/${id}/resume`),

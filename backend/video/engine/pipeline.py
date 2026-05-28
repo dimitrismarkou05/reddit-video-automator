@@ -5,6 +5,8 @@ ENHANCEMENTS:
 - Better error handling and cleanup
 - Fixed checkpoint edge cases
 - Proper state transitions
+- FIX 3: Progress updates for TTS model download
+- FIX 10: Cleanup temp files on retry
 """
 
 import asyncio
@@ -299,12 +301,36 @@ class VideoPipeline:
                 tts_engine = TTSEngine(self.db)
                 logger.info(f"[Pipeline {video_id}] Starting TTS synthesis")
 
-                # Run TTS in thread pool
+                # FIX 3: Show downloading_model progress before TTS
+                self._update_progress(video_record, "downloading_model", 0, progress_callback)
+
+                # Run TTS in thread pool with progress updates
                 try:
-                    audio_duration = await asyncio.to_thread(
-                        tts_engine.synthesize,
-                        narrative, voice_id, audio_path,
-                    )
+                    # Create a progress callback for TTS model loading
+                    tts_progress = {"model_loaded": False}
+
+                    def tts_load_callback(percent: int, step: str) -> None:
+                        if not tts_progress["model_loaded"]:
+                            self._update_progress(video_record, "downloading_model", percent, progress_callback)
+                            if percent >= 100:
+                                tts_progress["model_loaded"] = True
+                                self._update_progress(video_record, "tts_synthesizing", 0, progress_callback)
+
+                    # Try to use the progress-aware synthesize if available
+                    try:
+                        audio_duration = await asyncio.to_thread(
+                            tts_engine.synthesize,
+                            narrative, voice_id, audio_path,
+                            progress_callback=tts_load_callback,
+                        )
+                    except TypeError:
+                        # Fallback if synthesize doesn't accept progress_callback
+                        self._update_progress(video_record, "downloading_model", 50, progress_callback)
+                        audio_duration = await asyncio.to_thread(
+                            tts_engine.synthesize,
+                            narrative, voice_id, audio_path,
+                        )
+
                     logger.info(f"[Pipeline {video_id}] TTS synthesis complete, duration={audio_duration:.1f}s")
                 except Exception as tts_err:
                     logger.error(f"[Pipeline {video_id}] TTS synthesis failed: {tts_err}", exc_info=True)

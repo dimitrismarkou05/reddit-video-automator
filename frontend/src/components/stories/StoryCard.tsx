@@ -11,6 +11,9 @@ import { useVideoJobsStore } from "@/store/videoJobs";
 import toast from "react-hot-toast";
 import type { Story } from "@/types";
 
+// FIX 4: Terminal statuses that mean video generation is complete/failed/cancelled
+const TERMINAL_VIDEO_STATUSES = ["done", "failed", "cancelled"];
+
 interface StoryCardProps {
   story: Story;
   onDelete: (story: Story) => void;
@@ -26,7 +29,9 @@ export function StoryCard({ story, onDelete, canGenerate = true, isDetectingFfmp
   const { getModalVideoId, activeModalVideoId, activeModalStoryId } = useVideoJobsStore();
 
   const hasUpdates = story.updates && story.updates.length > 0;
-  const hasVideo = !!story.generated_video;
+  // FIX 4: Only consider video "done" when status is "done", not when just existing
+  const hasCompletedVideo = !!story.generated_video && story.generated_video.status === "done";
+  const hasActiveVideo = !!story.generated_video && !TERMINAL_VIDEO_STATUSES.includes(story.generated_video.status);
   const updateCount = story.updates?.length || 0;
 
   // Check if this story or any of its updates are currently generating
@@ -64,14 +69,14 @@ export function StoryCard({ story, onDelete, canGenerate = true, isDetectingFfmp
     }
 
     // If has completed video, navigate to detail
-    if (hasVideo && story.generated_video?.status === "done") {
+    if (hasCompletedVideo) {
       navigate(`/stories/${story.id}`);
       return;
     }
 
     // Otherwise open generation modal
     setShowGenerateModal(true);
-  }, [isThisStoryGenerating, generatingVideoId, hasVideo, canGenerate, isDetectingFfmpeg, story.id, activeModalStoryId, showGenerateModal, navigate]);
+  }, [isThisStoryGenerating, generatingVideoId, hasCompletedVideo, canGenerate, isDetectingFfmpeg, story.id, activeModalStoryId, showGenerateModal, navigate]);
 
   return (
     <div className="space-y-0">
@@ -86,14 +91,20 @@ export function StoryCard({ story, onDelete, canGenerate = true, isDetectingFfmp
               {story.is_update && (
                 <StatusBadge label="Update" variant="warning" />
               )}
-              {hasVideo && (
+              {hasCompletedVideo && (
                 <StatusBadge
-                  label={story.generated_video?.status === "done" ? "Video Ready" : "Generating..."}
+                  label="Video Ready"
                   icon={Clock}
-                  variant={story.generated_video?.status === "done" ? "success" : "warning"}
+                  variant="success"
                 />
               )}
-              {isThisStoryGenerating && !hasVideo && (
+              {hasActiveVideo && (
+                <StatusBadge
+                  label={story.generated_video?.status === "paused" ? "Paused" : "Generating..."}
+                  variant={story.generated_video?.status === "paused" ? "neutral" : "warning"}
+                />
+              )}
+              {isThisStoryGenerating && !hasActiveVideo && (
                 <StatusBadge
                   label="Generating..."
                   variant="warning"
@@ -135,13 +146,13 @@ export function StoryCard({ story, onDelete, canGenerate = true, isDetectingFfmp
           </div>
           <div onClick={(e) => e.stopPropagation()} data-no-nav>
             <StoryActions
-              hasVideo={hasVideo && story.generated_video?.status === "done"}
+              hasVideo={hasCompletedVideo}
               permalink={story.permalink}
               onGenerate={handleGenerate}
               onDelete={() => onDelete(story)}
               canGenerate={canGenerate}
               isDetectingFfmpeg={isDetectingFfmpeg}
-              isGenerating={isThisStoryGenerating}
+              isGenerating={isThisStoryGenerating || hasActiveVideo}
             />
           </div>
         </div>
