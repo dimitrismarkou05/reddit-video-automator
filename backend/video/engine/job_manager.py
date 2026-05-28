@@ -18,6 +18,7 @@ CRITICAL FIXES APPLIED:
 - FIXED (Issue 6): Queue progress updates with position message
 - FIXED (Issue 8): Reliable queue wake-up with immediate notify
 - FIXED (Issue 13): Preserve queue_position for paused jobs
+- FIXED (Issue 14): _ensure_queue_processor now handles both sync and async contexts
 """
 
 import asyncio
@@ -74,16 +75,37 @@ class VideoJobManager:
         logger.info("[JobManager] Initialized")
 
     def _ensure_queue_processor(self) -> None:
-        """Ensure the queue processor background task is running."""
+        """Ensure the queue processor background task is running.
+        
+        CRITICAL FIX (Issue 14): This method may be called from either:
+        - An async context (lifespan, async route) where get_running_loop() works
+        - A sync context (sync FastAPI route in thread pool) where it doesn't
+        
+        We try get_running_loop() first, then fall back to get_event_loop().
+        Starting the processor in app lifespan (async) ensures it's ready before
+        any sync routes can call submit().
+        """
         if self._queue_processor_task is None or self._queue_processor_task.done():
+            loop = None
             try:
                 loop = asyncio.get_running_loop()
-                self._queue_processor_task = loop.create_task(
-                    self._queue_processor_loop(),
-                    name="queue_processor"
-                )
-                logger.info("[JobManager] Queue processor started")
             except RuntimeError:
+                # Not in an async context - try to get the event loop for this thread
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    pass
+            
+            if loop is not None:
+                try:
+                    self._queue_processor_task = loop.create_task(
+                        self._queue_processor_loop(),
+                        name="queue_processor"
+                    )
+                    logger.info("[JobManager] Queue processor started")
+                except Exception as e:
+                    logger.error(f"[JobManager] Failed to start queue processor: {e}")
+            else:
                 logger.error("[JobManager] No event loop available to start queue processor")
 
     async def _queue_processor_loop(self) -> None:

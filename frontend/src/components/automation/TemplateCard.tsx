@@ -144,7 +144,9 @@ export function TemplateCard({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <span className="text-gray-500">Voice ID:</span>{" "}
-              <span className="font-medium">{template.voice_id || "default"}</span>
+              <span className="font-medium">
+                {template.voice_id || "default"}
+              </span>
             </div>
             <div>
               <span className="text-gray-500">Auto-upload:</span>{" "}

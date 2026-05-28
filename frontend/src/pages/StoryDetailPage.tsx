@@ -14,6 +14,7 @@ import {
   ChevronUp,
   Bookmark,
   Share2,
+  Loader,
 } from "lucide-react";
 import { storyApi } from "@/services/api";
 import { StatusBadge } from "@/components/common/StatusBadge";
@@ -23,9 +24,13 @@ import { GenerateVideoModal } from "@/components/GenerateVideoModal";
 import { DeleteConfirmModal } from "@/components/modals/DeleteConfirmModal";
 import { formatUtcRelative, stripUpdatePrefix } from "@/lib/formatters";
 import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
+import { useVideoJobsStore } from "@/store/videoJobs";
 import type { Story } from "@/types";
 import toast from "react-hot-toast";
 import { renderMarkdownLinks } from "@/lib/renderMarkdownLinks";
+
+// Terminal statuses that mean video generation is complete/failed/cancelled
+const TERMINAL_VIDEO_STATUSES = ["done", "failed", "cancelled"];
 
 /* ─── Meta line ─── */
 function StoryMetaLine({ story }: { story: Story }) {
@@ -147,16 +152,19 @@ function UpdateSection({
   isLast,
   canGenerate,
   isDetectingFfmpeg,
+  parentStory,
 }: {
   update: Story;
   index: number;
   isLast: boolean;
   canGenerate: boolean;
   isDetectingFfmpeg: boolean;
+  parentStory: Story;
 }) {
   const updateNumber = index + 1;
   const cleanTitle = stripUpdatePrefix(update.title);
-  const hasVideo = !!update.generated_video;
+  const hasCompletedVideo =
+    !!update.generated_video && update.generated_video.status === "done";
 
   return (
     <div id={`update-${update.id}`} className="scroll-mt-20">
@@ -167,7 +175,7 @@ function UpdateSection({
             Update {updateNumber}
           </span>
         </div>
-        {hasVideo && (
+        {hasCompletedVideo && (
           <StatusBadge label="Video Ready" icon={Clock} variant="success" />
         )}
       </div>
@@ -186,7 +194,12 @@ function UpdateSection({
         </div>
       )}
 
-      <UpdateActions update={update} canGenerate={canGenerate} isDetectingFfmpeg={isDetectingFfmpeg} />
+      <UpdateActions
+        update={update}
+        canGenerate={canGenerate}
+        isDetectingFfmpeg={isDetectingFfmpeg}
+        parentStory={parentStory}
+      />
 
       {!isLast && (
         <div className="my-8 border-b border-border-light dark:border-border-dark" />
@@ -196,11 +209,37 @@ function UpdateSection({
 }
 
 /* ─── Actions for an individual update ─── */
-function UpdateActions({ update, canGenerate, isDetectingFfmpeg }: { update: Story; canGenerate: boolean; isDetectingFfmpeg: boolean }) {
+function UpdateActions({
+  update,
+  canGenerate,
+  isDetectingFfmpeg,
+  parentStory,
+}: {
+  update: Story;
+  canGenerate: boolean;
+  isDetectingFfmpeg: boolean;
+  parentStory: Story;
+}) {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+
+  const { getModalVideoId } = useVideoJobsStore();
+
+  // Check if this update or its parent has an active generation
+  const updateGeneratingId = getModalVideoId(update.id, update.generated_video);
+  const parentGeneratingId = getModalVideoId(
+    parentStory.id,
+    parentStory.generated_video,
+  );
+  const effectiveGeneratingId = updateGeneratingId || parentGeneratingId;
+  const isThisUpdateGenerating = updateGeneratingId !== null;
+  const isParentGenerating = parentGeneratingId !== null;
+  const isEffectivelyGenerating = effectiveGeneratingId !== null;
+
+  const hasCompletedVideo =
+    !!update.generated_video && update.generated_video.status === "done";
 
   const handleDelete = async () => {
     try {
@@ -219,9 +258,25 @@ function UpdateActions({ update, canGenerate, isDetectingFfmpeg }: { update: Sto
   const handleGenerateClick = () => {
     if (isDetectingFfmpeg) return;
     if (!canGenerate) {
-      toast.error("FFmpeg not installed. Please install FFmpeg in Settings to generate videos.");
+      toast.error(
+        "FFmpeg not installed. Please install FFmpeg in Settings to generate videos.",
+      );
       return;
     }
+
+    // If already generating (this update or parent), show the existing progress modal
+    if (isEffectivelyGenerating && effectiveGeneratingId) {
+      setShowGenerateModal(true);
+      return;
+    }
+
+    // If has completed video, navigate to detail
+    if (hasCompletedVideo) {
+      navigate(`/stories/${parentStory.id}#update-${update.id}`);
+      return;
+    }
+
+    // Otherwise open generation modal
     setShowGenerateModal(true);
   };
 
@@ -230,28 +285,48 @@ function UpdateActions({ update, canGenerate, isDetectingFfmpeg }: { update: Sto
       <div className="flex items-center gap-2 mt-4">
         <button
           onClick={handleGenerateClick}
-          disabled={!!update.generated_video || isDetectingFfmpeg}
+          disabled={
+            isDetectingFfmpeg || (!isEffectivelyGenerating && hasCompletedVideo)
+          }
           className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium  ${
-            update.generated_video
-              ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
-              : isDetectingFfmpeg
-                ? "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-wait"
-                : canGenerate
-                  ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
-                  : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
+            isEffectivelyGenerating
+              ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 cursor-pointer animate-pulse"
+              : hasCompletedVideo
+                ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
+                : isDetectingFfmpeg
+                  ? "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-wait"
+                  : canGenerate
+                    ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
+                    : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
           }`}
           title={
-            update.generated_video
-              ? "Video Ready"
-              : isDetectingFfmpeg
-                ? "Searching for FFmpeg..."
-                : canGenerate
-                  ? "Generate Video"
-                  : "FFmpeg not installed"
+            isThisUpdateGenerating
+              ? "Generation in progress..."
+              : isParentGenerating
+                ? "Included in parent generation..."
+                : hasCompletedVideo
+                  ? "Video Ready"
+                  : isDetectingFfmpeg
+                    ? "Searching for FFmpeg..."
+                    : canGenerate
+                      ? "Generate Video"
+                      : "FFmpeg not installed"
           }
         >
-          <Film className="w-4 h-4" />
-          {update.generated_video ? "Video Ready" : "Generate Video"}
+          {isDetectingFfmpeg ? (
+            <Loader className="w-4 h-4 animate-spin" />
+          ) : isEffectivelyGenerating ? (
+            <Loader className="w-4 h-4 animate-spin" />
+          ) : (
+            <Film className="w-4 h-4" />
+          )}
+          {isThisUpdateGenerating
+            ? "Generating..."
+            : isParentGenerating
+              ? "Parent Generating..."
+              : hasCompletedVideo
+                ? "Video Ready"
+                : "Generate Video"}
         </button>
         <a
           href={update.permalink}
@@ -271,12 +346,23 @@ function UpdateActions({ update, canGenerate, isDetectingFfmpeg }: { update: Sto
         </button>
       </div>
 
-      {showGenerateModal && (
-        <GenerateVideoModal
-          story={update}
-          onClose={() => setShowGenerateModal(false)}
-        />
-      )}
+      {showGenerateModal &&
+        (isParentGenerating && !isThisUpdateGenerating ? (
+          <GenerateVideoModal
+            story={parentStory}
+            onClose={() => setShowGenerateModal(false)}
+            existingVideoId={parentGeneratingId}
+            isUpdate={false}
+          />
+        ) : (
+          <GenerateVideoModal
+            story={update}
+            onClose={() => setShowGenerateModal(false)}
+            existingVideoId={updateGeneratingId}
+            isUpdate={true}
+            parentStory={parentStory}
+          />
+        ))}
       {showDeleteModal && (
         <DeleteConfirmModal
           title="Delete Update?"
@@ -309,6 +395,9 @@ export function StoryDetailPage() {
   const canGenerate = ffmpegStatus?.can_generate_videos ?? false;
   const isDetectingFfmpeg = ffmpegLoading && !ffmpegStatus;
 
+  // CRITICAL FIX: Use videoJobs store to track active generation state
+  const { getModalVideoId } = useVideoJobsStore();
+
   const {
     data: story,
     isLoading,
@@ -320,6 +409,23 @@ export function StoryDetailPage() {
       return data;
     },
   });
+
+  // Check if this story has an active generation
+  const generatingVideoId = story
+    ? getModalVideoId(story.id, story.generated_video)
+    : null;
+  const isThisStoryGenerating = generatingVideoId !== null;
+
+  // Check if any child updates are generating
+  const hasActiveChildGeneration = story?.updates?.some((u: Story) => {
+    return (
+      u.generated_video &&
+      !TERMINAL_VIDEO_STATUSES.includes(u.generated_video.status)
+    );
+  });
+
+  // Determine effective generation state
+  const hasActiveGeneration = isThisStoryGenerating || hasActiveChildGeneration;
 
   /* scroll to anchor on load */
   useEffect(() => {
@@ -370,9 +476,20 @@ export function StoryDetailPage() {
   const handleGenerateClick = () => {
     if (isDetectingFfmpeg) return;
     if (!canGenerate) {
-      toast.error("FFmpeg not installed. Please install FFmpeg in Settings to generate videos.");
+      toast.error(
+        "FFmpeg not installed. Please install FFmpeg in Settings to generate videos.",
+      );
       return;
     }
+
+    // CRITICAL FIX: If already generating, show the existing progress modal
+    if (isThisStoryGenerating && generatingVideoId) {
+      setShowGenerateModal(true);
+      return;
+    }
+
+    // If has completed video, just open modal for new generation
+    // (user can regenerate if they want)
     setShowGenerateModal(true);
   };
 
@@ -400,7 +517,11 @@ export function StoryDetailPage() {
     );
   }
 
-  const hasVideo = !!story.generated_video;
+  const hasCompletedVideo =
+    !!story.generated_video && story.generated_video.status === "done";
+  const hasActiveVideo =
+    !!story.generated_video &&
+    !TERMINAL_VIDEO_STATUSES.includes(story.generated_video.status);
   const updateCount = story.updates?.length || 0;
   const hasUpdates = updateCount > 0;
 
@@ -484,28 +605,42 @@ export function StoryDetailPage() {
               <div className="flex flex-wrap items-center gap-2 mt-6 pt-4 border-t border-border-light dark:border-border-dark">
                 <button
                   onClick={handleGenerateClick}
-                  disabled={hasVideo || isDetectingFfmpeg}
+                  disabled={isDetectingFfmpeg}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium  ${
-                    hasVideo
-                      ? "bg-green-100 dark:bg-green-900/30 text-green-600 cursor-default"
-                      : isDetectingFfmpeg
-                        ? "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-wait"
-                        : canGenerate
-                          ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
-                          : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
+                    isThisStoryGenerating
+                      ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 cursor-pointer animate-pulse"
+                      : hasCompletedVideo
+                        ? "bg-green-100 dark:bg-green-900/30 text-green-600 hover:bg-green-200 dark:hover:bg-green-900/40 cursor-pointer"
+                        : isDetectingFfmpeg
+                          ? "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-wait"
+                          : canGenerate
+                            ? "bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer"
+                            : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
                   }`}
                   title={
-                    hasVideo
-                      ? "Video Ready"
-                      : isDetectingFfmpeg
-                        ? "Searching for FFmpeg..."
-                        : canGenerate
-                          ? "Generate Video"
-                          : "FFmpeg not installed"
+                    isThisStoryGenerating
+                      ? "Generation in progress... Click to view"
+                      : hasCompletedVideo
+                        ? "Video Ready. Click to regenerate"
+                        : isDetectingFfmpeg
+                          ? "Searching for FFmpeg..."
+                          : canGenerate
+                            ? "Generate Video"
+                            : "FFmpeg not installed"
                   }
                 >
-                  <Film className="w-4 h-4" />
-                  {hasVideo ? "Video Ready" : "Generate Video"}
+                  {isDetectingFfmpeg ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : isThisStoryGenerating ? (
+                    <Loader className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Film className="w-4 h-4" />
+                  )}
+                  {isThisStoryGenerating
+                    ? "Generating..."
+                    : hasCompletedVideo
+                      ? "Video Ready"
+                      : "Generate Video"}
                 </button>
                 <a
                   href={story.permalink}
@@ -517,6 +652,26 @@ export function StoryDetailPage() {
                   View on Reddit
                 </a>
               </div>
+
+              {/* CRITICAL FIX: Show generation status badge when active */}
+              {hasActiveVideo && story.generated_video && (
+                <div className="mt-3 flex items-center gap-2">
+                  <StatusBadge
+                    label={
+                      story.generated_video.status === "paused"
+                        ? "Paused"
+                        : story.generated_video.status === "queued"
+                          ? `Queued #${story.generated_video.queue_position || "?"}`
+                          : `${story.generated_video.current_step || "Processing..."} (${story.generated_video.progress_percent || 0}%)`
+                    }
+                    variant={
+                      story.generated_video.status === "paused"
+                        ? "neutral"
+                        : "warning"
+                    }
+                  />
+                </div>
+              )}
             </article>
 
             {/* Updates */}
@@ -539,6 +694,7 @@ export function StoryDetailPage() {
                       isLast={index === updateCount - 1}
                       canGenerate={canGenerate}
                       isDetectingFfmpeg={isDetectingFfmpeg}
+                      parentStory={story}
                     />
                   ))}
                 </div>
@@ -561,6 +717,7 @@ export function StoryDetailPage() {
         <GenerateVideoModal
           story={story}
           onClose={() => setShowGenerateModal(false)}
+          existingVideoId={generatingVideoId}
         />
       )}
       {showDeleteModal && (

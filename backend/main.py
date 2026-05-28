@@ -20,6 +20,16 @@ async def lifespan(app: FastAPI):
     logger.info("[Lifespan] Starting up...")
     init_db()
 
+    # CRITICAL FIX (Issue 14): Start the queue processor early in the async lifespan
+    # where we KNOW the event loop is running. This ensures the processor is ready
+    # before any sync route handlers try to submit jobs.
+    try:
+        job_manager._shutdown = False
+        job_manager._ensure_queue_processor()
+        logger.info("[Lifespan] Queue processor ensured")
+    except Exception as e:
+        logger.warning(f"[Lifespan] Could not start queue processor: {e}")
+
     # FIX 7: Resume paused videos after server restart
     try:
         from core.database import SessionLocal
