@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
+import os
 
 from core.config import APP_DIR
 
@@ -120,11 +121,33 @@ class FfmpegDetector:
                 return str(candidate)
 
         return None
+    
+    def _inject_to_path(self, ffmpeg_path: Optional[str], ffprobe_path: Optional[str]) -> None:
+        """Inject detected ffmpeg directory into PATH and set env vars for downstream tools."""
+        if not ffmpeg_path:
+            return
+
+        ffmpeg_dir = str(Path(ffmpeg_path).parent)
+
+        # Add to PATH if not already present
+        current_path = os.environ.get("PATH", "")
+        path_entries = current_path.split(os.pathsep)
+        if ffmpeg_dir not in path_entries:
+            os.environ["PATH"] = ffmpeg_dir + os.pathsep + current_path
+
+        # Set explicit env vars that whisper and other tools check
+        os.environ["FFMPEG_BINARY"] = ffmpeg_path
+        if ffprobe_path:
+            os.environ["FFPROBE_BINARY"] = ffprobe_path
 
     def get_full_status(self) -> dict:
         """Return complete detection status."""
         ffmpeg_path = self.detect_ffmpeg()
         ffprobe_path = self.detect_ffprobe(ffmpeg_path)
+        
+        # CRITICAL FIX: Inject detected paths into environment so whisper,
+        # subprocess calls, and other modules can find ffmpeg seamlessly.
+        self._inject_to_path(ffmpeg_path, ffprobe_path)
 
         ffmpeg_ok = ffmpeg_path is not None
         ffprobe_ok = ffprobe_path is not None

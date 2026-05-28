@@ -302,22 +302,26 @@ class VideoPipeline:
                 tts_engine = TTSEngine(self.db)
                 logger.info(f"[Pipeline {video_id}] Starting TTS synthesis")
 
-                # FIX 3: Show downloading_model progress before TTS
+                # FIX: Properly mapped progress callbacks to prevent 99% jump
                 self._update_progress(video_record, "downloading_model", 0, progress_callback)
 
-                # Run TTS in thread pool with progress updates
                 try:
-                    # Create a progress callback for TTS model loading
                     tts_progress = {"model_loaded": False}
 
                     def tts_load_callback(percent: int, step: str) -> None:
+                        """Map TTS internal 0-100 to pipeline's 5-15% range."""
                         if not tts_progress["model_loaded"]:
-                            self._update_progress(video_record, "downloading_model", percent, progress_callback)
+                            # downloading_model base = 5, max step_progress = 10 → caps at 15%
+                            mapped = min(int(percent * 0.10), 10)
+                            self._update_progress(
+                                video_record, "downloading_model", mapped, progress_callback
+                            )
                             if percent >= 100:
                                 tts_progress["model_loaded"] = True
-                                self._update_progress(video_record, "tts_synthesizing", 0, progress_callback)
+                                self._update_progress(
+                                    video_record, "tts_synthesizing", 0, progress_callback
+                                )
 
-                    # Try to use the progress-aware synthesize if available
                     try:
                         audio_duration = await asyncio.to_thread(
                             tts_engine.synthesize,
@@ -325,8 +329,9 @@ class VideoPipeline:
                             progress_callback=tts_load_callback,
                         )
                     except TypeError:
-                        # Fallback if synthesize doesn't accept progress_callback
-                        self._update_progress(video_record, "downloading_model", 50, progress_callback)
+                        # Fallback: synthesize doesn't accept progress_callback
+                        self._update_progress(video_record, "downloading_model", 5, progress_callback)
+                        self._update_progress(video_record, "tts_synthesizing", 0, progress_callback)
                         audio_duration = await asyncio.to_thread(
                             tts_engine.synthesize,
                             narrative, voice_id, audio_path,

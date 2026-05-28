@@ -25,7 +25,7 @@ class LocalTTSProvider:
         if self.tts is None:
             try:
                 if progress_callback:
-                    progress_callback(10, "downloading_model")
+                    progress_callback(0, "downloading_model")
                 from TTS.api import TTS
                 self.tts = TTS(
                     model_name=self.model_name,
