@@ -196,7 +196,7 @@ export function SettingsPage() {
   const [defaultVoice, setDefaultVoice] = useState("default");
   const [voices, setVoices] = useState<{ id: string; name: string }[]>([]);
 
-  // ── FFmpeg video settings ──
+  //    FFmpeg video settings
   const [videoSettings, setVideoSettings] = useState({
     quality: "balanced",
     video_codec: "libx264",
@@ -284,7 +284,7 @@ export function SettingsPage() {
     };
   }, []);
 
-  // ── Voice settings ──
+  //    Voice settings
   useEffect(() => {
     if (ttsStatus?.voices) {
       setVoices(ttsStatus.voices);

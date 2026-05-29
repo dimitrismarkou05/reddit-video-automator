@@ -32,7 +32,7 @@ import { renderMarkdownLinks } from "@/lib/renderMarkdownLinks";
 // Terminal statuses that mean video generation is complete/failed/cancelled
 const TERMINAL_VIDEO_STATUSES = ["done", "failed", "cancelled"];
 
-/* ─── Meta line ─── */
+/*     Meta line     */
 function StoryMetaLine({ story }: { story: Story }) {
   return (
     <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
@@ -52,7 +52,7 @@ function StoryMetaLine({ story }: { story: Story }) {
   );
 }
 
-/* ─── Sidebar: jump links ─── */
+/*     Sidebar: jump links     */
 function UpdateSidebar({
   updates,
   activeId,
@@ -101,7 +101,7 @@ function UpdateSidebar({
   );
 }
 
-/* ─── Sidebar: story info ─── */
+/*     Sidebar: story info     */
 function StoryInfoSidebar({ story }: { story: Story }) {
   return (
     <div className="card p-4">
@@ -145,7 +145,7 @@ function StoryInfoSidebar({ story }: { story: Story }) {
   );
 }
 
-/* ─── Update section ─── */
+/*     Update section     */
 function UpdateSection({
   update,
   index,
@@ -208,7 +208,7 @@ function UpdateSection({
   );
 }
 
-/* ─── Actions for an individual update ─── */
+/*     Actions for an individual update     */
 function UpdateActions({
   update,
   canGenerate,
@@ -379,7 +379,7 @@ function UpdateActions({
   );
 }
 
-/* ─── Main page ─── */
+/*     Main page     */
 export function StoryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();

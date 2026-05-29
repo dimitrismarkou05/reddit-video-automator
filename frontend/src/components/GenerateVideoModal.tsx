@@ -291,7 +291,7 @@ export function GenerateVideoModal({
     return () => clearTimeout(timer);
   }, [settings.background_source]);
 
-  // ─── ELECTRON: Native file system dialogs ───
+  //     ELECTRON: Native file system dialogs
   const handleSelectFolderElectron = async () => {
     if (!window.electronAPI) return;
     const path = await window.electronAPI.selectDirectory();
@@ -306,7 +306,7 @@ export function GenerateVideoModal({
     if (path) setSettings((s) => ({ ...s, background_source: path }));
   };
 
-  // ─── BROWSER: File System Access API ───
+  //     BROWSER: File System Access API
   const uploadSingleFile = async (file: File) => {
     const formData = new FormData();
     formData.append("file", file);
@@ -405,7 +405,7 @@ export function GenerateVideoModal({
     }
   };
 
-  // ─── BROWSER FALLBACKS: Legacy <input> ───
+  //     BROWSER FALLBACKS: Legacy <input>
   const fallbackDirectoryUpload = () => {
     const input = document.createElement("input");
     input.type = "file";
@@ -428,7 +428,7 @@ export function GenerateVideoModal({
     input.click();
   };
 
-  // ─── Unified handlers ───
+  //     Unified handlers
   const handleSelectFolder = async () => {
     if (window.electronAPI) {
       await handleSelectFolderElectron();

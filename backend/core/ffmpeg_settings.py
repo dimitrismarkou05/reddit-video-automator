@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from core.settings_manager import SettingsManager
 
 
-# ── Quality Presets ───────────────────────────────────────────────
+#    Quality Presets                                                
 # Each quality level maps to a recommended CRF + preset combo.
 # Higher quality = slower encoding (more compression efficiency).
 QUALITY_PRESETS = {
@@ -18,20 +18,20 @@ QUALITY_PRESETS = {
     "archival":   {"preset": "slow",      "crf": "18", "label": "Archival (slowest)"},
 }
 
-# ── Video Codec Options ───────────────────────────────────────────
+#    Video Codec Options                                            
 VIDEO_CODECS = {
     "libx264":  "H.264 (libx264) — Best compatibility",
     "libx265":  "H.265 / HEVC (libx265) — Better compression",
     "libvpx-vp9": "VP9 (libvpx-vp9) — Web optimized",
 }
 
-# ── Preset Options ────────────────────────────────────────────────
+#    Preset Options                                                 
 PRESET_OPTIONS = [
     "ultrafast", "superfast", "veryfast", "faster", "fast",
     "medium", "slow", "slower", "veryslow",
 ]
 
-# ── Pixel Format Options ──────────────────────────────────────────
+#    Pixel Format Options                                           
 PIXEL_FORMATS = {
     "yuv420p":   "yuv420p — Best compatibility",
     "yuv444p":   "yuv444p — Full chroma (larger files)",
@@ -39,7 +39,7 @@ PIXEL_FORMATS = {
     "p010le":    "p010le — 10-bit (HDR support)",
 }
 
-# ── Audio Codec Options ───────────────────────────────────────────
+#    Audio Codec Options                                            
 AUDIO_CODECS = {
     "aac":       "AAC — Best compatibility",
     "libmp3lame": "MP3 — Wide support",
@@ -47,7 +47,7 @@ AUDIO_CODECS = {
     "flac":      "FLAC — Lossless (large files)",
 }
 
-# ── Audio Bitrate Options ─────────────────────────────────────────
+#    Audio Bitrate Options                                          
 AUDIO_BITRATES = {
     "96k":   "96 kbps — Low (voice only)",
     "128k":  "128 kbps — Standard",
@@ -56,7 +56,7 @@ AUDIO_BITRATES = {
     "320k":  "320 kbps — Maximum",
 }
 
-# ── Audio Sample Rate Options ─────────────────────────────────────
+#    Audio Sample Rate Options                                      
 AUDIO_SAMPLE_RATES = {
     "22050": "22050 Hz — Low",
     "44100": "44100 Hz — CD quality",
@@ -99,7 +99,7 @@ class FFmpegSettings:
     def __init__(self, db: Session):
         self._mgr = SettingsManager(db)
 
-    # ── Binary paths ────────────────────────────────────────────────
+    #    Binary paths                                                 
 
     def get_ffmpeg_path(self) -> Optional[str]:
         return self._mgr.get(self.FFMPEG_PATH_KEY)
@@ -135,7 +135,7 @@ class FFmpegSettings:
         ):
             self._mgr.set(key, "")
 
-    # ── Video generation settings ───────────────────────────────────
+    #    Video generation settings                                    
 
     def get_video_quality(self) -> str:
         return self._mgr.get(self.VIDEO_QUALITY_KEY, self.DEFAULT_QUALITY) or self.DEFAULT_QUALITY
