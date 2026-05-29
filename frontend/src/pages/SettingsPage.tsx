@@ -31,10 +31,6 @@ import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
 import { useTtsLocalStatus } from "@/hooks/useTtsLocalStatus";
 import toast from "react-hot-toast";
 
-/* ═════════════════════════════════════════════════════════════════
-   Custom Dropdown — matches existing codebase select pattern
-   (appearance-none + absolutely positioned ChevronDown icon)
-   ═════════════════════════════════════════════════════════════════ */
 interface CustomDropdownOption {
   value: string;
   label: string;
@@ -90,9 +86,6 @@ function CustomDropdown({
   );
 }
 
-/* ═════════════════════════════════════════════════════════════════
-   Quality config — maps to CRF + preset combos
-   ═════════════════════════════════════════════════════════════════ */
 const QUALITY_OPTIONS: CustomDropdownOption[] = [
   { value: "draft", label: "Draft — fastest, lowest quality" },
   { value: "fast", label: "Fast — good for quick previews" },
@@ -109,9 +102,9 @@ const QUALITY_SPEED_HINTS: Record<string, string> = {
   archival: "~5-10x slower than balanced. Maximum quality.",
 };
 
-/* ═════════════════════════════════════════════════════════════════
+/*                                                                  
    Advanced option configs
-   ═════════════════════════════════════════════════════════════════ */
+*/
 const VIDEO_CODEC_OPTIONS: CustomDropdownOption[] = [
   { value: "libx264", label: "H.264 (libx264) — Best compatibility" },
   { value: "libx265", label: "H.265 / HEVC (libx265) — Better compression" },
@@ -189,9 +182,6 @@ const VIDEO_BITRATE_OPTIONS: CustomDropdownOption[] = [
   { value: "20M", label: "20 Mbps — Near lossless" },
 ];
 
-/* ═════════════════════════════════════════════════════════════════
-   Main Settings Page
-   ═════════════════════════════════════════════════════════════════ */
 export function SettingsPage() {
   const { isDark, toggle } = useThemeStore();
   const { authStatus } = useAuthStore();
@@ -448,7 +438,7 @@ export function SettingsPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       <h2 className="text-2xl font-bold mb-6">Settings</h2>
 
-      {/* ═══ Video Generation Settings ═══ */}
+      {/*     Video Generation Settings     */}
       <SettingsSection title="Video Generation" icon={Film}>
         <div className="space-y-5">
           {/* Quality — always visible */}
