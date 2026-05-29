@@ -340,6 +340,14 @@ export const settingsApi = {
     api.get(`/settings/${key}`, { params: { decrypt } }),
   set: (key: string, value: string, encrypt?: boolean) =>
     api.post("/settings", { key, value, encrypt }),
+  batchGet: (keys: string[]) =>
+    api.get("/settings/batch/keys", { params: { keys: keys.join(",") } }),
+};
+
+export const ffmpegSettingsApi = {
+  getAll: () => api.get("/settings/ffmpeg/video"),
+  set: (key: string, value: string) =>
+    api.post("/settings/ffmpeg/video", { key, value }),
 };
 
 export const automationApi = {

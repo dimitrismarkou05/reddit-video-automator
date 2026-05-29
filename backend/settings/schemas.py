@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Dict, Optional
 from pydantic import BaseModel, field_serializer
 
 
@@ -21,3 +22,7 @@ class SettingsResponse(BaseModel):
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+
+class SettingsBulkResponse(BaseModel):
+    settings: Dict[str, Optional[str]]

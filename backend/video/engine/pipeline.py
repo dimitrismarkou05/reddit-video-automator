@@ -165,7 +165,7 @@ class VideoPipeline:
 
         freq = {}
         for word in words:
-            word = re.sub(r'[^\\w]', '', word)
+            word = re.sub(r'[^\w]', '', word)
             if len(word) > 3 and word not in stop_words:
                 freq[word] = freq.get(word, 0) + 1
 
@@ -232,6 +232,24 @@ class VideoPipeline:
         except Exception as e:
             logger.error(f"[Pipeline {video_record.id}] DB error commit during error recording: {e}")
 
+    def _get_ffmpeg_encode_params(self) -> dict:
+        """Load user's FFmpeg encode preferences from settings."""
+        try:
+            from core.ffmpeg_settings import FFmpegSettings
+            settings = FFmpegSettings(self.db)
+            return settings.get_effective_encode_params()
+        except Exception as e:
+            logger.warning(f"[Pipeline] Could not load FFmpeg settings, using defaults: {e}")
+            return {
+                "video_codec": "libx264",
+                "preset": "veryfast",
+                "crf": "23",
+                "pixel_format": "yuv420p",
+                "audio_codec": "aac",
+                "audio_bitrate": "192k",
+                "audio_sample_rate": "44100",
+            }
+
     async def generate(
         self,
         video_record: GeneratedVideo,
@@ -262,6 +280,10 @@ class VideoPipeline:
         if not video_record.thumbnail_path:
             video_record.thumbnail_path = str(output_folder / "thumbnail.jpg")
         self.db.commit()
+
+        # Load FFmpeg encode params from user settings
+        encode_params = self._get_ffmpeg_encode_params()
+        logger.info(f"[Pipeline {video_id}] FFmpeg encode params: {encode_params}")
 
         checkpoint = self._load_checkpoint(video_record)
 
@@ -312,7 +334,7 @@ class VideoPipeline:
                     def tts_load_callback(percent: int, step: str) -> None:
                         """Map TTS internal 0-100 to pipeline's 5-15% range."""
                         if not tts_progress["model_loaded"]:
-                            # downloading_model base = 5, max step_progress = 10 → caps at 15%
+                            # downloading_model base = 5, max step_progress = 10 -> caps at 15%
                             mapped = min(int(percent * 0.10), 10)
                             self._update_progress(
                                 video_record, "downloading_model", mapped, progress_callback
@@ -479,6 +501,7 @@ class VideoPipeline:
                     video_format=video_format,
                     audio_duration=video_record.duration_seconds,   # <-- pass stored duration
                     progress_callback=ff_callback,
+                    encode_params=encode_params,
                 )
                 video_record.duration_seconds = final_duration
                 video_record.status = VideoStatus.COMPOSITING_DONE.value

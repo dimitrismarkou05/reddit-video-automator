@@ -3,7 +3,7 @@
 import asyncio
 import subprocess
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 
 from core.config import FFMPEG_PATH
 from video.engine.utils import (
@@ -50,6 +50,7 @@ class FFmpegComposer:
         video_format: str = "shorts",
         audio_duration: Optional[float] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None,
+        encode_params: Optional[Dict[str, Any]] = None,
     ) -> float:
         target_w, target_h = calculate_target_dimensions(video_format)
 
@@ -79,6 +80,9 @@ class FFmpegComposer:
         else:
             filter_complex = f"{base_filter}[v]"
 
+        # Resolve encode parameters with sensible defaults
+        params = self._resolve_encode_params(encode_params)
+
         cmd = [
             self.ffmpeg_path,
             "-y",
@@ -88,18 +92,30 @@ class FFmpegComposer:
             "-filter_complex", filter_complex,
             "-map", "[v]",
             "-map", "1:a",
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "283",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-ar", "44100",
+            "-c:v", params["video_codec"],
+            "-preset", params["preset"],
+        ]
+
+        # Use CRF if no explicit bitrate is set
+        if params.get("crf"):
+            cmd.extend(["-crf", str(params["crf"])])
+        elif params.get("video_bitrate"):
+            cmd.extend(["-b:v", str(params["video_bitrate"])])
+        else:
+            # Fallback CRF
+            cmd.extend(["-crf", "23"])
+
+        cmd.extend([
+            "-c:a", params["audio_codec"],
+            "-b:a", params["audio_bitrate"],
+            "-ar", params["audio_sample_rate"],
             "-shortest",
             "-t", str(final_duration),
-            "-pix_fmt", "yuv420p",
+            "-pix_fmt", params["pixel_format"],
             "-movflags", "+faststart",
-            output_path,
-        ]
+        ])
+
+        cmd.append(output_path)
 
         self._cancelled = False
         self._process = None
@@ -190,3 +206,22 @@ class FFmpegComposer:
             raise FFmpegComposerError("Thumbnail frame extraction timed out")
         except Exception as exc:
             raise FFmpegComposerError(f"Frame extraction error: {exc}")
+
+    def _resolve_encode_params(self, encode_params: Optional[Dict[str, Any]]) -> Dict[str, str]:
+        """Merge user-provided encode params with sensible defaults."""
+        defaults = {
+            "video_codec": "libx264",
+            "preset": "veryfast",
+            "crf": "23",
+            "video_bitrate": "",
+            "pixel_format": "yuv420p",
+            "audio_codec": "aac",
+            "audio_bitrate": "192k",
+            "audio_sample_rate": "44100",
+        }
+        if encode_params:
+            # Only update keys that have a non-empty value
+            for key, value in encode_params.items():
+                if value is not None and str(value) != "":
+                    defaults[key] = str(value)
+        return defaults

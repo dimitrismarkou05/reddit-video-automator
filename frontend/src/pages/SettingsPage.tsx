@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Key,
   Film,
@@ -15,16 +15,183 @@ import {
   TestTube,
   Loader2,
   ChevronDown,
+  ChevronUp,
+  Clock,
+  Zap,
+  SlidersHorizontal,
+  Gauge,
+  Info,
 } from "lucide-react";
 import { useThemeStore, useAuthStore } from "@/store";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { FfmpegStatus } from "@/components/ffmpeg/FfmpegStatus";
 import { FfmpegInstallModal } from "@/components/ffmpeg/FfmpegInstallModal";
-import { ffmpegApi, settingsApi } from "@/services/api";
+import { ffmpegApi, settingsApi, ffmpegSettingsApi } from "@/services/api";
 import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
 import { useTtsLocalStatus } from "@/hooks/useTtsLocalStatus";
 import toast from "react-hot-toast";
 
+/* ═════════════════════════════════════════════════════════════════
+   Custom Dropdown — matches existing codebase select pattern
+   (appearance-none + absolutely positioned ChevronDown icon)
+   ═════════════════════════════════════════════════════════════════ */
+interface CustomDropdownOption {
+  value: string;
+  label: string;
+}
+
+interface CustomDropdownProps {
+  label: string;
+  value: string;
+  options: CustomDropdownOption[];
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  helpText?: string;
+  icon?: React.ReactNode;
+}
+
+function CustomDropdown({
+  label,
+  value,
+  options,
+  onChange,
+  disabled = false,
+  helpText,
+  icon,
+}: CustomDropdownProps) {
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1.5 flex items-center gap-1.5">
+        {icon && <span className="text-gray-400">{icon}</span>}
+        {label}
+      </label>
+      <div className="relative">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          className="input w-full appearance-none pr-10 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {options.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+      </div>
+      {helpText && (
+        <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+          <Info className="w-3 h-3" />
+          {helpText}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ═════════════════════════════════════════════════════════════════
+   Quality config — maps to CRF + preset combos
+   ═════════════════════════════════════════════════════════════════ */
+const QUALITY_OPTIONS: CustomDropdownOption[] = [
+  { value: "draft", label: "Draft — fastest, lowest quality" },
+  { value: "fast", label: "Fast — good for quick previews" },
+  { value: "balanced", label: "Balanced — recommended" },
+  { value: "quality", label: "High Quality — slower, better output" },
+  { value: "archival", label: "Archival — slowest, best quality" },
+];
+
+const QUALITY_SPEED_HINTS: Record<string, string> = {
+  draft: "~2-3x faster than balanced. Best for testing.",
+  fast: "~1.5x faster than balanced. Good for drafts.",
+  balanced: "Best balance of speed and quality.",
+  quality: "~2-3x slower than balanced. Noticeably better compression.",
+  archival: "~5-10x slower than balanced. Maximum quality.",
+};
+
+/* ═════════════════════════════════════════════════════════════════
+   Advanced option configs
+   ═════════════════════════════════════════════════════════════════ */
+const VIDEO_CODEC_OPTIONS: CustomDropdownOption[] = [
+  { value: "libx264", label: "H.264 (libx264) — Best compatibility" },
+  { value: "libx265", label: "H.265 / HEVC (libx265) — Better compression" },
+  { value: "libvpx-vp9", label: "VP9 (libvpx-vp9) — Web optimized" },
+];
+
+const PRESET_OPTIONS: CustomDropdownOption[] = [
+  { value: "ultrafast", label: "ultrafast — fastest encoding, largest file" },
+  { value: "superfast", label: "superfast" },
+  { value: "veryfast", label: "veryfast" },
+  { value: "faster", label: "faster" },
+  { value: "fast", label: "fast" },
+  { value: "medium", label: "medium — default" },
+  { value: "slow", label: "slow — better compression" },
+  { value: "slower", label: "slower" },
+  { value: "veryslow", label: "veryslow — best compression, slowest" },
+];
+
+const PIXEL_FORMAT_OPTIONS: CustomDropdownOption[] = [
+  { value: "yuv420p", label: "yuv420p — Best compatibility" },
+  { value: "yuv444p", label: "yuv444p — Full chroma (larger files)" },
+  { value: "yuv422p", label: "yuv422p — Balanced chroma" },
+  { value: "p010le", label: "p010le — 10-bit (HDR support)" },
+];
+
+const AUDIO_CODEC_OPTIONS: CustomDropdownOption[] = [
+  { value: "aac", label: "AAC — Best compatibility" },
+  { value: "libmp3lame", label: "MP3 — Wide support" },
+  { value: "libopus", label: "Opus — Best quality at low bitrates" },
+  { value: "flac", label: "FLAC — Lossless (large files)" },
+];
+
+const AUDIO_BITRATE_OPTIONS: CustomDropdownOption[] = [
+  { value: "96k", label: "96 kbps — Low (voice only)" },
+  { value: "128k", label: "128 kbps — Standard" },
+  { value: "192k", label: "192 kbps — Good quality" },
+  { value: "256k", label: "256 kbps — High quality" },
+  { value: "320k", label: "320 kbps — Maximum" },
+];
+
+const AUDIO_SAMPLE_RATE_OPTIONS: CustomDropdownOption[] = [
+  { value: "22050", label: "22050 Hz — Low" },
+  { value: "44100", label: "44100 Hz — CD quality" },
+  { value: "48000", label: "48000 Hz — Standard video" },
+  { value: "96000", label: "96000 Hz — High-res audio" },
+];
+
+const CRF_OPTIONS: CustomDropdownOption[] = Array.from(
+  { length: 18 },
+  (_, i) => {
+    const crf = i + 17; // 17 to 34
+    const labels: Record<number, string> = {
+      17: "17 — Visually lossless",
+      18: "18 — Nearly lossless",
+      20: "20 — High quality",
+      23: "23 — Default (balanced)",
+      26: "26 — Good compression",
+      28: "28 — Aggressive compression",
+      30: "30 — Smaller files",
+    };
+    return {
+      value: String(crf),
+      label: labels[crf] || `CRF ${crf}`,
+    };
+  },
+);
+
+const VIDEO_BITRATE_OPTIONS: CustomDropdownOption[] = [
+  { value: "", label: "Auto (use CRF — recommended)" },
+  { value: "1M", label: "1 Mbps — Low" },
+  { value: "2M", label: "2 Mbps" },
+  { value: "4M", label: "4 Mbps — Standard" },
+  { value: "8M", label: "8 Mbps — High" },
+  { value: "12M", label: "12 Mbps — Very high" },
+  { value: "20M", label: "20 Mbps — Near lossless" },
+];
+
+/* ═════════════════════════════════════════════════════════════════
+   Main Settings Page
+   ═════════════════════════════════════════════════════════════════ */
 export function SettingsPage() {
   const { isDark, toggle } = useThemeStore();
   const { authStatus } = useAuthStore();
@@ -39,9 +206,95 @@ export function SettingsPage() {
   const [defaultVoice, setDefaultVoice] = useState("default");
   const [voices, setVoices] = useState<{ id: string; name: string }[]>([]);
 
+  // ── FFmpeg video settings ──
+  const [videoSettings, setVideoSettings] = useState({
+    quality: "balanced",
+    video_codec: "libx264",
+    video_preset: "veryfast",
+    video_crf: "23",
+    video_bitrate: "",
+    pixel_format: "yuv420p",
+    audio_codec: "aac",
+    audio_bitrate: "192k",
+    audio_sample_rate: "44100",
+  });
+  const [isLoadingVideoSettings, setIsLoadingVideoSettings] = useState(true);
+  const [showAdvancedVideo, setShowAdvancedVideo] = useState(false);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const { status: ffmpegStatus, refetch: refetchFfmpeg } = useFfmpegStatus();
   const { data: ttsStatus } = useTtsLocalStatus();
 
+  // Load video generation settings on mount
+  useEffect(() => {
+    const loadVideoSettings = async () => {
+      try {
+        const { data } = await ffmpegSettingsApi.getAll();
+        if (data) {
+          setVideoSettings({
+            quality: data.quality ?? "balanced",
+            video_codec: data.video_codec ?? "libx264",
+            video_preset: data.video_preset ?? "veryfast",
+            video_crf: data.video_crf ?? "23",
+            video_bitrate: data.video_bitrate ?? "",
+            pixel_format: data.pixel_format ?? "yuv420p",
+            audio_codec: data.audio_codec ?? "aac",
+            audio_bitrate: data.audio_bitrate ?? "192k",
+            audio_sample_rate: data.audio_sample_rate ?? "44100",
+          });
+        }
+      } catch (e: any) {
+        console.debug("Failed to load video settings:", e);
+      } finally {
+        setIsLoadingVideoSettings(false);
+      }
+    };
+    loadVideoSettings();
+  }, []);
+
+  // Auto-save a video setting (debounced)
+  const saveVideoSetting = useCallback(async (key: string, value: string) => {
+    try {
+      await ffmpegSettingsApi.set(key, value);
+      console.debug(`[Settings] Saved ${key} = ${value}`);
+    } catch (e: any) {
+      toast.error(`Failed to save ${key}`);
+      console.error(`[Settings] Failed to save ${key}:`, e);
+    }
+  }, []);
+
+  // Debounced save for settings that change rapidly
+  const queueSave = useCallback(
+    (key: string, value: string) => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      saveTimeoutRef.current = setTimeout(() => {
+        saveVideoSetting(key, value);
+      }, 400);
+    },
+    [saveVideoSetting],
+  );
+
+  // Update a video setting: update local state immediately, save to backend
+  const updateVideoSetting = useCallback(
+    (key: string, value: string) => {
+      setVideoSettings((prev) => ({ ...prev, [key]: value }));
+      queueSave(key, value);
+    },
+    [queueSave],
+  );
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // ── Voice settings ──
   useEffect(() => {
     if (ttsStatus?.voices) {
       setVoices(ttsStatus.voices);
@@ -173,12 +426,192 @@ export function SettingsPage() {
     }
   };
 
+  // Quality badge color based on level
+  const qualityBadgeColor = (() => {
+    switch (videoSettings.quality) {
+      case "draft":
+        return "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400";
+      case "fast":
+        return "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400";
+      case "balanced":
+        return "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400";
+      case "quality":
+        return "bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400";
+      case "archival":
+        return "bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400";
+      default:
+        return "bg-gray-100 dark:bg-gray-800 text-gray-600";
+    }
+  })();
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <h2 className="text-2xl font-bold mb-6">Settings</h2>
 
+      {/* ═══ Video Generation Settings ═══ */}
       <SettingsSection title="Video Generation" icon={Film}>
-        <div className="space-y-4">
+        <div className="space-y-5">
+          {/* Quality — always visible */}
+          <div className="p-4 bg-surface-light dark:bg-surface-dark rounded-xl border border-border-light dark:border-border-dark">
+            <div className="flex items-center gap-2 mb-3">
+              <Gauge className="w-4 h-4 text-primary" />
+              <h4 className="text-sm font-semibold">Output Quality</h4>
+              <span
+                className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium ${qualityBadgeColor}`}
+              >
+                {QUALITY_OPTIONS.find(
+                  (o) => o.value === videoSettings.quality,
+                )?.label.split(" — ")[0] || videoSettings.quality}
+              </span>
+            </div>
+
+            {isLoadingVideoSettings ? (
+              <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Loading settings...
+              </div>
+            ) : (
+              <>
+                <CustomDropdown
+                  label="Quality Preset"
+                  value={videoSettings.quality}
+                  options={QUALITY_OPTIONS}
+                  onChange={(val) => updateVideoSetting("quality", val)}
+                  icon={<Film className="w-3.5 h-3.5" />}
+                />
+
+                {/* Speed hint */}
+                <div className="mt-3 flex items-start gap-2 p-2.5 rounded-lg bg-primary/5 dark:bg-primary/10 border border-primary/10">
+                  <Clock className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                  <p className="text-xs text-gray-600 dark:text-gray-300">
+                    {QUALITY_SPEED_HINTS[videoSettings.quality]}
+                  </p>
+                </div>
+
+                {/* Quality scale visual */}
+                <div className="mt-3">
+                  <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                    <span className="flex items-center gap-1">
+                      <Zap className="w-3 h-3" />
+                      Faster
+                    </span>
+                    <span className="flex items-center gap-1">
+                      Higher Quality
+                      <Gauge className="w-3 h-3" />
+                    </span>
+                  </div>
+                  <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-linear-to-r from-gray-400 via-primary to-purple-500 rounded-full transition-all duration-500"
+                      style={{
+                        width: `${((QUALITY_OPTIONS.findIndex((o) => o.value === videoSettings.quality) + 1) / QUALITY_OPTIONS.length) * 100}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Advanced Video Settings — collapsible */}
+          <div className="border border-border-light dark:border-border-dark rounded-xl overflow-hidden">
+            <button
+              onClick={() => setShowAdvancedVideo((v) => !v)}
+              className="cursor-pointer w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4 text-gray-500" />
+                <span className="text-sm font-medium">
+                  Advanced Video Settings
+                </span>
+              </div>
+              {showAdvancedVideo ? (
+                <ChevronUp className="w-4 h-4 text-gray-400" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-gray-400" />
+              )}
+            </button>
+
+            {showAdvancedVideo && (
+              <div className="p-4 pt-0 space-y-4 border-t border-border-light dark:border-border-dark">
+                <p className="text-xs text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 p-2.5 rounded-lg flex items-start gap-1.5">
+                  <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  Changes apply to the next video you generate. These settings
+                  override the quality preset.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <CustomDropdown
+                    label="Video Codec"
+                    value={videoSettings.video_codec}
+                    options={VIDEO_CODEC_OPTIONS}
+                    onChange={(val) => updateVideoSetting("video_codec", val)}
+                    helpText="H.264 works everywhere. H.265 is smaller but slower."
+                  />
+
+                  <CustomDropdown
+                    label="Encoding Preset"
+                    value={videoSettings.video_preset}
+                    options={PRESET_OPTIONS}
+                    onChange={(val) => updateVideoSetting("video_preset", val)}
+                    helpText="Slower presets = smaller files, longer encode."
+                  />
+
+                  <CustomDropdown
+                    label="CRF (Quality)"
+                    value={videoSettings.video_crf}
+                    options={CRF_OPTIONS}
+                    onChange={(val) => updateVideoSetting("video_crf", val)}
+                    helpText="Lower = better quality, larger file. 23 is default."
+                  />
+
+                  <CustomDropdown
+                    label="Video Bitrate"
+                    value={videoSettings.video_bitrate}
+                    options={VIDEO_BITRATE_OPTIONS}
+                    onChange={(val) => updateVideoSetting("video_bitrate", val)}
+                    helpText="Overrides CRF when set. Leave auto for best results."
+                  />
+
+                  <CustomDropdown
+                    label="Pixel Format"
+                    value={videoSettings.pixel_format}
+                    options={PIXEL_FORMAT_OPTIONS}
+                    onChange={(val) => updateVideoSetting("pixel_format", val)}
+                    helpText="yuv420p is safest for compatibility."
+                  />
+
+                  <CustomDropdown
+                    label="Audio Codec"
+                    value={videoSettings.audio_codec}
+                    options={AUDIO_CODEC_OPTIONS}
+                    onChange={(val) => updateVideoSetting("audio_codec", val)}
+                    helpText="AAC is the universal standard."
+                  />
+
+                  <CustomDropdown
+                    label="Audio Bitrate"
+                    value={videoSettings.audio_bitrate}
+                    options={AUDIO_BITRATE_OPTIONS}
+                    onChange={(val) => updateVideoSetting("audio_bitrate", val)}
+                    helpText="192k is good quality for voice."
+                  />
+
+                  <CustomDropdown
+                    label="Audio Sample Rate"
+                    value={videoSettings.audio_sample_rate}
+                    options={AUDIO_SAMPLE_RATE_OPTIONS}
+                    onChange={(val) =>
+                      updateVideoSetting("audio_sample_rate", val)
+                    }
+                    helpText="44100 Hz matches CD audio."
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Default Voice */}
           <div>
             <label className="block text-sm font-medium mb-1">
               Default Voice
@@ -218,6 +651,7 @@ export function SettingsPage() {
             )}
           </div>
 
+          {/* Output Directory */}
           <div>
             <label className="block text-sm font-medium mb-1">
               Output Directory
@@ -239,6 +673,7 @@ export function SettingsPage() {
             </div>
           </div>
 
+          {/* Default Video Format */}
           <div>
             <label className="block text-sm font-medium mb-1">
               Default Video Format
@@ -257,6 +692,7 @@ export function SettingsPage() {
             </div>
           </div>
 
+          {/* TTS Status */}
           <div className="border-t border-border-light dark:border-border-dark pt-4">
             <h4 className="text-sm font-medium mb-2">Text-to-Speech</h4>
             {ttsStatus?.installed ? (
