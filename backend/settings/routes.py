@@ -19,12 +19,6 @@ def set_setting(data: SettingsUpdate, db: Session = Depends(get_db)):
     setting = mgr.set(data.key, data.value, encrypt_value=data.encrypt)
     return setting
 
-
-# ═══════════════════════════════════════════════════════════════════
-# Specific paths MUST be registered BEFORE /{key} so FastAPI
-# matches them in the correct order.
-# ═══════════════════════════════════════════════════════════════════
-
 @router.get("/batch/keys", response_model=Dict[str, Optional[str]])
 def get_settings_batch(keys: str, db: Session = Depends(get_db)):
     """Get multiple settings at once. Pass keys as comma-separated query param."""
@@ -73,12 +67,6 @@ def set_ffmpeg_video_setting(data: SettingsUpdate, db: Session = Depends(get_db)
         settings.apply_quality_preset(value)
 
     return {"key": key, "value": value, "success": True}
-
-
-# ═══════════════════════════════════════════════════════════════════
-# Generic /{key} catch-all — must be LAST to avoid shadowing
-# the more specific routes above.
-# ═══════════════════════════════════════════════════════════════════
 
 @router.get("/{key}", response_model=SettingsResponse)
 def get_setting(key: str, decrypt: bool = False, db: Session = Depends(get_db)):
