@@ -1,16 +1,15 @@
-"""Async FFmpeg video composer with timeout, proper stream handling, and debug logging."""
+"""FFmpeg video composer using thread-pool for cross-platform compatibility."""
 
 import asyncio
-import os
 import subprocess
 from pathlib import Path
 from typing import Optional, Callable
 
-from core.config import FFMPEG_PATH, VIDEO_FORMATS
+from core.config import FFMPEG_PATH
 from video.engine.utils import (
     get_video_info,
     calculate_target_dimensions,
-    select_background_video,
+    get_audio_duration,
 )
 
 
@@ -21,7 +20,7 @@ class FFmpegComposerError(Exception):
 class FFmpegComposer:
     def __init__(self, ffmpeg_path: str = FFMPEG_PATH):
         self.ffmpeg_path = ffmpeg_path
-        self._current_process: Optional[asyncio.subprocess.Process] = None
+        self._process: Optional[subprocess.Popen] = None
         self._cancelled = False
 
     def _validate_ffmpeg(self):
@@ -36,9 +35,9 @@ class FFmpegComposer:
     def cancel(self) -> None:
         """Cancel the current FFmpeg operation."""
         self._cancelled = True
-        if self._current_process:
+        if self._process:
             try:
-                self._current_process.kill()
+                self._process.kill()
             except Exception:
                 pass
 
@@ -49,22 +48,34 @@ class FFmpegComposer:
         subtitle_path: Optional[str],
         output_path: str,
         video_format: str = "shorts",
+        audio_duration: Optional[float] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> float:
         target_w, target_h = calculate_target_dimensions(video_format)
 
-        bg_duration, bg_w, bg_h = get_video_info(background_video)
-        audio_duration, _, _ = get_video_info(audio_path)
+        # Get background info (not strictly needed but kept for consistency)
+        get_video_info(background_video)
+
+        # Determine final duration
+        if audio_duration is None:
+            audio_duration = get_audio_duration(audio_path)
         final_duration = audio_duration
 
+        # Build base filter
         base_filter = (
             f"[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
             f"crop={target_w}:{target_h}"
         )
 
         if subtitle_path and Path(subtitle_path).exists():
-            sub_path_escaped = str(subtitle_path).replace("\\", "/").replace(":", "\\:")
-            filter_complex = f"{base_filter},subtitles={sub_path_escaped}[v]"
+            # Convert Windows backslashes to forward slashes
+            sub_path = str(subtitle_path).replace("\\", "/")
+            # Escape colon after drive letter (e.g., C:/ -> C\:/)
+            if ':' in sub_path:
+                # Replace first colon with \:
+                sub_path = sub_path.replace(':', '\\:', 1)
+            # Use filename= option and wrap in single quotes for safety
+            filter_complex = f"{base_filter},subtitles=filename='{sub_path}'[v]"
         else:
             filter_complex = f"{base_filter}[v]"
 
@@ -78,8 +89,8 @@ class FFmpegComposer:
             "-map", "[v]",
             "-map", "1:a",
             "-c:v", "libx264",
-            "-preset", "fast",
-            "-crf", "23",
+            "-preset", "ultrafast",
+            "-crf", "283",
             "-c:a", "aac",
             "-b:a", "192k",
             "-ar", "44100",
@@ -91,31 +102,28 @@ class FFmpegComposer:
         ]
 
         self._cancelled = False
-        self._current_process = None
+        self._process = None
 
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+        # Synchronous runner that reads stdout and stderr separately
+        def run_ffmpeg():
+            self._process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
             )
-            self._current_process = process
-
             last_progress = 0
-            while True:
+            # Read stdout line by line for progress
+            for line in iter(self._process.stdout.readline, ""):
                 if self._cancelled:
-                    process.kill()
+                    self._process.kill()
+                    self._process.wait()
                     raise FFmpegComposerError("FFmpeg composition was cancelled")
 
-                line = await process.stdout.readline()
-                if not line:
-                    break
-
-                line_str = line.decode("utf-8", errors="replace")
-
-                if progress_callback and "time=" in line_str:
+                if progress_callback and "time=" in line:
                     try:
-                        time_str = line_str.split("time=")[1].split()[0]
+                        time_str = line.split("time=")[1].split()[0]
                         h, m, s = time_str.split(":")
                         current_sec = float(h) * 3600 + float(m) * 60 + float(s)
                         percent = min(int((current_sec / final_duration) * 100), 99)
@@ -125,16 +133,19 @@ class FFmpegComposer:
                     except (IndexError, ValueError):
                         pass
 
-            # Wait with timeout
-            try:
-                returncode = await asyncio.wait_for(process.wait(), timeout=3600)
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
-                raise FFmpegComposerError("FFmpeg composition timed out after 1 hour")
+            # Wait for process and capture stderr
+            returncode = self._process.wait()
+            stderr = self._process.stderr.read()
+            return returncode, stderr
 
+        # Run in thread
+        try:
+            returncode, stderr = await asyncio.to_thread(run_ffmpeg)
             if returncode != 0:
-                raise FFmpegComposerError(f"FFmpeg failed with code {returncode}")
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"FFmpeg stderr:\n{stderr}")
+                raise FFmpegComposerError(f"FFmpeg failed with code {returncode}. See logs for details.")
 
             if progress_callback:
                 progress_callback(100, "compositing complete")
@@ -142,8 +153,10 @@ class FFmpegComposer:
             out_duration, _, _ = get_video_info(output_path)
             return out_duration
 
+        except Exception as exc:
+            raise FFmpegComposerError(f"FFmpeg composition error: {exc}")
         finally:
-            self._current_process = None
+            self._process = None
 
     async def extract_thumbnail_frame(
         self,
@@ -160,21 +173,20 @@ class FFmpegComposer:
             "-q:v", "2",
             output_path,
         ]
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            try:
-                _, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
-            except asyncio.TimeoutError:
-                process.kill()
-                raise FFmpegComposerError("Thumbnail frame extraction timed out")
 
-            if process.returncode != 0:
-                raise FFmpegComposerError(f"Frame extraction failed: {stderr.decode()}")
-        except FFmpegComposerError:
-            raise
+        def run_thumbnail():
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0:
+                raise FFmpegComposerError(f"Frame extraction failed: {result.stderr}")
+
+        try:
+            await asyncio.to_thread(run_thumbnail)
+        except subprocess.TimeoutExpired:
+            raise FFmpegComposerError("Thumbnail frame extraction timed out")
         except Exception as exc:
             raise FFmpegComposerError(f"Frame extraction error: {exc}")

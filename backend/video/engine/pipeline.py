@@ -25,6 +25,7 @@ from video.engine.utils import (
 )
 from video.schemas import SubtitleStyle
 from notifications.sse import notification_queue
+from ffmpeg import ensure_ffmpeg_in_path
 
 logger = logging.getLogger(__name__)
 
@@ -362,6 +363,15 @@ class VideoPipeline:
             if checkpoint.get("step", "tts_done") in ("queued", "preparing", "tts_done", "failed"):
                 self.check_cancelled(video_record)
                 self._update_progress(video_record, "transcribing", 0, progress_callback)
+                
+                # Explicitly ensure FFmpeg is in PATH for Whisper
+                if not ensure_ffmpeg_in_path():
+                    raise VideoPipelineError("FFmpeg not found. Please install FFmpeg in Settings.")
+                
+                logger.info(f"[Pipeline {video_id}] Starting transcription")
+                whisper_result = await asyncio.to_thread(
+                    self.subtitle_gen.transcribe, str(audio_path)
+                )
 
                 logger.info(f"[Pipeline {video_id}] Starting transcription")
                 whisper_result = await asyncio.to_thread(
@@ -467,6 +477,7 @@ class VideoPipeline:
                     str(subtitle_path) if Path(subtitle_path).exists() else None,
                     str(output_folder / "video.mp4"),
                     video_format=video_format,
+                    audio_duration=video_record.duration_seconds,   # <-- pass stored duration
                     progress_callback=ff_callback,
                 )
                 video_record.duration_seconds = final_duration
