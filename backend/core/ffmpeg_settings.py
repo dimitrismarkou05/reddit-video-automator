@@ -7,16 +7,90 @@ from sqlalchemy.orm import Session
 from core.settings_manager import SettingsManager
 
 
-#    Quality Presets                                                
+#    Quality Presets
 # Each quality level maps to a recommended CRF + preset combo.
 # Higher quality = slower encoding (more compression efficiency).
+# render_factor is relative to balanced (~veryfast) for a typical 3-minute clip.
 QUALITY_PRESETS = {
-    "draft":      {"preset": "ultrafast", "crf": "28", "label": "Draft (fastest)"},
-    "fast":       {"preset": "superfast", "crf": "26", "label": "Fast"},
-    "balanced":   {"preset": "veryfast",  "crf": "23", "label": "Balanced"},
-    "quality":    {"preset": "medium",    "crf": "20", "label": "High Quality"},
-    "archival":   {"preset": "slow",      "crf": "18", "label": "Archival (slowest)"},
+    "draft": {
+        "preset": "ultrafast",
+        "crf": "28",
+        "label": "Draft (fastest)",
+        "render_time_hint": "~2-3x faster than balanced. Best for testing.",
+    },
+    "fast": {
+        "preset": "superfast",
+        "crf": "26",
+        "label": "Fast",
+        "render_time_hint": "~1.5x faster than balanced. Good for drafts.",
+    },
+    "balanced": {
+        "preset": "veryfast",
+        "crf": "23",
+        "label": "Balanced",
+        "render_time_hint": "Recommended default. Good speed/quality balance.",
+    },
+    "quality": {
+        "preset": "medium",
+        "crf": "20",
+        "label": "High Quality",
+        "render_time_hint": "~2-3x slower than balanced. Better compression.",
+    },
+    "archival": {
+        "preset": "slow",
+        "crf": "18",
+        "label": "Archival (slowest)",
+        "render_time_hint": "~5-10x slower than balanced. Use for final exports only.",
+    },
 }
+
+SLOW_PRESETS = frozenset({"slow", "slower", "veryslow"})
+
+# Relative encode time vs balanced (veryfast). Used for timeout scaling and UI hints.
+PRESET_RENDER_FACTORS: Dict[str, float] = {
+    "ultrafast": 0.5,
+    "superfast": 0.7,
+    "veryfast": 1.0,
+    "faster": 1.2,
+    "fast": 1.5,
+    "medium": 2.5,
+    "slow": 5.0,
+    "slower": 7.0,
+    "veryslow": 10.0,
+}
+
+PRESET_RENDER_TIME_HINTS: Dict[str, str] = {
+    "ultrafast": "~0.5x balanced encode time. Largest files.",
+    "superfast": "~0.7x balanced encode time.",
+    "veryfast": "Baseline speed (balanced default).",
+    "faster": "~1.2x balanced encode time.",
+    "fast": "~1.5x balanced encode time.",
+    "medium": "~2.5x balanced encode time.",
+    "slow": "~5x balanced encode time. Significantly longer compositing.",
+    "slower": "~7x balanced encode time. Not recommended for routine use.",
+    "veryslow": "~10x balanced encode time. May take many minutes per video.",
+}
+
+
+def get_preset_timeout_multiplier(preset: str) -> float:
+    """Scale compose watchdog timeout by encoding preset slowness."""
+    return max(PRESET_RENDER_FACTORS.get(preset, 1.0), 1.0)
+
+
+def get_slow_preset_warning(preset: str, quality: str) -> Optional[str]:
+    """Return a user-facing warning when encode settings are unusually slow."""
+    if quality == "archival":
+        return (
+            "Archival quality uses the slow preset and can take 5-10x longer to "
+            "composite than balanced. Consider balanced or fast for everyday videos."
+        )
+    if preset in SLOW_PRESETS:
+        factor = PRESET_RENDER_FACTORS.get(preset, 5.0)
+        return (
+            f"Encoding preset '{preset}' is ~{factor:.0f}x slower than balanced. "
+            "Compositing may take several minutes even for short videos."
+        )
+    return None
 
 #    Video Codec Options                                            
 VIDEO_CODECS = {
@@ -201,9 +275,14 @@ class FFmpegSettings:
         # but allow overrides if the user has explicitly changed them.
         quality_data = QUALITY_PRESETS.get(quality, QUALITY_PRESETS[self.DEFAULT_QUALITY])
 
+        slow_warning = get_slow_preset_warning(preset, quality)
         return {
             "quality": quality,
             "quality_label": quality_data["label"],
+            "quality_render_time_hint": quality_data.get(
+                "render_time_hint",
+                QUALITY_PRESETS[self.DEFAULT_QUALITY]["render_time_hint"],
+            ),
             "video_codec": self.get_video_codec(),
             "video_preset": preset,
             "video_crf": crf,
@@ -212,6 +291,11 @@ class FFmpegSettings:
             "audio_codec": self.get_audio_codec(),
             "audio_bitrate": self.get_audio_bitrate(),
             "audio_sample_rate": self.get_audio_sample_rate(),
+            "preset_render_time_hint": PRESET_RENDER_TIME_HINTS.get(
+                preset, PRESET_RENDER_TIME_HINTS[self.DEFAULT_PRESET]
+            ),
+            "is_slow_encoding": bool(slow_warning),
+            "slow_preset_warning": slow_warning,
         }
 
     def get_effective_encode_params(self) -> Dict[str, str]:

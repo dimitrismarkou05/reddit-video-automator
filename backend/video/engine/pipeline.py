@@ -3,6 +3,7 @@ import json
 import logging
 import re
 import shutil
+import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,6 +81,8 @@ class VideoPipeline:
         self._cancelled = False
         self._paused = False
         self._progress_callback: Optional[Callable[[int, str], None]] = None
+        self._progress_throttle_at: dict[str, float] = {}
+        self._progress_throttle_pct: dict[str, int] = {}
 
     def _update_progress(
         self,
@@ -87,10 +90,13 @@ class VideoPipeline:
         step: str,
         step_progress: int = 0,
         callback: Optional[Callable[[int, str], None]] = None,
+        throttle_sec: float = 0.0,
+        force: bool = False,
     ) -> None:
         """Update video progress in DB and call optional callback.
         
         FIX: Ensure progress never decreases (monotonic).
+        throttle_sec: minimum seconds between DB commits for the same step.
         """
         try:
             base_percent = STEP_PROGRESS.get(step, 0)
@@ -99,6 +105,19 @@ class VideoPipeline:
             # CRITICAL FIX: Never decrease progress
             if video_record.progress_percent is not None and new_percent < video_record.progress_percent:
                 new_percent = video_record.progress_percent
+
+            if throttle_sec > 0 and not force:
+                throttle_key = f"{video_record.id}:{step}"
+                now = time.monotonic()
+                last_at = self._progress_throttle_at.get(throttle_key, 0.0)
+                last_pct = self._progress_throttle_pct.get(throttle_key, -1)
+                if (
+                    now - last_at < throttle_sec
+                    and new_percent <= last_pct + 1
+                ):
+                    return
+                self._progress_throttle_at[throttle_key] = now
+                self._progress_throttle_pct[throttle_key] = new_percent
             
             video_record.progress_percent = new_percent
             video_record.current_step = step
@@ -112,6 +131,35 @@ class VideoPipeline:
                     logger.warning(f"[Pipeline {video_record.id}] Progress callback error: {cb_err}")
         except Exception as db_err:
             logger.error(f"[Pipeline {video_record.id}] DB progress update error: {db_err}")
+
+    async def _run_in_thread_with_heartbeat(
+        self,
+        video_record: GeneratedVideo,
+        step: str,
+        fn: Callable,
+        *args,
+        heartbeat_callback: Optional[Callable[[int, str], None]] = None,
+        heartbeat_interval: float = 15.0,
+        max_step_progress: int = 14,
+        **fn_kwargs,
+    ):
+        """Run blocking work in a thread while emitting throttled progress heartbeats."""
+        task = asyncio.create_task(asyncio.to_thread(fn, *args, **fn_kwargs))
+        heartbeat_idx = 0
+        while not task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=heartbeat_interval)
+                break
+            except asyncio.TimeoutError:
+                heartbeat_idx = min(heartbeat_idx + 1, max_step_progress)
+                self._update_progress(
+                    video_record,
+                    step,
+                    heartbeat_idx,
+                    heartbeat_callback,
+                    throttle_sec=heartbeat_interval * 0.9,
+                )
+        return await task
 
     def _save_checkpoint(
         self,
@@ -237,7 +285,9 @@ class VideoPipeline:
         try:
             from core.ffmpeg_settings import FFmpegSettings
             settings = FFmpegSettings(self.db)
-            return settings.get_effective_encode_params()
+            params = settings.get_effective_encode_params()
+            params["quality"] = settings.get_video_quality()
+            return params
         except Exception as e:
             logger.warning(f"[Pipeline] Could not load FFmpeg settings, using defaults: {e}")
             return {
@@ -248,6 +298,7 @@ class VideoPipeline:
                 "audio_codec": "aac",
                 "audio_bitrate": "192k",
                 "audio_sample_rate": "44100",
+                "quality": "balanced",
             }
 
     async def generate(
@@ -344,20 +395,44 @@ class VideoPipeline:
                                 self._update_progress(
                                     video_record, "tts_synthesizing", 0, progress_callback
                                 )
+                        elif step == "tts_synthesizing":
+                            # Coarse synthesis progress within tts_synthesizing (15-29%)
+                            mapped = min(int(percent * 0.14), 14)
+                            self._update_progress(
+                                video_record,
+                                "tts_synthesizing",
+                                mapped,
+                                progress_callback,
+                                throttle_sec=5.0,
+                            )
 
                     try:
-                        audio_duration = await asyncio.to_thread(
+                        audio_duration = await self._run_in_thread_with_heartbeat(
+                            video_record,
+                            "tts_synthesizing",
                             tts_engine.synthesize,
-                            narrative, voice_id, audio_path,
+                            narrative,
+                            voice_id,
+                            audio_path,
+                            heartbeat_callback=progress_callback,
                             progress_callback=tts_load_callback,
+                            heartbeat_interval=15.0,
+                            max_step_progress=14,
                         )
                     except TypeError:
                         # Fallback: synthesize doesn't accept progress_callback
                         self._update_progress(video_record, "downloading_model", 5, progress_callback)
                         self._update_progress(video_record, "tts_synthesizing", 0, progress_callback)
-                        audio_duration = await asyncio.to_thread(
+                        audio_duration = await self._run_in_thread_with_heartbeat(
+                            video_record,
+                            "tts_synthesizing",
                             tts_engine.synthesize,
-                            narrative, voice_id, audio_path,
+                            narrative,
+                            voice_id,
+                            audio_path,
+                            heartbeat_callback=progress_callback,
+                            heartbeat_interval=15.0,
+                            max_step_progress=14,
                         )
 
                     logger.info(f"[Pipeline {video_id}] TTS synthesis complete, duration={audio_duration:.1f}s")
@@ -391,13 +466,14 @@ class VideoPipeline:
                     raise VideoPipelineError("FFmpeg not found. Please install FFmpeg in Settings.")
                 
                 logger.info(f"[Pipeline {video_id}] Starting transcription")
-                whisper_result = await asyncio.to_thread(
-                    self.subtitle_gen.transcribe, str(audio_path)
-                )
-
-                logger.info(f"[Pipeline {video_id}] Starting transcription")
-                whisper_result = await asyncio.to_thread(
-                    self.subtitle_gen.transcribe, str(audio_path)
+                whisper_result = await self._run_in_thread_with_heartbeat(
+                    video_record,
+                    "transcribing",
+                    self.subtitle_gen.transcribe,
+                    str(audio_path),
+                    heartbeat_callback=progress_callback,
+                    heartbeat_interval=15.0,
+                    max_step_progress=9,
                 )
 
                 video_record.whisper_result_json = whisper_result
@@ -484,6 +560,15 @@ class VideoPipeline:
             ):
                 self.check_cancelled(video_record)
                 self._update_progress(video_record, "compositing", 0, progress_callback)
+
+                from core.ffmpeg_settings import get_slow_preset_warning
+                slow_warning = get_slow_preset_warning(
+                    encode_params.get("preset", "veryfast"),
+                    encode_params.get("quality", "balanced"),
+                )
+                if slow_warning:
+                    logger.warning(f"[Pipeline {video_id}] {slow_warning}")
+
                 logger.info(f"[Pipeline {video_id}] Starting FFmpeg compositing")
 
                 def ff_callback(percent, step):
@@ -491,7 +576,14 @@ class VideoPipeline:
                     mapped = 60 + int(percent * 0.25)
                     # Ensure we don't exceed compositing_done base
                     mapped = min(mapped, 84)
-                    self._update_progress(video_record, "compositing", mapped - 60, progress_callback)
+                    self._update_progress(
+                        video_record,
+                        "compositing",
+                        mapped - 60,
+                        progress_callback,
+                        throttle_sec=2.0,
+                        force=(percent >= 100),
+                    )
 
                 final_duration = await self.composer.compose(
                     bg_video,

@@ -1,11 +1,15 @@
 """FFmpeg video composer using thread-pool for cross-platform compatibility."""
 
 import asyncio
+import re
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Optional, Callable, Dict, Any
 
 from core.config import FFMPEG_PATH
+from core.ffmpeg_settings import get_preset_timeout_multiplier
 from video.engine.utils import (
     get_video_info,
     calculate_target_dimensions,
@@ -15,6 +19,11 @@ from video.engine.utils import (
 
 class FFmpegComposerError(Exception):
     pass
+
+
+# FFmpeg progress lines use carriage returns; match the latest time= stamp in a chunk.
+_FFMPEG_TIME_RE = re.compile(r"time=(\d{2}:\d{2}:\d{2}\.\d{2})")
+_PROGRESS_THROTTLE_SEC = 2.0
 
 
 class FFmpegComposer:
@@ -120,38 +129,95 @@ class FFmpegComposer:
         self._cancelled = False
         self._process = None
 
-        # Synchronous runner that reads stdout and stderr separately
+        # FFmpeg logs progress to stderr; drain it while running to avoid pipe deadlock.
+        preset = params.get("preset", "veryfast")
+        timeout_multiplier = get_preset_timeout_multiplier(preset)
+        compose_timeout = max(
+            600,
+            int(final_duration * 20 * timeout_multiplier) + 120,
+        )
+
+        def _parse_time_percent(chunk: str) -> Optional[int]:
+            if final_duration <= 0:
+                return None
+            matches = _FFMPEG_TIME_RE.findall(chunk)
+            if not matches:
+                return None
+            time_str = matches[-1]
+            try:
+                h, m, s = time_str.split(":")
+                current_sec = float(h) * 3600 + float(m) * 60 + float(s)
+                return min(int((current_sec / final_duration) * 100), 99)
+            except (ValueError, ZeroDivisionError):
+                return None
+
         def run_ffmpeg():
             self._process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
             )
+            stderr_lines: list[str] = []
             last_progress = 0
-            # Read stdout line by line for progress
-            for line in iter(self._process.stdout.readline, ""):
-                if self._cancelled:
-                    self._process.kill()
-                    self._process.wait()
-                    raise FFmpegComposerError("FFmpeg composition was cancelled")
+            last_callback_time = 0.0
+            progress_lock = threading.Lock()
+            stderr_tail = ""
 
-                if progress_callback and "time=" in line:
-                    try:
-                        time_str = line.split("time=")[1].split()[0]
-                        h, m, s = time_str.split(":")
-                        current_sec = float(h) * 3600 + float(m) * 60 + float(s)
-                        percent = min(int((current_sec / final_duration) * 100), 99)
-                        if percent > last_progress:
-                            last_progress = percent
-                            progress_callback(percent, "compositing")
-                    except (IndexError, ValueError):
-                        pass
+            def report_progress(percent: int, force: bool = False) -> None:
+                nonlocal last_progress, last_callback_time
+                if not progress_callback:
+                    return
+                now = time.monotonic()
+                with progress_lock:
+                    if not force:
+                        if percent <= last_progress:
+                            return
+                        if (
+                            percent - last_progress < 1
+                            and now - last_callback_time < _PROGRESS_THROTTLE_SEC
+                        ):
+                            return
+                    last_progress = max(last_progress, percent)
+                    last_callback_time = now
+                    progress_callback(percent, "compositing")
 
-            # Wait for process and capture stderr
-            returncode = self._process.wait()
-            stderr = self._process.stderr.read()
+            def drain_stderr() -> None:
+                nonlocal stderr_tail
+                while True:
+                    chunk = self._process.stderr.read(512)
+                    if chunk == "":
+                        break
+                    stderr_lines.append(chunk)
+                    if self._cancelled:
+                        return
+                    stderr_tail = (stderr_tail + chunk)[-8192:]
+                    percent = _parse_time_percent(stderr_tail)
+                    if percent is not None:
+                        report_progress(percent)
+
+            stderr_thread = threading.Thread(target=drain_stderr, daemon=True)
+            stderr_thread.start()
+
+            try:
+                returncode = self._process.wait(timeout=compose_timeout)
+            except subprocess.TimeoutExpired:
+                self._process.kill()
+                self._process.wait()
+                raise FFmpegComposerError(
+                    f"FFmpeg composition timed out after {compose_timeout} seconds"
+                )
+            finally:
+                stderr_thread.join(timeout=10)
+
+            if self._cancelled:
+                raise FFmpegComposerError("FFmpeg composition was cancelled")
+
+            if returncode == 0:
+                report_progress(100, force=True)
+
+            stderr = "".join(stderr_lines)
             return returncode, stderr
 
         # Run in thread
@@ -162,9 +228,6 @@ class FFmpegComposer:
                 logger = logging.getLogger(__name__)
                 logger.error(f"FFmpeg stderr:\n{stderr}")
                 raise FFmpegComposerError(f"FFmpeg failed with code {returncode}. See logs for details.")
-
-            if progress_callback:
-                progress_callback(100, "compositing complete")
 
             out_duration, _, _ = get_video_info(output_path)
             return out_duration

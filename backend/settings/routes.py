@@ -44,6 +44,10 @@ def set_ffmpeg_video_setting(data: SettingsUpdate, db: Session = Depends(get_db)
     key = data.key
     value = data.value
 
+    # Normalize frontend key alias
+    if key == "quality":
+        key = "video_quality"
+
     handlers = {
         "video_quality": settings.set_video_quality,
         "video_codec": settings.set_video_codec,

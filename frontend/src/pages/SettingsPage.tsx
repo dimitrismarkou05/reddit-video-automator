@@ -99,8 +99,24 @@ const QUALITY_SPEED_HINTS: Record<string, string> = {
   fast: "~1.5x faster than balanced. Good for drafts.",
   balanced: "Best balance of speed and quality.",
   quality: "~2-3x slower than balanced. Noticeably better compression.",
-  archival: "~5-10x slower than balanced. Maximum quality.",
+  archival:
+    "~5-10x slower than balanced. Compositing may take many minutes — use for final exports only.",
 };
+
+const PRESET_SPEED_HINTS: Record<string, string> = {
+  ultrafast: "~0.5x balanced compositing time. Largest output files.",
+  superfast: "~0.7x balanced compositing time.",
+  veryfast: "Baseline compositing speed (balanced default).",
+  faster: "~1.2x balanced compositing time.",
+  fast: "~1.5x balanced compositing time.",
+  medium: "~2.5x balanced compositing time.",
+  slow: "~5x balanced compositing time. Expect long renders.",
+  slower: "~7x balanced compositing time. Not recommended for routine use.",
+  veryslow:
+    "~10x balanced compositing time. A 3-minute video may take 30+ minutes to compose.",
+};
+
+const SLOW_PRESETS = new Set(["slow", "slower", "veryslow"]);
 
 /*                                                                  
    Advanced option configs
@@ -270,7 +286,9 @@ export function SettingsPage() {
   const updateVideoSetting = useCallback(
     (key: string, value: string) => {
       setVideoSettings((prev) => ({ ...prev, [key]: value }));
-      queueSave(key, value);
+      // Map frontend state key to backend API key
+      const apiKey = key === "quality" ? "video_quality" : key;
+      queueSave(apiKey, value);
     },
     [queueSave],
   );
@@ -416,7 +434,6 @@ export function SettingsPage() {
     }
   };
 
-  // Quality badge color based on level
   const qualityBadgeColor = (() => {
     switch (videoSettings.quality) {
       case "draft":
@@ -433,6 +450,15 @@ export function SettingsPage() {
         return "bg-gray-100 dark:bg-gray-800 text-gray-600";
     }
   })();
+
+  const showSlowEncodingWarning =
+    videoSettings.quality === "archival" ||
+    SLOW_PRESETS.has(videoSettings.video_preset);
+
+  const slowEncodingWarningMessage =
+    videoSettings.quality === "archival"
+      ? "Archival quality uses a slow encoding preset. Compositing can take 5-10x longer than balanced — reserve this for final exports."
+      : `The "${videoSettings.video_preset}" preset is much slower than balanced. Compositing may take several minutes even for short videos.`;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -478,6 +504,16 @@ export function SettingsPage() {
                   </p>
                 </div>
 
+                {videoSettings.quality === "archival" && (
+                  <div className="mt-3 flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                    <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                    <p className="text-xs text-amber-800 dark:text-amber-200">
+                      Archival quality significantly increases compositing time.
+                      Use balanced or fast for everyday videos.
+                    </p>
+                  </div>
+                )}
+
                 {/* Quality scale visual */}
                 <div className="mt-3">
                   <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
@@ -492,7 +528,7 @@ export function SettingsPage() {
                   </div>
                   <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-linear-to-r from-gray-400 via-primary to-purple-500 rounded-full transition-all duration-500"
+                      className="h-full bg-linear-to-r from-primary/30 via-primary to-primary/80 rounded-full transition-all duration-500"
                       style={{
                         width: `${((QUALITY_OPTIONS.findIndex((o) => o.value === videoSettings.quality) + 1) / QUALITY_OPTIONS.length) * 100}%`,
                       }}
@@ -523,7 +559,7 @@ export function SettingsPage() {
             </button>
 
             {showAdvancedVideo && (
-              <div className="p-4 pt-0 space-y-4 border-t border-border-light dark:border-border-dark">
+              <div className="p-4 pt-4 space-y-4 border-t border-border-light dark:border-border-dark">
                 <p className="text-xs text-yellow-600 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 p-2.5 rounded-lg flex items-start gap-1.5">
                   <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                   Changes apply to the next video you generate. These settings
@@ -544,8 +580,25 @@ export function SettingsPage() {
                     value={videoSettings.video_preset}
                     options={PRESET_OPTIONS}
                     onChange={(val) => updateVideoSetting("video_preset", val)}
-                    helpText="Slower presets = smaller files, longer encode."
+                    helpText="Slower presets = smaller files, longer compositing."
                   />
+
+                  <div className="sm:col-span-2 flex items-start gap-2 p-2.5 rounded-lg bg-primary/5 dark:bg-primary/10 border border-primary/10">
+                    <Clock className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+                    <p className="text-xs text-gray-600 dark:text-gray-300">
+                      {PRESET_SPEED_HINTS[videoSettings.video_preset] ||
+                        "Relative compositing time vs balanced (veryfast)."}
+                    </p>
+                  </div>
+
+                  {showSlowEncodingWarning && (
+                    <div className="sm:col-span-2 flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                      <p className="text-xs text-amber-800 dark:text-amber-200">
+                        {slowEncodingWarningMessage}
+                      </p>
+                    </div>
+                  )}
 
                   <CustomDropdown
                     label="CRF (Quality)"

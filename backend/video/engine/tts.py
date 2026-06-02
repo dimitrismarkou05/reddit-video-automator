@@ -43,9 +43,15 @@ class LocalTTSProvider:
             
             # Ensure output directory exists
             output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if progress_callback:
+                progress_callback(5, "tts_synthesizing")
             
             # Synthesize to file
             self.tts.tts_to_file(text=text, file_path=str(output_path))
+
+            if progress_callback:
+                progress_callback(95, "tts_synthesizing")
             
             # Verify file was created
             if not output_path.exists():
