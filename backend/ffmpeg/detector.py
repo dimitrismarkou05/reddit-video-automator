@@ -140,6 +140,21 @@ class FfmpegDetector:
         if ffprobe_path:
             os.environ["FFPROBE_BINARY"] = ffprobe_path
 
+    def is_in_path(self, ffmpeg_path: Optional[str] = None) -> bool:
+        """Return True if subprocesses can resolve ``ffmpeg`` by name on PATH."""
+        resolved = shutil.which("ffmpeg")
+        if not resolved:
+            return False
+        if ffmpeg_path:
+            try:
+                return (
+                    Path(resolved).resolve().parent
+                    == Path(ffmpeg_path).resolve().parent
+                )
+            except OSError:
+                return True
+        return True
+
     def get_full_status(self) -> dict:
         """Return complete detection status."""
         ffmpeg_path = self.detect_ffmpeg()
@@ -160,4 +175,5 @@ class FfmpegDetector:
             "ffmpeg_version": self._get_version(ffmpeg_path) if ffmpeg_ok else None,
             "ffprobe_version": self._get_version(ffprobe_path) if ffprobe_ok else None,
             "can_generate_videos": ffmpeg_ok and ffprobe_ok,
+            "ffmpeg_in_path": self.is_in_path(ffmpeg_path) if ffmpeg_ok else False,
         }

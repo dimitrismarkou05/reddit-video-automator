@@ -1,6 +1,7 @@
 """Core FFmpeg detection, installation, and management service."""
 
 import asyncio
+import logging
 import subprocess
 from pathlib import Path
 from typing import Optional
@@ -11,6 +12,8 @@ from core.config import APP_DIR
 from core.ffmpeg_settings import FFmpegSettings
 from ffmpeg.detector import FfmpegDetector
 from ffmpeg.installer import FfmpegInstaller, cancel_active_install
+
+logger = logging.getLogger(__name__)
 
 
 class FfmpegService:
@@ -26,8 +29,8 @@ class FfmpegService:
 
         Priority:
         1. User-specified custom paths from settings
-        2. Auto-detected system paths
-        3. App-local installation directory
+        2. App-local installation directory
+        3. Auto-detected system paths
         """
         # Check saved custom paths first
         custom_ffmpeg = self.settings.get_ffmpeg_path()
@@ -37,18 +40,11 @@ class FfmpegService:
             ffmpeg_ok = self._verify_binary(custom_ffmpeg)
             ffprobe_ok = self._verify_binary(custom_ffprobe)
             if ffmpeg_ok and ffprobe_ok:
-                return {
-                    "ffmpeg_installed": True,
-                    "ffprobe_installed": True,
-                    "ffmpeg_path": custom_ffmpeg,
-                    "ffprobe_path": custom_ffprobe,
-                    "ffmpeg_version": self._get_version(custom_ffmpeg),
-                    "ffprobe_version": self._get_version(custom_ffprobe),
-                    "can_generate_videos": True,
-                }
-            else:
-                # Cached paths are stale (files were deleted). Clear them.
-                self.settings.clear_all()
+                return self._finalize_status(
+                    custom_ffmpeg, custom_ffprobe, ffmpeg_ok, ffprobe_ok
+                )
+            # Cached paths are stale (files were deleted). Clear them.
+            self.settings.clear_all()
 
         # Check app-local installation
         app_ffmpeg = self._get_app_local_binary("ffmpeg")
@@ -57,20 +53,13 @@ class FfmpegService:
             ffmpeg_ok = self._verify_binary(app_ffmpeg)
             ffprobe_ok = self._verify_binary(app_ffprobe)
             if ffmpeg_ok and ffprobe_ok:
-                return {
-                    "ffmpeg_installed": True,
-                    "ffprobe_installed": True,
-                    "ffmpeg_path": app_ffmpeg,
-                    "ffprobe_path": app_ffprobe,
-                    "ffmpeg_version": self._get_version(app_ffmpeg),
-                    "ffprobe_version": self._get_version(app_ffprobe),
-                    "can_generate_videos": True,
-                }
+                return self._finalize_status(
+                    app_ffmpeg, app_ffprobe, ffmpeg_ok, ffprobe_ok
+                )
 
         # Auto-detect system-wide
         detected = self.detector.get_full_status()
         if detected["can_generate_videos"]:
-            # Cache detected paths
             if detected["ffmpeg_path"]:
                 self.settings.set_ffmpeg_path(detected["ffmpeg_path"])
             if detected["ffprobe_path"]:
@@ -81,6 +70,35 @@ class FfmpegService:
                 self.settings.set_ffprobe_version(detected["ffprobe_version"])
 
         return detected
+
+    def _finalize_status(
+        self,
+        ffmpeg_path: str,
+        ffprobe_path: str,
+        ffmpeg_ok: bool,
+        ffprobe_ok: bool,
+    ) -> dict:
+        """Inject PATH and build a complete status dict."""
+        if ffmpeg_ok and ffprobe_ok:
+            self.detector._inject_to_path(ffmpeg_path, ffprobe_path)
+
+        in_path = self.detector.is_in_path(ffmpeg_path) if ffmpeg_ok else False
+        if ffmpeg_ok and ffprobe_ok and not in_path:
+            logger.warning(
+                "[FfmpegService] FFmpeg installed at %s but not resolvable on PATH",
+                ffmpeg_path,
+            )
+
+        return {
+            "ffmpeg_installed": ffmpeg_ok,
+            "ffprobe_installed": ffprobe_ok,
+            "ffmpeg_path": ffmpeg_path,
+            "ffprobe_path": ffprobe_path,
+            "ffmpeg_version": self._get_version(ffmpeg_path) if ffmpeg_ok else None,
+            "ffprobe_version": self._get_version(ffprobe_path) if ffprobe_ok else None,
+            "can_generate_videos": ffmpeg_ok and ffprobe_ok,
+            "ffmpeg_in_path": in_path,
+        }
 
     def set_custom_paths(self, ffmpeg_path: str, ffprobe_path: Optional[str] = None) -> dict:
         """Set custom FFmpeg/FFprobe paths and validate them."""
@@ -113,6 +131,7 @@ class FfmpegService:
         self.settings.set_ffprobe_path(ffprobe_path)
         self.settings.set_ffmpeg_version(self._get_version(ffmpeg_path) or "")
         self.settings.set_ffprobe_version(self._get_version(ffprobe_path) or "")
+        self.detector._inject_to_path(ffmpeg_path, ffprobe_path)
 
         return {
             "valid": True,
@@ -148,11 +167,13 @@ class FfmpegService:
         result = installer.install()
 
         if result.get("success"):
-            # Save installed paths
-            self.settings.set_ffmpeg_path(result["ffmpeg_path"])
-            self.settings.set_ffprobe_path(result["ffprobe_path"])
-            self.settings.set_ffmpeg_version(self._get_version(result["ffmpeg_path"]) or "")
-            self.settings.set_ffprobe_version(self._get_version(result["ffprobe_path"]) or "")
+            ffmpeg_path = result["ffmpeg_path"]
+            ffprobe_path = result["ffprobe_path"]
+            self.settings.set_ffmpeg_path(ffmpeg_path)
+            self.settings.set_ffprobe_path(ffprobe_path)
+            self.settings.set_ffmpeg_version(self._get_version(ffmpeg_path) or "")
+            self.settings.set_ffprobe_version(self._get_version(ffprobe_path) or "")
+            self.detector._inject_to_path(ffmpeg_path, ffprobe_path)
 
         return result
 

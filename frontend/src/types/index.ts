@@ -156,6 +156,7 @@ export interface FfmpegStatus {
   ffmpeg_version: string | null;
   ffprobe_version: string | null;
   can_generate_videos: boolean;
+  ffmpeg_in_path: boolean;
 }
 
 export interface FfmpegInstallProgress {

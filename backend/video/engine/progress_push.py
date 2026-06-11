@@ -43,20 +43,19 @@ def unsubscribe(video_id: int, q: asyncio.Queue) -> None:
 def push_progress(video_id: int, data: dict) -> None:
     """Deliver *data* to every SSE connection watching *video_id*.
 
-    Safe to call from:
-    - Coroutines running in the event loop (uses put_nowait directly).
-    - Worker threads (uses loop.call_soon_threadsafe).
+    Must be called from the event loop thread (i.e. from a coroutine or a
+    callback scheduled via call_soon_threadsafe).  The pipeline ensures this
+    via the thread-safe progress bridges in pipeline.py.
     """
     with _lock:
         queues = list(_channels.get(video_id, []))
     if not queues:
         return
 
-    def _put(q: asyncio.Queue) -> None:
+    for q in queues:
         try:
             q.put_nowait(data)
         except asyncio.QueueFull:
-            # Drop the oldest item and enqueue the new one.
             try:
                 q.get_nowait()
                 q.put_nowait(data)
@@ -64,17 +63,3 @@ def push_progress(video_id: int, data: dict) -> None:
                 pass
         except Exception:
             pass
-
-    # Try to get the running event loop; fall back to thread-safe scheduling.
-    try:
-        loop = asyncio.get_running_loop()
-        for q in queues:
-            loop.call_soon(_put, q)
-    except RuntimeError:
-        # Called from a worker thread – schedule into the event loop.
-        try:
-            loop = asyncio.get_event_loop()
-            for q in queues:
-                loop.call_soon_threadsafe(_put, q)
-        except Exception as exc:
-            logger.debug(f"[ProgressPush] Could not schedule push for {video_id}: {exc}")

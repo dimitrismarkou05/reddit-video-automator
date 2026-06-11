@@ -197,6 +197,18 @@ async def lifespan(app: FastAPI):
     # Seed default voice so fresh installs never 404 on voice lookup.
     _seed_default_voice()
 
+    # Inject locally installed FFmpeg into PATH before any jobs run.
+    try:
+        from ffmpeg import ensure_ffmpeg_in_path
+        if ensure_ffmpeg_in_path():
+            logger.info("[Lifespan] FFmpeg available on PATH")
+        else:
+            logger.warning(
+                "[Lifespan] FFmpeg not on PATH — install via Settings before generating"
+            )
+    except Exception as exc:
+        logger.warning(f"[Lifespan] FFmpeg PATH setup failed: {exc}")
+
     # Start the queue processor early (event loop is guaranteed here).
     job_manager._shutdown = False
     job_manager._ensure_queue_processor()

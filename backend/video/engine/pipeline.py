@@ -357,6 +357,11 @@ class VideoPipeline:
             f"checkpoint={checkpoint.get('step', 'queued')}"
         )
 
+        if not ensure_ffmpeg_in_path():
+            raise VideoPipelineError(
+                "FFmpeg not found. Please install FFmpeg in Settings."
+            )
+
         t_start = time.monotonic()
 
         try:
@@ -395,17 +400,28 @@ class VideoPipeline:
                 tts_engine = TTSEngine(self.db, self.ffmpeg_path)
                 tts_stage_t = time.monotonic()
 
+                # Capture the running event loop so the TTS worker thread can
+                # schedule DB updates back onto it safely (DB Session is not
+                # thread-safe; we must commit only from the event-loop thread).
+                _loop = asyncio.get_running_loop()
+
                 def tts_progress(percent: int, step: str) -> None:
-                    if step == "downloading_model":
-                        self._update_progress(
-                            video_record, "downloading_model", percent,
-                            progress_callback, throttle_sec=2.0,
-                        )
-                    elif step == "tts_synthesizing":
-                        self._update_progress(
-                            video_record, "tts_synthesizing", percent,
-                            progress_callback, throttle_sec=1.0,
-                        )
+                    """Thread-safe progress bridge: schedules DB update in the event loop."""
+                    def _apply():
+                        if step == "downloading_model":
+                            self._update_progress(
+                                video_record, "downloading_model", percent,
+                                progress_callback, throttle_sec=2.0,
+                            )
+                        elif step == "tts_synthesizing":
+                            self._update_progress(
+                                video_record, "tts_synthesizing", percent,
+                                progress_callback, throttle_sec=1.0,
+                            )
+                    try:
+                        _loop.call_soon_threadsafe(_apply)
+                    except RuntimeError:
+                        pass  # loop closed (shutdown)
 
                 try:
                     audio_duration = await asyncio.to_thread(
@@ -454,19 +470,20 @@ class VideoPipeline:
                     video_record, "transcribing", 0, progress_callback
                 )
 
-                if not ensure_ffmpeg_in_path():
-                    raise VideoPipelineError(
-                        "FFmpeg not found. Please install FFmpeg in Settings."
-                    )
-
                 trans_t = time.monotonic()
+                _loop2 = asyncio.get_running_loop()
 
                 def transcribe_progress(percent: int, step: str) -> None:
-                    if step == "transcribing":
-                        self._update_progress(
-                            video_record, "transcribing", percent,
-                            progress_callback, throttle_sec=1.0,
-                        )
+                    def _apply():
+                        if step == "transcribing":
+                            self._update_progress(
+                                video_record, "transcribing", percent,
+                                progress_callback, throttle_sec=1.0,
+                            )
+                    try:
+                        _loop2.call_soon_threadsafe(_apply)
+                    except RuntimeError:
+                        pass
 
                 whisper_result = await asyncio.to_thread(
                     self.subtitle_gen.transcribe,
