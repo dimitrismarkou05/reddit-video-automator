@@ -6,6 +6,7 @@ export interface VideoProgressData {
   status: string;
   progress_percent: number;
   current_step: string;
+  status_message?: string;
   step_progress: number;
   error_message: string | null;
   error_type: string | null;

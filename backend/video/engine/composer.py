@@ -1,7 +1,7 @@
-"""FFmpeg video composer using thread-pool for cross-platform compatibility."""
+"""FFmpeg video composer with structured progress, hwaccel support, and hard timeout."""
 
 import asyncio
-import re
+import logging
 import subprocess
 import threading
 import time
@@ -16,14 +16,30 @@ from video.engine.utils import (
     get_audio_duration,
 )
 
+logger = logging.getLogger(__name__)
+
+_PROGRESS_THROTTLE_SEC = 1.0
+
 
 class FFmpegComposerError(Exception):
     pass
 
 
-# FFmpeg progress lines use carriage returns; match the latest time= stamp in a chunk.
-_FFMPEG_TIME_RE = re.compile(r"time=(\d{2}:\d{2}:\d{2}\.\d{2})")
-_PROGRESS_THROTTLE_SEC = 2.0
+def _detect_hwaccel_encoder(ffmpeg_path: str) -> Optional[str]:
+    """Return the best available hardware H.264 encoder, or None for software."""
+    try:
+        result = subprocess.run(
+            [ffmpeg_path, "-encoders", "-hide_banner"],
+            capture_output=True, text=True, timeout=5,
+        )
+        enc = result.stdout
+        for name in ("h264_nvenc", "h264_qsv", "h264_amf", "h264_videotoolbox"):
+            if name in enc:
+                logger.info(f"[Composer] Hardware encoder available: {name}")
+                return name
+    except Exception as exc:
+        logger.debug(f"[Composer] hwaccel probe failed: {exc}")
+    return None
 
 
 class FFmpegComposer:
@@ -32,17 +48,7 @@ class FFmpegComposer:
         self._process: Optional[subprocess.Popen] = None
         self._cancelled = False
 
-    def _validate_ffmpeg(self):
-        result = subprocess.run(
-            [self.ffmpeg_path, "-version"],
-            capture_output=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            raise FFmpegComposerError(f"FFmpeg not found at {self.ffmpeg_path}")
-
     def cancel(self) -> None:
-        """Cancel the current FFmpeg operation."""
         self._cancelled = True
         if self._process:
             try:
@@ -60,58 +66,57 @@ class FFmpegComposer:
         audio_duration: Optional[float] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None,
         encode_params: Optional[Dict[str, Any]] = None,
+        use_hwaccel: bool = False,
     ) -> float:
         target_w, target_h = calculate_target_dimensions(video_format)
-
-        # Get background info (not strictly needed but kept for consistency)
         get_video_info(background_video)
 
-        # Determine final duration
         if audio_duration is None:
             audio_duration = get_audio_duration(audio_path)
         final_duration = audio_duration
 
-        # Build base filter
+        # Build subtitle filter.
         base_filter = (
             f"[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
             f"crop={target_w}:{target_h}"
         )
-
         if subtitle_path and Path(subtitle_path).exists():
-            # Convert Windows backslashes to forward slashes
             sub_path = str(subtitle_path).replace("\\", "/")
-            # Escape colon after drive letter (e.g., C:/ -> C\:/)
-            if ':' in sub_path:
-                # Replace first colon with \:
-                sub_path = sub_path.replace(':', '\\:', 1)
-            # Use filename= option and wrap in single quotes for safety
+            if ":" in sub_path:
+                sub_path = sub_path.replace(":", "\\:", 1)
             filter_complex = f"{base_filter},subtitles=filename='{sub_path}'[v]"
         else:
             filter_complex = f"{base_filter}[v]"
 
-        # Resolve encode parameters with sensible defaults
         params = self._resolve_encode_params(encode_params)
 
+        # Hardware encoder override.
+        video_codec = params["video_codec"]
+        if use_hwaccel and video_codec == "libx264":
+            hw = _detect_hwaccel_encoder(self.ffmpeg_path)
+            if hw:
+                video_codec = hw
+                logger.info(f"[Composer] Using hw encoder: {hw}")
+
         cmd = [
-            self.ffmpeg_path,
-            "-y",
+            self.ffmpeg_path, "-y",
             "-stream_loop", "-1",
             "-i", background_video,
             "-i", audio_path,
+            "-progress", "pipe:1",  # structured progress to stdout
+            "-nostats",
             "-filter_complex", filter_complex,
             "-map", "[v]",
             "-map", "1:a",
-            "-c:v", params["video_codec"],
+            "-c:v", video_codec,
             "-preset", params["preset"],
         ]
 
-        # Use CRF if no explicit bitrate is set
         if params.get("crf"):
             cmd.extend(["-crf", str(params["crf"])])
         elif params.get("video_bitrate"):
             cmd.extend(["-b:v", str(params["video_bitrate"])])
         else:
-            # Fallback CRF
             cmd.extend(["-crf", "23"])
 
         cmd.extend([
@@ -122,14 +127,12 @@ class FFmpegComposer:
             "-t", str(final_duration),
             "-pix_fmt", params["pixel_format"],
             "-movflags", "+faststart",
+            output_path,
         ])
-
-        cmd.append(output_path)
 
         self._cancelled = False
         self._process = None
 
-        # FFmpeg logs progress to stderr; drain it while running to avoid pipe deadlock.
         preset = params.get("preset", "veryfast")
         timeout_multiplier = get_preset_timeout_multiplier(preset)
         compose_timeout = max(
@@ -137,35 +140,21 @@ class FFmpegComposer:
             int(final_duration * 20 * timeout_multiplier) + 120,
         )
 
-        def _parse_time_percent(chunk: str) -> Optional[int]:
-            if final_duration <= 0:
-                return None
-            matches = _FFMPEG_TIME_RE.findall(chunk)
-            if not matches:
-                return None
-            time_str = matches[-1]
-            try:
-                h, m, s = time_str.split(":")
-                current_sec = float(h) * 3600 + float(m) * 60 + float(s)
-                return min(int((current_sec / final_duration) * 100), 99)
-            except (ValueError, ZeroDivisionError):
-                return None
-
         def run_ffmpeg():
             self._process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
             )
-            stderr_lines: list[str] = []
+
             last_progress = 0
             last_callback_time = 0.0
             progress_lock = threading.Lock()
-            stderr_tail = ""
+            stderr_lines: list[str] = []
 
-            def report_progress(percent: int, force: bool = False) -> None:
+            def report(percent: int, force: bool = False) -> None:
                 nonlocal last_progress, last_callback_time
                 if not progress_callback:
                     return
@@ -181,24 +170,39 @@ class FFmpegComposer:
                             return
                     last_progress = max(last_progress, percent)
                     last_callback_time = now
-                    progress_callback(percent, "compositing")
+                progress_callback(percent, "compositing")
 
             def drain_stderr() -> None:
-                nonlocal stderr_tail
+                """Read stderr to prevent pipe stall; collect for error reporting."""
                 while True:
-                    chunk = self._process.stderr.read(512)
-                    if chunk == "":
+                    chunk = self._process.stderr.read(512)  # type: ignore[union-attr]
+                    if not chunk:
                         break
                     stderr_lines.append(chunk)
                     if self._cancelled:
                         return
-                    stderr_tail = (stderr_tail + chunk)[-8192:]
-                    percent = _parse_time_percent(stderr_tail)
-                    if percent is not None:
-                        report_progress(percent)
+
+            def parse_stdout() -> None:
+                """Parse -progress pipe:1 key=value output from stdout."""
+                for line in self._process.stdout:  # type: ignore[union-attr]
+                    line = line.strip()
+                    if self._cancelled:
+                        break
+                    if line.startswith("out_time_us="):
+                        try:
+                            us = int(line.split("=", 1)[1])
+                            if final_duration > 0:
+                                pct = min(int((us / 1_000_000 / final_duration) * 100), 99)
+                                report(pct)
+                        except (ValueError, ZeroDivisionError):
+                            pass
+                    elif line == "progress=end":
+                        report(100, force=True)
 
             stderr_thread = threading.Thread(target=drain_stderr, daemon=True)
             stderr_thread.start()
+            stdout_thread = threading.Thread(target=parse_stdout, daemon=True)
+            stdout_thread.start()
 
             try:
                 returncode = self._process.wait(timeout=compose_timeout)
@@ -206,72 +210,36 @@ class FFmpegComposer:
                 self._process.kill()
                 self._process.wait()
                 raise FFmpegComposerError(
-                    f"FFmpeg composition timed out after {compose_timeout} seconds"
+                    f"FFmpeg timed out after {compose_timeout}s"
                 )
             finally:
                 stderr_thread.join(timeout=10)
+                stdout_thread.join(timeout=5)
 
             if self._cancelled:
                 raise FFmpegComposerError("FFmpeg composition was cancelled")
 
-            if returncode == 0:
-                report_progress(100, force=True)
-
             stderr = "".join(stderr_lines)
             return returncode, stderr
 
-        # Run in thread
         try:
             returncode, stderr = await asyncio.to_thread(run_ffmpeg)
             if returncode != 0:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error(f"FFmpeg stderr:\n{stderr}")
-                raise FFmpegComposerError(f"FFmpeg failed with code {returncode}. See logs for details.")
+                logger.error(f"[Composer] FFmpeg stderr:\n{stderr}")
+                raise FFmpegComposerError(
+                    f"FFmpeg exited with code {returncode}. See logs."
+                )
 
             out_duration, _, _ = get_video_info(output_path)
             return out_duration
-
+        except FFmpegComposerError:
+            raise
         except Exception as exc:
             raise FFmpegComposerError(f"FFmpeg composition error: {exc}")
         finally:
             self._process = None
 
-    async def extract_thumbnail_frame(
-        self,
-        video_path: str,
-        output_path: str,
-        timestamp: float = 1.0,
-    ) -> None:
-        cmd = [
-            self.ffmpeg_path,
-            "-y",
-            "-ss", str(timestamp),
-            "-i", video_path,
-            "-vframes", "1",
-            "-q:v", "2",
-            output_path,
-        ]
-
-        def run_thumbnail():
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if result.returncode != 0:
-                raise FFmpegComposerError(f"Frame extraction failed: {result.stderr}")
-
-        try:
-            await asyncio.to_thread(run_thumbnail)
-        except subprocess.TimeoutExpired:
-            raise FFmpegComposerError("Thumbnail frame extraction timed out")
-        except Exception as exc:
-            raise FFmpegComposerError(f"Frame extraction error: {exc}")
-
     def _resolve_encode_params(self, encode_params: Optional[Dict[str, Any]]) -> Dict[str, str]:
-        """Merge user-provided encode params with sensible defaults."""
         defaults = {
             "video_codec": "libx264",
             "preset": "veryfast",
@@ -283,7 +251,6 @@ class FFmpegComposer:
             "audio_sample_rate": "44100",
         }
         if encode_params:
-            # Only update keys that have a non-empty value
             for key, value in encode_params.items():
                 if value is not None and str(value) != "":
                     defaults[key] = str(value)

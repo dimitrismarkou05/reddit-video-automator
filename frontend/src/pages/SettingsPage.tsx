@@ -209,7 +209,7 @@ export function SettingsPage() {
   const [ffmpegPath, setFfmpegPath] = useState("");
   const [ffprobePath, setFfprobePath] = useState("");
 
-  const [defaultVoice, setDefaultVoice] = useState("default");
+  const [defaultVoice, setDefaultVoice] = useState("");
   const [voices, setVoices] = useState<{ id: string; name: string }[]>([]);
 
   //    FFmpeg video settings
@@ -312,20 +312,24 @@ export function SettingsPage() {
   useEffect(() => {
     const loadDefaultVoice = async () => {
       try {
-        const { data } = await settingsApi.get("default_tts_voice");
-        if (data?.value) {
-          setDefaultVoice(data.value);
+        const { data } = await settingsApi.batchGet(["default_tts_voice"]);
+        const saved = data?.default_tts_voice;
+        if (saved && saved !== "default") {
+          setDefaultVoice(saved);
           return;
         }
-      } catch (e: any) {
-        // 404 means no saved default — fall through to auto-select
-        if (e?.response?.status !== 404) {
-          console.debug("Failed to load default voice:", e);
-        }
+      } catch (e) {
+        console.debug("Failed to load default voice:", e);
       }
-      // No saved default: auto-select first available voice
+      // No persisted default: auto-select and persist first available voice.
       if (voices.length > 0) {
-        setDefaultVoice(voices[0].id);
+        const fallbackId = voices[0].id;
+        setDefaultVoice(fallbackId);
+        try {
+          await settingsApi.set("default_tts_voice", fallbackId);
+        } catch {
+          // non-critical
+        }
       }
     };
     loadDefaultVoice();
@@ -668,7 +672,7 @@ export function SettingsPage() {
                   disabled={!ttsStatus?.installed}
                 >
                   {voices.length === 0 && (
-                    <option value="default">No voices available</option>
+                    <option value="">No voices available</option>
                   )}
                   {voices.map((v) => (
                     <option key={v.id} value={v.id}>
@@ -693,6 +697,9 @@ export function SettingsPage() {
               </p>
             )}
           </div>
+
+          {/* Whisper Model Size */}
+          <WhisperModelSizeSetting />
 
           {/* Output Directory */}
           <div>
@@ -959,6 +966,73 @@ export function SettingsPage() {
       {showInstallModal && (
         <FfmpegInstallModal onClose={() => setShowInstallModal(false)} />
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Whisper model size inline component
+// ---------------------------------------------------------------------------
+
+function WhisperModelSizeSetting() {
+  const [size, setSize] = useState("base");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    settingsApi
+      .batchGet(["whisper_model_size"])
+      .then(({ data }) => {
+        if (data?.whisper_model_size) setSize(data.whisper_model_size);
+      })
+      .catch(() => {});
+  }, []);
+
+  const save = async (val: string) => {
+    setSaving(true);
+    try {
+      await settingsApi.set("whisper_model_size", val);
+      setSize(val);
+      toast.success("Whisper model size saved");
+    } catch {
+      toast.error("Failed to save Whisper model size");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const options = [
+    { value: "tiny",   label: "Tiny (~40MB, fastest, lower accuracy)" },
+    { value: "base",   label: "Base (~150MB, recommended)" },
+    { value: "small",  label: "Small (~470MB, better accuracy)" },
+    { value: "medium", label: "Medium (~1.5GB, high accuracy)" },
+  ];
+
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1">
+        Whisper Model Size
+      </label>
+      <div className="flex gap-3">
+        <div className="relative flex-1">
+          <select
+            value={size}
+            onChange={(e) => save(e.target.value)}
+            disabled={saving}
+            className="input w-full appearance-none pr-10"
+          >
+            {options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+        </div>
+      </div>
+      <p className="text-xs text-gray-500 mt-1">
+        Larger models transcribe more accurately but take longer to load and run.
+        Change takes effect on the next video generation.
+      </p>
     </div>
   );
 }

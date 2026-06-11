@@ -72,6 +72,9 @@ class GeneratedVideo(Base):
     youtube_upload_status: Mapped[str] = mapped_column(String(50), default="not_uploaded")
     youtube_analytics: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
+    queued_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_progress_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
     )

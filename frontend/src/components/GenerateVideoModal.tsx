@@ -52,42 +52,12 @@ const STEP_LABELS: Record<string, string> = {
   processing: "Processing...",
 };
 
-// FIXED: Added 'downloading_model' and 'tts_synthesizing' to the step order
-// so the progress grid doesn't disappear during model download
-const STEP_ORDER: string[] = [
-  "queued",
-  "preparing",
-  "downloading_model",
-  "tts",
-  "tts_synthesizing",
-  "tts_done",
-  "transcribing",
-  "transcribe_done",
-  "generating_subtitles",
-  "subtitles_done",
-  "selecting_background",
-  "compositing",
-  "ffmpeg_processing",
-  "compositing_done",
-  "generating_thumbnail",
-  "done",
-];
-
-// FIXED: Step display mapping for the grid - maps internal steps to display labels
-const STEP_GRID_ITEMS = [
-  { key: "queued", label: "Queue" },
-  { key: "preparing", label: "Prepare" },
-  { key: "downloading_model", label: "Model" },
-  { key: "tts", label: "TTS" },
-  { key: "tts_done", label: "TTS Done" },
-  { key: "transcribe_done", label: "Transcribe" },
-  { key: "subtitles_done", label: "Subtitles" },
-  { key: "selecting_background", label: "BG" },
-  { key: "compositing", label: "Compose" },
-  { key: "compositing_done", label: "Finalize" },
-  { key: "generating_thumbnail", label: "Thumb" },
-  { key: "done", label: "Done" },
-];
+// Active statuses where the ellipsis animation should run.
+const ANIMATING_STATUSES = new Set([
+  "preparing", "downloading_model", "tts", "tts_synthesizing",
+  "transcribing", "generating_subtitles", "selecting_background",
+  "compositing", "generating_thumbnail", "processing",
+]);
 
 interface GenerateVideoModalProps {
   story: Story;
@@ -163,22 +133,28 @@ export function GenerateVideoModal({
     staleTime: 60000,
   });
 
-  // Load default voice
+  // Load default voice (use batchGet to avoid 404 on fresh installs).
   useEffect(() => {
     const loadDefault = async () => {
       try {
-        const { data } = await settingsApi.get("default_tts_voice");
-        if (data?.value) {
-          setSettings((s) => ({ ...s, voice_id: data.value }));
+        const { data } = await settingsApi.batchGet(["default_tts_voice"]);
+        const saved = data?.default_tts_voice;
+        if (saved && saved !== "default") {
+          setSettings((s) => ({ ...s, voice_id: saved }));
           return;
         }
-      } catch (e: any) {
-        if (e?.response?.status !== 404) {
-          console.debug("Failed to load default voice:", e);
-        }
+      } catch (e) {
+        console.debug("Failed to load default voice:", e);
       }
       if (voices && voices.length > 0) {
-        setSettings((s) => ({ ...s, voice_id: voices[0].id }));
+        const fallbackId = voices[0].id;
+        setSettings((s) => ({ ...s, voice_id: fallbackId }));
+        // Auto-persist so generation always has a valid voice without needing Save.
+        try {
+          await settingsApi.set("default_tts_voice", fallbackId);
+        } catch {
+          // non-critical
+        }
       }
     };
     loadDefault();
@@ -583,11 +559,31 @@ export function GenerateVideoModal({
     }
   };
 
-  const currentStepLabel = progress
-    ? STEP_LABELS[progress.current_step] || progress.current_step
+  // Animated ellipsis cycling through "." ".." "..."
+  const [ellipsis, setEllipsis] = useState(".");
+  const activeStep = progress?.current_step ?? (existingVideoIsActive ? existingVideo?.current_step : null);
+  const isAnimating = activeStep ? ANIMATING_STATUSES.has(activeStep) : false;
+
+  useEffect(() => {
+    if (!isAnimating) return;
+    const cycle = [".", "..", "..."];
+    let idx = 0;
+    const timer = setInterval(() => {
+      idx = (idx + 1) % cycle.length;
+      setEllipsis(cycle[idx]);
+    }, 400);
+    return () => clearInterval(timer);
+  }, [isAnimating]);
+
+  const rawStepLabel = progress
+    ? (progress.status_message || STEP_LABELS[progress.current_step] || progress.current_step)
     : existingVideoIsActive
-      ? STEP_LABELS[existingVideo.current_step] || "Processing..."
+      ? STEP_LABELS[existingVideo!.current_step] || "Processing..."
       : "";
+
+  const currentStepLabel = isAnimating
+    ? rawStepLabel.replace(/\.{0,3}$/, "") + ellipsis
+    : rawStepLabel;
 
   const currentProgress =
     progress?.progress_percent ??
@@ -595,11 +591,6 @@ export function GenerateVideoModal({
 
   const queuePosition =
     progress?.queue_position ?? existingVideo?.queue_position;
-
-  // FIXED: Use STEP_ORDER for index calculation, with fallback for steps not in array
-  const currentStepIndex = progress
-    ? STEP_ORDER.indexOf(progress.current_step)
-    : -1;
 
   // Determine what view to show
   const showProgress = isGenerating && !isDone;
@@ -662,43 +653,20 @@ export function GenerateVideoModal({
                       style={{ width: `${currentProgress}%` }}
                     />
                   </div>
-                  <div className="flex justify-between mt-1">
-                    <span className="text-xs text-gray-400">
-                      {currentProgress}%
-                    </span>
-                    {queuePosition && queuePosition > 0 && (
+                  {queuePosition && queuePosition > 0 && (
+                    <div className="flex justify-end mt-1">
                       <span className="text-xs text-yellow-600 flex items-center gap-1">
                         <ListOrdered className="w-3 h-3" />
                         Queue #{queuePosition}
                       </span>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
 
-                {/* FIXED: Step grid now uses STEP_GRID_ITEMS which includes all steps */}
-                {currentStepIndex >= 0 && (
-                  <div className="w-full max-w-md mx-auto mt-4">
-                    <div className="grid grid-cols-4 gap-1 text-xs">
-                      {STEP_GRID_ITEMS.map((step) => {
-                        const stepIdx = STEP_ORDER.indexOf(step.key);
-                        const isActive = currentStepIndex === stepIdx;
-                        const isDone = currentStepIndex > stepIdx;
-                        return (
-                          <div
-                            key={step.key}
-                            className={`px-1 py-1 rounded text-center transition-all ${
-                              isActive
-                                ? "bg-primary text-white font-medium"
-                                : isDone
-                                  ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400"
-                                  : "bg-gray-100 dark:bg-gray-800 text-gray-400"
-                            }`}
-                          >
-                            {step.label}
-                          </div>
-                        );
-                      })}
-                    </div>
+                {/* Progress percentage displayed prominently */}
+                {currentProgress > 0 && (
+                  <div className="text-2xl font-bold text-primary mt-1">
+                    {currentProgress}%
                   </div>
                 )}
 
