@@ -51,7 +51,7 @@ class VideoJobManager:
     """Singleton job manager for video generation."""
 
     _instance: Optional["VideoJobManager"] = None
-    MAX_CONCURRENT = 2
+    MAX_CONCURRENT = 1
 
     def __new__(cls):
         if cls._instance is None:

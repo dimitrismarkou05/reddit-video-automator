@@ -82,6 +82,16 @@ def evict(model_name: str) -> None:
         logger.info(f"[TTS Registry] Evicted: {model_name}")
 
 
+def evict_all() -> None:
+    """Remove every cached TTS model to free memory before heavy FFmpeg work."""
+    with _registry_lock:
+        names = list(_registry.keys())
+    for name in names:
+        evict(name)
+    if names:
+        logger.info(f"[TTS Registry] Evicted all models ({len(names)})")
+
+
 def warmup(model_name: str) -> None:
     """Pre-load a model in a daemon thread (fire-and-forget)."""
     def _load():

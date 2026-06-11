@@ -223,6 +223,8 @@ export function SettingsPage() {
     audio_codec: "aac",
     audio_bitrate: "192k",
     audio_sample_rate: "44100",
+    ffmpeg_threads: "0",
+    use_hardware_encoder: false,
   });
   const [isLoadingVideoSettings, setIsLoadingVideoSettings] = useState(true);
   const [showAdvancedVideo, setShowAdvancedVideo] = useState(false);
@@ -247,6 +249,8 @@ export function SettingsPage() {
             audio_codec: data.audio_codec ?? "aac",
             audio_bitrate: data.audio_bitrate ?? "192k",
             audio_sample_rate: data.audio_sample_rate ?? "44100",
+            ffmpeg_threads: data.ffmpeg_threads ?? "0",
+            use_hardware_encoder: Boolean(data.use_hardware_encoder),
           });
         }
       } catch (e: any) {
@@ -284,11 +288,12 @@ export function SettingsPage() {
 
   // Update a video setting: update local state immediately, save to backend
   const updateVideoSetting = useCallback(
-    (key: string, value: string) => {
+    (key: string, value: string | boolean) => {
       setVideoSettings((prev) => ({ ...prev, [key]: value }));
-      // Map frontend state key to backend API key
       const apiKey = key === "quality" ? "video_quality" : key;
-      queueSave(apiKey, value);
+      const saveValue =
+        typeof value === "boolean" ? (value ? "true" : "false") : value;
+      queueSave(apiKey, saveValue);
     },
     [queueSave],
   );
@@ -508,6 +513,15 @@ export function SettingsPage() {
                   </p>
                 </div>
 
+                <div className="mt-3 flex items-start gap-2 p-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                  <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                  <p className="text-xs text-blue-800 dark:text-blue-200">
+                    Long videos on PCs with limited RAM are rendered in segments
+                    automatically. Quality stays the same — rendering may take
+                    longer instead of freezing your system.
+                  </p>
+                </div>
+
                 {videoSettings.quality === "archival" && (
                   <div className="mt-3 flex items-start gap-2 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                     <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
@@ -627,6 +641,42 @@ export function SettingsPage() {
                     onChange={(val) => updateVideoSetting("pixel_format", val)}
                     helpText="yuv420p is safest for compatibility."
                   />
+
+                  <CustomDropdown
+                    label="FFmpeg CPU Threads"
+                    value={videoSettings.ffmpeg_threads}
+                    options={[
+                      { value: "0", label: "Auto (recommended)" },
+                      { value: "1", label: "1 thread — slowest, lowest CPU" },
+                      { value: "2", label: "2 threads" },
+                      { value: "4", label: "4 threads" },
+                      { value: "8", label: "8 threads — fastest on powerful PCs" },
+                    ]}
+                    onChange={(val) => updateVideoSetting("ffmpeg_threads", val)}
+                    helpText="Auto adapts to your RAM. Lower threads keep the PC responsive."
+                  />
+
+                  <div className="sm:col-span-2 flex items-center gap-3 p-3 rounded-lg border border-border-light dark:border-border-dark">
+                    <input
+                      id="use-hw-encoder"
+                      type="checkbox"
+                      checked={videoSettings.use_hardware_encoder}
+                      onChange={(e) =>
+                        updateVideoSetting(
+                          "use_hardware_encoder",
+                          e.target.checked,
+                        )
+                      }
+                      className="rounded border-gray-300"
+                    />
+                    <label htmlFor="use-hw-encoder" className="text-sm">
+                      <span className="font-medium">Hardware video encoder</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">
+                        Use GPU encoding (NVENC/AMF/QSV) when available. Same
+                        quality settings; reduces CPU load.
+                      </span>
+                    </label>
+                  </div>
 
                   <CustomDropdown
                     label="Audio Codec"

@@ -204,6 +204,79 @@ class SubtitleGenerator:
         return output_path
 
 
+def unload_whisper_models() -> None:
+    """Release cached faster-whisper models to free RAM."""
+    _load_whisper_model.cache_clear()
+    logger.info("[Whisper] Model cache cleared")
+
+
+def _parse_ass_time(value: str) -> float:
+    """Parse ASS timestamp H:MM:SS.cc to seconds."""
+    parts = value.strip().split(":")
+    if len(parts) != 3:
+        return 0.0
+    hours = int(parts[0])
+    minutes = int(parts[1])
+    sec_parts = parts[2].split(".")
+    secs = int(sec_parts[0])
+    centis = int(sec_parts[1]) if len(sec_parts) > 1 else 0
+    return hours * 3600 + minutes * 60 + secs + centis / 100.0
+
+
+def slice_ass(
+    ass_path: Path,
+    output_path: Path,
+    start_sec: float,
+    end_sec: float,
+) -> Path:
+    """Write ASS dialogue events for [start_sec, end_sec) with times shifted to zero."""
+    content = ass_path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+    header_lines: List[str] = []
+    dialogue_lines: List[str] = []
+    in_events = False
+    past_format = False
+
+    for line in lines:
+        if line.startswith("[Events]"):
+            in_events = True
+            header_lines.append(line)
+            continue
+        if not in_events:
+            header_lines.append(line)
+            continue
+        if line.startswith("Format:"):
+            header_lines.append(line)
+            past_format = True
+            continue
+        if not past_format or not line.startswith("Dialogue:"):
+            continue
+
+        # Dialogue: Layer, Start, End, Style, ...
+        parts = line.split(",", 9)
+        if len(parts) < 10:
+            continue
+        ev_start = _parse_ass_time(parts[1])
+        ev_end = _parse_ass_time(parts[2])
+        if ev_end <= start_sec or ev_start >= end_sec:
+            continue
+
+        rel_start = max(0.0, ev_start - start_sec)
+        rel_end = min(end_sec - start_sec, ev_end - start_sec)
+        if rel_end <= rel_start:
+            continue
+
+        parts[1] = _format_time(rel_start)
+        parts[2] = _format_time(rel_end)
+        dialogue_lines.append(",".join(parts))
+
+    output_path.write_text(
+        "\n".join(header_lines + dialogue_lines) + "\n",
+        encoding="utf-8",
+    )
+    return output_path
+
+
 def _format_time(seconds: float) -> str:
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)

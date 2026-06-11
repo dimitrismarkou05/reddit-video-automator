@@ -158,6 +158,8 @@ class FFmpegSettings:
     AUDIO_CODEC_KEY = "audio_codec"
     AUDIO_BITRATE_KEY = "audio_bitrate"
     AUDIO_SAMPLE_RATE_KEY = "audio_sample_rate"
+    FFMPEG_THREADS_KEY = "ffmpeg_threads"
+    USE_HARDWARE_ENCODER_KEY = "use_hardware_encoder"
 
     # Defaults
     DEFAULT_QUALITY = "balanced"
@@ -169,6 +171,8 @@ class FFmpegSettings:
     DEFAULT_AUDIO_CODEC = "aac"
     DEFAULT_AUDIO_BITRATE = "192k"
     DEFAULT_AUDIO_SAMPLE_RATE = "44100"
+    DEFAULT_FFMPEG_THREADS = "0"
+    DEFAULT_USE_HARDWARE_ENCODER = "false"
 
     def __init__(self, db: Session):
         self._mgr = SettingsManager(db)
@@ -265,6 +269,25 @@ class FFmpegSettings:
     def set_audio_sample_rate(self, rate: str) -> None:
         self._mgr.set(self.AUDIO_SAMPLE_RATE_KEY, rate)
 
+    def get_ffmpeg_threads(self) -> str:
+        return (
+            self._mgr.get(self.FFMPEG_THREADS_KEY, self.DEFAULT_FFMPEG_THREADS)
+            or self.DEFAULT_FFMPEG_THREADS
+        )
+
+    def set_ffmpeg_threads(self, value: str) -> None:
+        self._mgr.set(self.FFMPEG_THREADS_KEY, value)
+
+    def get_use_hardware_encoder(self) -> bool:
+        raw = (
+            self._mgr.get(self.USE_HARDWARE_ENCODER_KEY, self.DEFAULT_USE_HARDWARE_ENCODER)
+            or self.DEFAULT_USE_HARDWARE_ENCODER
+        )
+        return str(raw).lower() in ("1", "true", "yes", "on")
+
+    def set_use_hardware_encoder(self, value: str) -> None:
+        self._mgr.set(self.USE_HARDWARE_ENCODER_KEY, value)
+
     def get_all_video_settings(self) -> Dict[str, Any]:
         """Return a dict with all video generation settings for the frontend."""
         quality = self.get_video_quality()
@@ -296,6 +319,8 @@ class FFmpegSettings:
             ),
             "is_slow_encoding": bool(slow_warning),
             "slow_preset_warning": slow_warning,
+            "ffmpeg_threads": self.get_ffmpeg_threads(),
+            "use_hardware_encoder": self.get_use_hardware_encoder(),
         }
 
     def get_effective_encode_params(self) -> Dict[str, str]:

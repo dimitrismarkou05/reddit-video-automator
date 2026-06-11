@@ -58,6 +58,8 @@ def set_ffmpeg_video_setting(data: SettingsUpdate, db: Session = Depends(get_db)
         "audio_codec": settings.set_audio_codec,
         "audio_bitrate": settings.set_audio_bitrate,
         "audio_sample_rate": settings.set_audio_sample_rate,
+        "ffmpeg_threads": settings.set_ffmpeg_threads,
+        "use_hardware_encoder": settings.set_use_hardware_encoder,
     }
 
     handler = handlers.get(key)

@@ -1,6 +1,7 @@
 """Video generation pipeline with continuous weighted progress and push-based SSE."""
 
 import asyncio
+import gc
 import json
 import logging
 import re
@@ -98,6 +99,7 @@ class VideoPipeline:
         self._progress_callback: Optional[Callable[[int, str], None]] = None
         self._throttle_at: dict[str, float] = {}
         self._throttle_pct: dict[str, int] = {}
+        self._status_message_override: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Progress
@@ -111,8 +113,11 @@ class VideoPipeline:
         callback: Optional[Callable[[int, str], None]] = None,
         throttle_sec: float = 0.0,
         force: bool = False,
+        status_message: Optional[str] = None,
     ) -> None:
         """Commit progress to DB and push to SSE channel."""
+        if status_message is not None:
+            self._status_message_override = status_message
         try:
             lo, hi = STAGE_RANGES.get(step, (0, 0))
             raw = lo + int((hi - lo) * max(0, min(sub_pct, 100)) / 100)
@@ -141,7 +146,11 @@ class VideoPipeline:
             self.db.commit()
 
             # Push to SSE immediately.
-            payload = _build_progress_payload(video_record, step)
+            payload = _build_progress_payload(
+                video_record,
+                step,
+                self._status_message_override,
+            )
             progress_push.push_progress(video_record.id, payload)
 
             logger.debug(f"[Pipeline {video_record.id}] {step} {new_pct}%")
@@ -608,11 +617,40 @@ class VideoPipeline:
 
                 compose_t = time.monotonic()
 
-                def ff_callback(percent: int, step: str) -> None:
+                import video.engine.tts_registry as tts_registry
+                from video.engine.subtitles import unload_whisper_models
+                from video.engine.resource_budget import compute_resource_budget
+                from core.ffmpeg_settings import FFmpegSettings
+
+                tts_registry.evict_all()
+                unload_whisper_models()
+                gc.collect()
+                logger.info(
+                    f"[Pipeline {video_id}] Freed ML models before compositing"
+                )
+
+                ff_settings = FFmpegSettings(self.db)
+                try:
+                    threads_override = int(ff_settings.get_ffmpeg_threads() or 0)
+                except ValueError:
+                    threads_override = 0
+                use_hwaccel = ff_settings.get_use_hardware_encoder()
+                duration = video_record.duration_seconds or 0.0
+                budget = compute_resource_budget(
+                    duration,
+                    ffmpeg_threads_override=threads_override,
+                )
+
+                def ff_callback(
+                    percent: int,
+                    step: str,
+                    message: Optional[str] = None,
+                ) -> None:
                     self._update_progress(
                         video_record, "compositing", percent,
                         progress_callback, throttle_sec=1.5,
                         force=(percent >= 99),
+                        status_message=message,
                     )
 
                 final_duration = await self.composer.compose(
@@ -621,9 +659,11 @@ class VideoPipeline:
                     str(subtitle_path) if Path(subtitle_path).exists() else None,
                     str(output_folder / "video.mp4"),
                     video_format=video_format,
-                    audio_duration=video_record.duration_seconds,
+                    audio_duration=duration,
                     progress_callback=ff_callback,
                     encode_params=encode_params,
+                    use_hwaccel=use_hwaccel,
+                    resource_budget=budget,
                 )
                 logger.info(
                     f"[Pipeline {video_id}] Compositing done in "
@@ -794,14 +834,19 @@ def _get_whisper_model_size(db: Session) -> str:
         return "base"
 
 
-def _build_progress_payload(video: GeneratedVideo, step: str) -> dict:
+def _build_progress_payload(
+    video: GeneratedVideo,
+    step: str,
+    status_message: Optional[str] = None,
+) -> dict:
     step = step or ""
+    message = status_message or _STEP_MESSAGES.get(step, step)
     return {
         "video_id": video.id,
         "status": video.status,
         "progress_percent": video.progress_percent,
         "current_step": step,
-        "status_message": _STEP_MESSAGES.get(step, step),
+        "status_message": message,
         "step_progress": video.step_progress,
         "error_message": video.error_message,
         "error_type": video.error_type,
