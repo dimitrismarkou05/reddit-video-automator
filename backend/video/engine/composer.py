@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import math
 import os
 import platform
 import subprocess
@@ -14,7 +13,12 @@ from typing import Optional, Callable, Dict, Any, List, Tuple
 
 from core.config import FFMPEG_PATH
 from core.ffmpeg_settings import get_preset_timeout_multiplier
-from video.engine.resource_budget import ResourceBudget, needs_segmentation
+from video.engine.resource_budget import (
+    ResourceBudget,
+    needs_segmentation,
+    segment_count,
+    should_prepare_background,
+)
 from video.engine.subtitles import slice_ass
 from video.engine.utils import (
     get_video_info,
@@ -51,8 +55,10 @@ def _detect_hwaccel_encoder(ffmpeg_path: str) -> Optional[str]:
     return None
 
 
-def _subprocess_popen_kwargs() -> dict:
-    """Low priority so the OS stays responsive during encode."""
+def _subprocess_popen_kwargs(use_low_priority: bool = True) -> dict:
+    """Lower priority only when RAM is tight so encode stays fast when headroom exists."""
+    if not use_low_priority:
+        return {}
     kwargs: dict = {}
     if platform.system().lower() == "windows":
         kwargs["creationflags"] = subprocess.BELOW_NORMAL_PRIORITY_CLASS  # type: ignore[attr-defined]
@@ -92,23 +98,58 @@ class FFmpegComposer:
             audio_duration = get_audio_duration(audio_path)
 
         budget = resource_budget or ResourceBudget(
-            ffmpeg_threads=2,
+            ffmpeg_threads=4,
             filter_threads=2,
-            segment_duration_sec=120,
+            segment_duration_sec=180,
             use_single_pass=True,
             total_ram_gb=8.0,
+            available_ram_gb=3.0,
+            use_low_priority=False,
         )
 
-        if needs_segmentation(audio_duration, budget):
-            seg_dur = budget.segment_duration_sec
-            total_segs = max(1, math.ceil(audio_duration / seg_dur))
-            logger.info(
-                "[Composer] Segmented compose: %d segment(s) of ~%ds",
-                total_segs,
-                seg_dur,
-            )
-            return await self._compose_segmented(
+        work_dir = Path(output_path).parent / "_compose_work"
+        bg_input = background_video
+        prepared = False
+
+        if should_prepare_background(audio_duration):
+            work_dir.mkdir(parents=True, exist_ok=True)
+            prep_path = work_dir / "background_prepared.mp4"
+            await asyncio.to_thread(
+                self._prepare_background,
                 background_video,
+                str(prep_path),
+                video_format,
+                audio_duration,
+                budget,
+            )
+            bg_input = str(prep_path)
+            prepared = True
+
+        try:
+            if needs_segmentation(audio_duration, budget):
+                total_segs = segment_count(audio_duration, budget)
+                logger.info(
+                    "[Composer] Segmented compose: %d segment(s) of ~%ds",
+                    total_segs,
+                    budget.segment_duration_sec,
+                )
+                return await self._compose_segmented(
+                    bg_input,
+                    audio_path,
+                    subtitle_path,
+                    output_path,
+                    video_format,
+                    audio_duration,
+                    progress_callback,
+                    encode_params,
+                    use_hwaccel,
+                    budget,
+                    prepared_background=prepared,
+                    work_dir=work_dir,
+                )
+
+            return await self._compose_single(
+                bg_input,
                 audio_path,
                 subtitle_path,
                 output_path,
@@ -118,22 +159,55 @@ class FFmpegComposer:
                 encode_params,
                 use_hwaccel,
                 budget,
+                segment_index=1,
+                segment_total=1,
+                prepared_background=prepared,
             )
+        finally:
+            if work_dir.exists():
+                for p in work_dir.glob("*"):
+                    try:
+                        p.unlink()
+                    except OSError:
+                        pass
+                try:
+                    work_dir.rmdir()
+                except OSError:
+                    pass
 
-        return await self._compose_single(
-            background_video,
-            audio_path,
-            subtitle_path,
-            output_path,
-            video_format,
-            audio_duration,
-            progress_callback,
-            encode_params,
-            use_hwaccel,
-            budget,
-            segment_index=1,
-            segment_total=1,
+    def _prepare_background(
+        self,
+        background_video: str,
+        output_path: str,
+        video_format: str,
+        duration: float,
+        budget: ResourceBudget,
+    ) -> None:
+        """One-time loop+scale+crop pass; segments only burn subtitles + final encode."""
+        target_w, target_h = calculate_target_dimensions(video_format)
+        filter_complex = (
+            f"[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+            f"crop={target_w}:{target_h}[v]"
         )
+        cmd = [
+            self.ffmpeg_path, "-y",
+            "-threads", str(budget.ffmpeg_threads),
+            "-filter_threads", str(budget.filter_threads),
+            "-stream_loop", "-1",
+            "-i", background_video,
+            "-filter_complex", filter_complex,
+            "-map", "[v]",
+            "-an",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "28",
+            "-t", str(duration),
+            "-pix_fmt", "yuv420p",
+            output_path,
+        ]
+        timeout = max(300, int(duration * 5))
+        self._run_simple_ffmpeg(cmd, budget, timeout=timeout)
+        logger.info("[Composer] Background prepared: %s", output_path)
 
     async def _compose_segmented(
         self,
@@ -147,12 +221,14 @@ class FFmpegComposer:
         encode_params: Optional[Dict[str, Any]],
         use_hwaccel: bool,
         budget: ResourceBudget,
+        prepared_background: bool = False,
+        work_dir: Optional[Path] = None,
     ) -> float:
         out = Path(output_path)
-        work_dir = out.parent / "_compose_segments"
+        work_dir = work_dir or (out.parent / "_compose_work")
         work_dir.mkdir(parents=True, exist_ok=True)
         seg_dur = budget.segment_duration_sec
-        total_segs = max(1, math.ceil(audio_duration / seg_dur))
+        total_segs = segment_count(audio_duration, budget)
         segment_paths: List[Path] = []
 
         try:
@@ -206,6 +282,8 @@ class FFmpegComposer:
                     budget,
                     segment_index=idx + 1,
                     segment_total=total_segs,
+                    prepared_background=prepared_background,
+                    bg_seek_start=t_start if prepared_background else 0.0,
                 )
                 segment_paths.append(seg_out)
 
@@ -224,15 +302,6 @@ class FFmpegComposer:
         finally:
             for p in segment_paths:
                 p.unlink(missing_ok=True)
-            for p in work_dir.glob("*"):
-                try:
-                    p.unlink()
-                except OSError:
-                    pass
-            try:
-                work_dir.rmdir()
-            except OSError:
-                pass
 
     def _slice_audio(
         self,
@@ -294,7 +363,7 @@ class FFmpegComposer:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            **_subprocess_popen_kwargs(),
+            **_subprocess_popen_kwargs(budget.use_low_priority),
         )
         self._process = proc
         try:
@@ -312,6 +381,32 @@ class FFmpegComposer:
         finally:
             self._process = None
 
+    def _build_filter_complex(
+        self,
+        video_format: str,
+        subtitle_path: Optional[str],
+        prepared_background: bool,
+    ) -> str:
+        if prepared_background:
+            if subtitle_path and Path(subtitle_path).exists():
+                sub_path = str(subtitle_path).replace("\\", "/")
+                if ":" in sub_path:
+                    sub_path = sub_path.replace(":", "\\:", 1)
+                return f"[0:v]subtitles=filename='{sub_path}'[v]"
+            return "[0:v]copy[v]"
+
+        target_w, target_h = calculate_target_dimensions(video_format)
+        base_filter = (
+            f"[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+            f"crop={target_w}:{target_h}"
+        )
+        if subtitle_path and Path(subtitle_path).exists():
+            sub_path = str(subtitle_path).replace("\\", "/")
+            if ":" in sub_path:
+                sub_path = sub_path.replace(":", "\\:", 1)
+            return f"{base_filter},subtitles=filename='{sub_path}'[v]"
+        return f"{base_filter}[v]"
+
     async def _compose_single(
         self,
         background_video: str,
@@ -326,21 +421,15 @@ class FFmpegComposer:
         budget: ResourceBudget,
         segment_index: int = 1,
         segment_total: int = 1,
+        prepared_background: bool = False,
+        bg_seek_start: float = 0.0,
     ) -> float:
-        target_w, target_h = calculate_target_dimensions(video_format)
-        get_video_info(background_video)
+        if not prepared_background:
+            get_video_info(background_video)
 
-        base_filter = (
-            f"[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
-            f"crop={target_w}:{target_h}"
+        filter_complex = self._build_filter_complex(
+            video_format, subtitle_path, prepared_background
         )
-        if subtitle_path and Path(subtitle_path).exists():
-            sub_path = str(subtitle_path).replace("\\", "/")
-            if ":" in sub_path:
-                sub_path = sub_path.replace(":", "\\:", 1)
-            filter_complex = f"{base_filter},subtitles=filename='{sub_path}'[v]"
-        else:
-            filter_complex = f"{base_filter}[v]"
 
         params = self._resolve_encode_params(encode_params)
         video_codec = params["video_codec"]
@@ -354,7 +443,12 @@ class FFmpegComposer:
             self.ffmpeg_path, "-y",
             "-threads", str(budget.ffmpeg_threads),
             "-filter_threads", str(budget.filter_threads),
-            "-stream_loop", "-1",
+        ]
+        if prepared_background and bg_seek_start > 0:
+            cmd.extend(["-ss", str(bg_seek_start)])
+        if not prepared_background:
+            cmd.extend(["-stream_loop", "-1"])
+        cmd.extend([
             "-i", background_video,
             "-i", audio_path,
             "-progress", "pipe:1",
@@ -364,7 +458,7 @@ class FFmpegComposer:
             "-map", "1:a",
             "-c:v", video_codec,
             "-preset", params["preset"],
-        ]
+        ])
 
         if video_codec == "libx264":
             cmd.extend(["-thread_type", "slice", "-x264-params", "rc-lookahead=20"])
@@ -410,7 +504,7 @@ class FFmpegComposer:
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
-                **_subprocess_popen_kwargs(),
+                **_subprocess_popen_kwargs(budget.use_low_priority),
             )
 
             last_progress = 0

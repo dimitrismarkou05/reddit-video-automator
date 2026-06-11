@@ -156,12 +156,13 @@ class VideoProgressBroadcaster:
 
 def _build_payload(video: GeneratedVideo) -> dict:
     step = video.current_step or ""
+    status_message = video.status_message or _STATUS_MESSAGES.get(step, step)
     return {
         "video_id": video.id,
         "status": video.status,
         "progress_percent": video.progress_percent,
         "current_step": step,
-        "status_message": _STATUS_MESSAGES.get(step, step),
+        "status_message": status_message,
         "step_progress": video.step_progress,
         "error_message": video.error_message,
         "error_type": video.error_type,

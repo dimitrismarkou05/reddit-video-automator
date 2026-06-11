@@ -299,12 +299,20 @@ def get_progress(video_id: int, db: Session = Depends(get_db)):
 
     qpos = job_manager.queue_position(video_id)
 
+    from video.engine.pipeline import _STEP_MESSAGES
+    step = video.current_step or ""
+    status_message = (
+        video.status_message
+        or _STEP_MESSAGES.get(step, step)
+    )
+
     return VideoProgressResponse(
         video_id=video.id,
         status=video.status,
         progress_percent=video.progress_percent,
         current_step=video.current_step,
         step_progress=video.step_progress,
+        status_message=status_message,
         error_message=video.error_message,
         error_type=video.error_type,
         error_step=video.error_step,

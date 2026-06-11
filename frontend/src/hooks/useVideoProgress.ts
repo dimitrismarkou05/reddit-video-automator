@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { videoProgressSSE } from "@/services/api";
+import { videoApi, videoProgressSSE } from "@/services/api";
 
 export interface VideoProgressData {
   video_id: number;
@@ -70,7 +70,8 @@ export function useVideoProgress({
         !prev ||
         isNewStatus ||
         isTerminal ||
-        data.progress_percent > (prev.progress_percent || 0);
+        data.progress_percent > (prev.progress_percent || 0) ||
+        data.status_message !== prev.status_message;
 
       if (!shouldUpdate) {
         return prev;
@@ -144,6 +145,15 @@ export function useVideoProgress({
     // Connect to new video
     lastVideoIdRef.current = videoId;
     isConnectedRef.current = true;
+
+    videoApi
+      .getProgress(videoId)
+      .then(({ data }) => {
+        if (data) {
+          handleProgress(data as VideoProgressData);
+        }
+      })
+      .catch(() => {});
 
     videoProgressSSE.onProgress(handleProgress);
     videoProgressSSE.connect(videoId);

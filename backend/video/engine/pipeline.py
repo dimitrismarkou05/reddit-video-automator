@@ -118,6 +118,8 @@ class VideoPipeline:
         """Commit progress to DB and push to SSE channel."""
         if status_message is not None:
             self._status_message_override = status_message
+        elif step != (video_record.current_step or ""):
+            self._status_message_override = None
         try:
             lo, hi = STAGE_RANGES.get(step, (0, 0))
             raw = lo + int((hi - lo) * max(0, min(sub_pct, 100)) / 100)
@@ -143,6 +145,10 @@ class VideoPipeline:
             video_record.current_step = step
             video_record.step_progress = sub_pct
             video_record.last_progress_at = datetime.now(timezone.utc)
+            video_record.status_message = (
+                self._status_message_override
+                or _STEP_MESSAGES.get(step, step)
+            )
             self.db.commit()
 
             # Push to SSE immediately.
@@ -603,9 +609,6 @@ class VideoPipeline:
                 "subtitles_done", "selecting_background", "failed",
             ):
                 self.check_cancelled(video_record)
-                self._update_progress(
-                    video_record, "compositing", 0, progress_callback
-                )
 
                 from core.ffmpeg_settings import get_slow_preset_warning
                 warn = get_slow_preset_warning(
@@ -619,7 +622,11 @@ class VideoPipeline:
 
                 import video.engine.tts_registry as tts_registry
                 from video.engine.subtitles import unload_whisper_models
-                from video.engine.resource_budget import compute_resource_budget
+                from video.engine.resource_budget import (
+                    compute_resource_budget,
+                    needs_segmentation,
+                    segment_count,
+                )
                 from core.ffmpeg_settings import FFmpegSettings
 
                 tts_registry.evict_all()
@@ -639,6 +646,19 @@ class VideoPipeline:
                 budget = compute_resource_budget(
                     duration,
                     ffmpeg_threads_override=threads_override,
+                )
+
+                if needs_segmentation(duration, budget):
+                    total_segs = segment_count(duration, budget)
+                    compose_msg = f"Rendering segment 1/{total_segs}"
+                else:
+                    compose_msg = "Rendering video"
+                self._update_progress(
+                    video_record,
+                    "compositing",
+                    0,
+                    progress_callback,
+                    status_message=compose_msg,
                 )
 
                 def ff_callback(
@@ -840,7 +860,11 @@ def _build_progress_payload(
     status_message: Optional[str] = None,
 ) -> dict:
     step = step or ""
-    message = status_message or _STEP_MESSAGES.get(step, step)
+    message = (
+        status_message
+        or video.status_message
+        or _STEP_MESSAGES.get(step, step)
+    )
     return {
         "video_id": video.id,
         "status": video.status,

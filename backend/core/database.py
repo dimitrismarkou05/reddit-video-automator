@@ -30,6 +30,7 @@ def _migrate_db() -> None:
         additions = [
             ("queued_at", "DATETIME"),
             ("last_progress_at", "DATETIME"),
+            ("status_message", "TEXT"),
         ]
         for col, col_type in additions:
             if col not in existing:

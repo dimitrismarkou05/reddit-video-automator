@@ -41,6 +41,7 @@ class GeneratedVideo(Base):
 
     current_step: Mapped[str] = mapped_column(String(50), default="queued")
     step_progress: Mapped[int] = mapped_column(Integer, default=0)
+    status_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     temp_files_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 

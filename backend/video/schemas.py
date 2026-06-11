@@ -80,6 +80,7 @@ class VideoProgressResponse(BaseModel):
     progress_percent: int
     current_step: str
     step_progress: int
+    status_message: Optional[str] = None
     error_message: Optional[str] = None
     error_type: Optional[str] = None
     error_step: Optional[str] = None
