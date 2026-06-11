@@ -7,7 +7,7 @@ import {
   Play,
   ExternalLink,
   Pause,
-  Square,
+  X,
   Loader2,
   Trash2,
   AlertTriangle,
@@ -26,6 +26,8 @@ import { videoApi } from "@/services/api";
 import type { GeneratedVideo } from "@/types";
 import toast from "react-hot-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { removeVideoFromCache } from "@/utils/videoQueries";
+import { useVideoJobsStore } from "@/store/videoJobs";
 
 const STEP_LABELS: Record<string, string> = {
   queued: "Queued",
@@ -71,8 +73,10 @@ export function VideoCard({ video }: VideoCardProps) {
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [imgError, setImgError] = useState(false);
   const queryClient = useQueryClient();
+  const removeJob = useVideoJobsStore((s) => s.removeJob);
 
   const status = STATUS_CONFIG[video.status] || STATUS_CONFIG.processing;
   const ytStatus =
@@ -105,12 +109,16 @@ export function VideoCard({ video }: VideoCardProps) {
   };
 
   const handleCancel = async () => {
+    if (isCancelling) return;
+    setIsCancelling(true);
     try {
       await videoApi.cancel(video.id);
-      toast.success("Cancelled");
-      queryClient.invalidateQueries({ queryKey: ["videos"] });
+      removeVideoFromCache(queryClient, video.id);
+      removeJob(video.id);
+      toast("Generation cancelled", { icon: "⚠️" });
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Failed to cancel");
+      setIsCancelling(false);
     }
   };
 
@@ -148,6 +156,11 @@ export function VideoCard({ video }: VideoCardProps) {
             <span className="text-xs text-red-400 font-medium">
               Generation Failed
             </span>
+          </div>
+        ) : isCancelling ? (
+          <div className="w-full h-full flex flex-col items-center justify-center">
+            <Loader2 className="w-10 h-10 text-red-500 animate-spin mb-2" />
+            <span className="text-xs text-red-500 font-medium">Cancelling...</span>
           </div>
         ) : isGenerating ? (
           <div className="w-full h-full flex flex-col items-center justify-center">
@@ -267,10 +280,20 @@ export function VideoCard({ video }: VideoCardProps) {
               </button>
               <button
                 onClick={handleCancel}
-                className="cursor-pointer px-3 py-2 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-xs flex items-center gap-1"
+                disabled={isCancelling}
+                className="cursor-pointer px-3 py-2 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-xs flex items-center gap-1 disabled:opacity-50"
               >
-                <Square className="w-3 h-3" />
-                Cancel
+                {isCancelling ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Cancelling...
+                  </>
+                ) : (
+                  <>
+                    <X className="w-3 h-3" />
+                    Cancel
+                  </>
+                )}
               </button>
             </>
           )}
@@ -280,17 +303,28 @@ export function VideoCard({ video }: VideoCardProps) {
             <>
               <button
                 onClick={handleResume}
-                className="cursor-pointer flex-1 btn-primary text-xs py-2 flex items-center justify-center gap-1"
+                disabled={isCancelling}
+                className="cursor-pointer flex-1 btn-primary text-xs py-2 flex items-center justify-center gap-1 disabled:opacity-50"
               >
                 <Play className="w-3 h-3" />
                 Resume
               </button>
               <button
                 onClick={handleCancel}
-                className="cursor-pointer px-3 py-2 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-xs flex items-center gap-1"
+                disabled={isCancelling}
+                className="cursor-pointer px-3 py-2 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-xs flex items-center gap-1 disabled:opacity-50"
               >
-                <Square className="w-3 h-3" />
-                Cancel
+                {isCancelling ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Cancelling...
+                  </>
+                ) : (
+                  <>
+                    <X className="w-3 h-3" />
+                    Cancel
+                  </>
+                )}
               </button>
             </>
           )}

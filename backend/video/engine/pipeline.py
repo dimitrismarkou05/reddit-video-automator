@@ -258,6 +258,11 @@ class VideoPipeline:
             logger.warning(
                 f"[Pipeline {video_record.id}] DB refresh error in cancel check: {exc}"
             )
+            raise PipelineCancelledError("Cancelled")
+        if not self.db.query(GeneratedVideo).filter(
+            GeneratedVideo.id == video_record.id
+        ).first():
+            raise PipelineCancelledError("Cancelled")
         if video_record.status == VideoStatus.CANCELLED.value:
             raise PipelineCancelledError("Cancelled")
         if video_record.status == VideoStatus.PAUSED.value:
@@ -757,20 +762,26 @@ class VideoPipeline:
 
         except PipelineCancelledError:
             logger.info(f"[Pipeline {video_id}] Cancelled")
-            video_record.status = VideoStatus.CANCELLED.value
-            video_record.cancelled_at = datetime.now(timezone.utc)
-            story.status = StoryStatus.VIDEO_CANCELLED.value
-            self.db.commit()
-            progress_push.push_progress(
-                video_id, _build_progress_payload(video_record, "cancelled")
-            )
-            cleanup_temp(video_id)
-            try:
-                await notification_queue.broadcast("video_cancelled", {
-                    "video_id": video_id, "story_id": story.id, "status": "cancelled",
-                })
-            except Exception:
-                pass
+            still_exists = self.db.query(GeneratedVideo).filter(
+                GeneratedVideo.id == video_id
+            ).first()
+            if still_exists:
+                video_record.status = VideoStatus.CANCELLED.value
+                video_record.cancelled_at = datetime.now(timezone.utc)
+                story.status = StoryStatus.VIDEO_CANCELLED.value
+                self.db.commit()
+                progress_push.push_progress(
+                    video_id, _build_progress_payload(video_record, "cancelled")
+                )
+                cleanup_temp(video_id)
+                try:
+                    await notification_queue.broadcast("video_cancelled", {
+                        "video_id": video_id,
+                        "story_id": story.id,
+                        "status": "cancelled",
+                    })
+                except Exception:
+                    pass
             raise
 
         except PipelinePausedError:

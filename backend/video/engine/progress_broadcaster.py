@@ -40,6 +40,7 @@ _STATUS_MESSAGES: dict[str, str] = {
     "done":                 "Complete",
     "failed":               "Generation failed",
     "cancelled":            "Cancelled",
+    "deleted":              "Generation cancelled",
     "paused":               "Paused",
 }
 
@@ -79,7 +80,7 @@ class VideoProgressBroadcaster:
     # ------------------------------------------------------------------
 
     async def stream(self, request: Request) -> AsyncGenerator[str, None]:
-        terminal = {"done", "failed", "cancelled"}
+        terminal = {"done", "failed", "cancelled", "deleted"}
         last_data: Optional[dict] = None
         last_keep_alive = asyncio.get_event_loop().time()
         event_count = 0
@@ -172,6 +173,25 @@ def _build_payload(video: GeneratedVideo) -> dict:
         "retry_count": video.retry_count,
         "thumbnail_path": video.thumbnail_path,
         "video_path": video.video_path,
+    }
+
+
+def build_deleted_progress_payload(video_id: int) -> dict:
+    return {
+        "video_id": video_id,
+        "status": "deleted",
+        "progress_percent": 0,
+        "current_step": "deleted",
+        "status_message": "Generation cancelled",
+        "step_progress": 0,
+        "error_message": None,
+        "error_type": None,
+        "error_step": None,
+        "queue_position": None,
+        "is_paused": False,
+        "retry_count": 0,
+        "thumbnail_path": None,
+        "video_path": None,
     }
 
 

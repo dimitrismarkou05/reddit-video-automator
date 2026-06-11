@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   X,
   Film,
@@ -9,7 +9,7 @@ import {
   Settings,
   Pause,
   Play,
-  Square,
+  Loader2,
   FolderOpen,
   FileVideo,
   CheckCircle,
@@ -17,11 +17,15 @@ import {
   RotateCw,
   ListOrdered,
 } from "lucide-react";
-import { videoApi, ttsLocalApi, settingsApi } from "@/services/api";
+import { videoApi, ttsLocalApi, settingsApi, videoProgressSSE } from "@/services/api";
 import type { Story, SubtitleStyle as SubtitleStyleType } from "@/types";
 import { useVideoProgress } from "@/hooks/useVideoProgress";
 import { useVideoJobsStore } from "@/store/videoJobs";
 import { ACTIVE_GENERATION_STATUSES } from "@/config/videoStatus";
+import {
+  removeVideoFromCache,
+  clearStoryGeneratedVideo,
+} from "@/utils/videoQueries";
 import toast from "react-hot-toast";
 
 const STEP_LABELS: Record<string, string> = {
@@ -74,6 +78,7 @@ export function GenerateVideoModal({
   isUpdate = false,
   parentStory = null,
 }: GenerateVideoModalProps) {
+  const queryClient = useQueryClient();
   const { setActiveModal, registerJob, updateJob, removeJob } =
     useVideoJobsStore();
 
@@ -106,9 +111,10 @@ export function GenerateVideoModal({
   );
   const [lastError, setLastError] = useState<string | null>(null);
   const [hasStartedGeneration, setHasStartedGeneration] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelCompleted, setCancelCompleted] = useState(false);
 
-  // CRITICAL FIX: Track if we already showed the cancel toast to prevent double-toast
-  const cancelToastShownRef = useRef(false);
+  const cancelCompleteRef = useRef(false);
   const notifiedTerminalRef = useRef(false);
 
   // Set active modal in store for global tracking
@@ -168,19 +174,43 @@ export function GenerateVideoModal({
     }
   }, []);
 
-  const handleError = useCallback((data: any) => {
-    if (!notifiedTerminalRef.current) {
+  const handleCancelComplete = useCallback(
+    (id: number) => {
+      videoProgressSSE.disconnect();
+      setCancelCompleted(true);
+      setIsCancelling(false);
+      setVideoId(null);
+      setHasStartedGeneration(false);
       notifiedTerminalRef.current = true;
-      if (data.status === "failed") {
-        toast.error(data.error_message || "Video generation failed");
-      } else if (data.status === "cancelled") {
-        // CRITICAL FIX: Only show toast if we haven't already shown it from handleCancel
-        if (!cancelToastShownRef.current) {
-          toast("Generation cancelled", { icon: "⚠️" });
+
+      if (!cancelCompleteRef.current) {
+        cancelCompleteRef.current = true;
+        removeVideoFromCache(queryClient, id);
+        clearStoryGeneratedVideo(queryClient, story.id);
+        removeJob(id);
+        toast("Generation cancelled", { icon: "⚠️" });
+        queryClient.invalidateQueries({ queryKey: ["stories"] });
+        queryClient.invalidateQueries({ queryKey: ["story", story.id] });
+      }
+    },
+    [queryClient, removeJob, story.id],
+  );
+
+  const handleError = useCallback(
+    (data: any) => {
+      if (data.status === "deleted" || data.status === "cancelled") {
+        handleCancelComplete(data.video_id);
+        return;
+      }
+      if (!notifiedTerminalRef.current) {
+        notifiedTerminalRef.current = true;
+        if (data.status === "failed") {
+          toast.error(data.error_message || "Video generation failed");
         }
       }
-    }
-  }, []);
+    },
+    [handleCancelComplete],
+  );
 
   const { progress } = useVideoProgress({
     videoId,
@@ -189,9 +219,11 @@ export function GenerateVideoModal({
   });
 
   // Derive UI state from progress
-  const isGenerating = progress
-    ? ACTIVE_GENERATION_STATUSES.includes(progress.status)
-    : existingVideoIsActive;
+  const isGenerating =
+    !cancelCompleted &&
+    (progress
+      ? ACTIVE_GENERATION_STATUSES.includes(progress.status)
+      : hasStartedGeneration && existingVideoIsActive);
 
   const isPaused = progress?.status === "paused";
   const isFailed = progress?.status === "failed" || lastError !== null;
@@ -216,27 +248,45 @@ export function GenerateVideoModal({
     }
 
     // Reset terminal notification when we see a non-terminal state
-    if (!["done", "failed", "cancelled"].includes(progress.status)) {
+    if (!["done", "failed", "cancelled", "deleted"].includes(progress.status)) {
       notifiedTerminalRef.current = false;
-      cancelToastShownRef.current = false;
+      cancelCompleteRef.current = false;
     }
 
-    if (["done", "failed", "cancelled"].includes(progress.status)) {
+    if (progress.status === "deleted" && videoId) {
+      handleCancelComplete(videoId);
+    }
+
+    if (["done", "failed", "cancelled", "deleted"].includes(progress.status)) {
       if (progress.status === "failed") {
         setLastError(progress.error_message || "Unknown error");
       }
     } else {
       setLastError(null);
     }
-  }, [progress, videoId, updateJob]);
+  }, [progress, videoId, updateJob, handleCancelComplete]);
 
-  // On mount, track existing active video
+  // On mount, track existing active video (skip after user cancelled)
   useEffect(() => {
-    if (existingVideoIsActive && existingVideo?.id && !videoId) {
-      setVideoId(existingVideo.id);
-      registerJob(existingVideo.id, story.id, existingVideo.status);
+    if (
+      cancelCompleted ||
+      cancelCompleteRef.current ||
+      !existingVideoIsActive ||
+      !existingVideo?.id ||
+      videoId
+    ) {
+      return;
     }
-  }, [existingVideo, existingVideoIsActive, videoId, story.id, registerJob]);
+    setVideoId(existingVideo.id);
+    registerJob(existingVideo.id, story.id, existingVideo.status);
+  }, [
+    existingVideo,
+    existingVideoIsActive,
+    videoId,
+    story.id,
+    registerJob,
+    cancelCompleted,
+  ]);
 
   // FIX 12b: Validate background when it changes
   useEffect(() => {
@@ -444,8 +494,9 @@ export function GenerateVideoModal({
     }
     setLastError(null);
     setHasStartedGeneration(true);
+    setCancelCompleted(false);
     notifiedTerminalRef.current = false;
-    cancelToastShownRef.current = false;
+    cancelCompleteRef.current = false;
 
     try {
       const subtitleStyle: SubtitleStyleType = {
@@ -510,8 +561,9 @@ export function GenerateVideoModal({
     removeJob(videoId);
     setLastError(null);
     setHasStartedGeneration(true);
+    setCancelCompleted(false);
     notifiedTerminalRef.current = false;
-    cancelToastShownRef.current = false;
+    cancelCompleteRef.current = false;
 
     try {
       const { data } = await videoApi.retry(videoId);
@@ -547,15 +599,15 @@ export function GenerateVideoModal({
   };
 
   const handleCancel = async () => {
-    if (!videoId) return;
+    if (!videoId || isCancelling) return;
+    setIsCancelling(true);
+    const id = videoId;
     try {
-      await videoApi.cancel(videoId);
-      // CRITICAL FIX: Mark that we showed the toast, so SSE handler won't double-toast
-      cancelToastShownRef.current = true;
-      toast.success("Generation cancelled");
-      setHasStartedGeneration(false);
+      await videoApi.cancel(id);
+      handleCancelComplete(id);
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Failed to cancel");
+      setIsCancelling(false);
     }
   };
 
@@ -593,10 +645,10 @@ export function GenerateVideoModal({
     progress?.queue_position ?? existingVideo?.queue_position;
 
   // Determine what view to show
-  const showProgress = isGenerating && !isDone;
-  const showDone = isDone;
-  const showPicker = !showProgress && !showDone && !isCancelled;
-  const showCancelled = isCancelled && !showPicker;
+  const showProgress =
+    !cancelCompleted && ((isGenerating && !isDone) || isCancelling);
+  const showDone = isDone && !isCancelling && !cancelCompleted;
+  const showPicker = !showProgress && !showDone;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -627,22 +679,34 @@ export function GenerateVideoModal({
               <div className="text-center py-6">
                 <div className="relative w-20 h-20 mx-auto mb-4">
                   <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
-                  <div
-                    className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"
-                    style={{
-                      animationPlayState: isPaused ? "paused" : "running",
-                    }}
-                  />
-                  <Film className="absolute inset-0 m-auto w-8 h-8 text-primary" />
+                  {isCancelling ? (
+                    <>
+                      <div className="absolute inset-0 rounded-full border-4 border-red-500/20" />
+                      <div className="absolute inset-0 rounded-full border-4 border-red-500 border-t-transparent animate-spin" />
+                      <X className="absolute inset-0 m-auto w-8 h-8 text-red-500" />
+                    </>
+                  ) : (
+                    <>
+                      <div
+                        className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"
+                        style={{
+                          animationPlayState: isPaused ? "paused" : "running",
+                        }}
+                      />
+                      <Film className="absolute inset-0 m-auto w-8 h-8 text-primary" />
+                    </>
+                  )}
                 </div>
                 <h3 className="text-lg font-semibold mb-1">
-                  {isPaused
-                    ? "Generation Paused"
-                    : isFailed
-                      ? "Generation Failed"
-                      : queuePosition
-                        ? `Queued #${queuePosition}`
-                        : "Generating Video..."}
+                  {isCancelling
+                    ? "Cancelling..."
+                    : isPaused
+                      ? "Generation Paused"
+                      : isFailed
+                        ? "Generation Failed"
+                        : queuePosition
+                          ? `Queued #${queuePosition}`
+                          : "Generating Video..."}
                 </h3>
                 <p className="text-sm text-gray-500 mb-4">{currentStepLabel}</p>
 
@@ -711,7 +775,7 @@ export function GenerateVideoModal({
                 ) : (
                   <button
                     onClick={handlePause}
-                    disabled={!isGenerating || isDone}
+                    disabled={!isGenerating || isDone || isCancelling}
                     className="cursor-pointer btn-secondary flex items-center gap-2 disabled:opacity-50"
                   >
                     <Pause className="w-4 h-4" />
@@ -720,11 +784,20 @@ export function GenerateVideoModal({
                 )}
                 <button
                   onClick={handleCancel}
-                  disabled={isDone || isCancelled}
+                  disabled={isDone || isCancelled || isCancelling}
                   className="cursor-pointer px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 flex items-center gap-2 font-medium disabled:opacity-50"
                 >
-                  <Square className="w-4 h-4" />
-                  Cancel
+                  {isCancelling ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Cancelling...
+                    </>
+                  ) : (
+                    <>
+                      <X className="w-4 h-4" />
+                      Cancel
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -749,36 +822,6 @@ export function GenerateVideoModal({
               <button onClick={onClose} className="cursor-pointer btn-primary">
                 Close
               </button>
-            </div>
-          ) : showCancelled ? (
-            <div className="text-center py-8 space-y-4">
-              <div className="w-16 h-16 mx-auto rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-                <Square className="w-8 h-8 text-gray-500" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold">Generation Cancelled</h3>
-                <p className="text-sm text-gray-500">
-                  The video generation was cancelled.
-                </p>
-              </div>
-              <div className="flex items-center justify-center gap-3">
-                <button
-                  onClick={() => {
-                    setVideoId(null);
-                    notifiedTerminalRef.current = false;
-                    cancelToastShownRef.current = false;
-                  }}
-                  className="cursor-pointer btn-primary"
-                >
-                  Start New Generation
-                </button>
-                <button
-                  onClick={onClose}
-                  className="cursor-pointer btn-secondary"
-                >
-                  Close
-                </button>
-              </div>
             </div>
           ) : showPicker ? (
             <>

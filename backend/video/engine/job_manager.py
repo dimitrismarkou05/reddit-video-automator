@@ -9,10 +9,14 @@ Improvements over original:
 """
 
 import asyncio
+import concurrent.futures
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
 from dataclasses import dataclass, field
+
+if TYPE_CHECKING:
+    from video.engine.pipeline import VideoPipeline
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +49,10 @@ class JobState:
     video_format: str = "shorts"
     subtitle_style: Optional[Any] = None
     generate_hashtags: bool = True
+    pipeline: Optional["VideoPipeline"] = None
+
+
+_CANCEL_WAIT_TIMEOUT = 5.0
 
 
 class VideoJobManager:
@@ -295,6 +303,7 @@ class VideoJobManager:
                     db.commit()
 
                     pipeline = VideoPipeline(db)
+                    job.pipeline = pipeline
 
                     # Reflect progress heartbeats into JobState so watchdog can see them.
                     def _sync_job_state(pct: int, step: str) -> None:
@@ -321,6 +330,8 @@ class VideoJobManager:
                             f"[JobManager] Pipeline error for {video_id}: {pipeline_exc}",
                             exc_info=True,
                         )
+                    finally:
+                        job.pipeline = None
                 finally:
                     db.close()
                     # Always update queue positions and signal next job.
@@ -466,42 +477,58 @@ class VideoJobManager:
         async with self._queue_condition:
             self._queue_condition.notify()
 
+    async def _wait_for_task_done(
+        self, task: asyncio.Task, timeout: float = _CANCEL_WAIT_TIMEOUT
+    ) -> None:
+        if task.done():
+            return
+        try:
+            await asyncio.wait_for(task, timeout=timeout)
+        except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+            pass
+
+    def _wait_task_on_loop(self, task: asyncio.Task) -> None:
+        if task.done():
+            return
+        try:
+            loop = task.get_loop()
+        except Exception:
+            return
+        if not loop.is_running():
+            return
+        fut = asyncio.run_coroutine_threadsafe(
+            self._wait_for_task_done(task), loop
+        )
+        try:
+            fut.result(timeout=_CANCEL_WAIT_TIMEOUT + 1)
+        except concurrent.futures.TimeoutError:
+            logger.warning(
+                f"[JobManager] Timeout waiting for task {task.get_name()} to stop"
+            )
+
     def cancel(self, video_id: int) -> bool:
+        had_active_job = False
+
         if video_id in self._queue:
             self._queue.remove(video_id)
 
         job = self.active_jobs.get(video_id)
         if job:
+            had_active_job = True
+            if job.pipeline:
+                try:
+                    job.pipeline.cancel()
+                except Exception as exc:
+                    logger.warning(
+                        f"[JobManager] Pipeline cancel error for {video_id}: {exc}"
+                    )
             if job.task and not job.task.done():
                 job.task.cancel()
+                self._wait_task_on_loop(job.task)
             job.status = "cancelled"
-            del self.active_jobs[video_id]
-
-        from core.database import SessionLocal
-        from video.models import GeneratedVideo, VideoStatus
-        db = SessionLocal()
-        try:
-            video = db.query(GeneratedVideo).filter(
-                GeneratedVideo.id == video_id
-            ).first()
-            if video and video.status not in (
-                VideoStatus.DONE.value, VideoStatus.FAILED.value,
-                VideoStatus.CANCELLED.value,
-            ):
-                video.status = VideoStatus.CANCELLED.value
-                video.cancelled_at = datetime.now(timezone.utc)
-                video.queue_position = None
-                db.commit()
-        except Exception as exc:
-            logger.error(f"[JobManager] Cancel DB error: {exc}")
-        finally:
-            db.close()
-
-        try:
-            from video.engine.utils import cleanup_temp
-            cleanup_temp(video_id)
-        except Exception as exc:
-            logger.warning(f"[JobManager] Temp cleanup error on cancel: {exc}")
+            job.pipeline = None
+            # Job may already be removed by _start_job finally / _cleanup_job_state
+            self.active_jobs.pop(video_id, None)
 
         try:
             loop = asyncio.get_running_loop()
@@ -509,7 +536,12 @@ class VideoJobManager:
                 asyncio.create_task(self._update_queue_positions())
         except RuntimeError:
             pass
-        return True
+
+        logger.info(
+            f"[JobManager] Cancelled video {video_id} "
+            f"(had_active_job={had_active_job})"
+        )
+        return had_active_job
 
     def pause(self, video_id: int) -> bool:
         job = self.active_jobs.get(video_id)

@@ -36,7 +36,7 @@ interface VideoJobsState {
 }
 
 // CRITICAL FIX: 'paused' is NOT terminal - it's an active state
-const TERMINAL_STATUSES = ["done", "failed", "cancelled"];
+const TERMINAL_STATUSES = ["done", "failed", "cancelled", "deleted"];
 
 export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
   jobs: {},

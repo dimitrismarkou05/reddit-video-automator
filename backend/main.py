@@ -192,6 +192,8 @@ def _sweep_temp_dirs(ttl_hours: int) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("[Lifespan] Starting up…")
+    from video.routes import set_app_event_loop
+    set_app_event_loop(asyncio.get_running_loop())
     init_db()  # also runs _migrate_db()
 
     # Seed default voice so fresh installs never 404 on voice lookup.

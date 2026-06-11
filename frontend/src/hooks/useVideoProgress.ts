@@ -26,7 +26,7 @@ interface UseVideoProgressOptions {
 }
 
 // Terminal statuses that should trigger reconnection on change
-const TERMINAL_STATUSES = ["done", "failed", "cancelled"];
+const TERMINAL_STATUSES = ["done", "failed", "cancelled", "deleted"];
 
 export function useVideoProgress({
   videoId,

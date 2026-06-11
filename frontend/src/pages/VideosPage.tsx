@@ -1,7 +1,8 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Film, Clock } from "lucide-react";
 import { videoApi } from "@/services/api";
+import { removeVideoFromCache } from "@/utils/videoQueries";
 import { VideoCard } from "@/components/videos/VideoCard";
 import { EmptyState } from "@/components/common/EmptyState";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
@@ -9,7 +10,10 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { ACTIVE_GENERATION_STATUSES } from "@/config/videoStatus";
 import type { GeneratedVideo } from "@/types";
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+
 export function VideosPage() {
+  const queryClient = useQueryClient();
   const {
     data: videos,
     isLoading,
@@ -39,8 +43,29 @@ export function VideosPage() {
     enabled: hasActiveGenerations,
   });
 
-  // Use polling data when available, otherwise regular data
-  const displayVideos = pollingVideos || videos;
+  const displayVideos = hasActiveGenerations
+    ? (pollingVideos ?? videos)
+    : videos;
+
+  useEffect(() => {
+    const url = `${API_BASE.replace("/api/v1", "")}/api/v1/sse/notifications`;
+    const eventSource = new EventSource(url);
+    const onVideoDeleted = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.video_id) {
+          removeVideoFromCache(queryClient, data.video_id);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    eventSource.addEventListener("video_deleted", onVideoDeleted);
+    return () => {
+      eventSource.removeEventListener("video_deleted", onVideoDeleted);
+      eventSource.close();
+    };
+  }, [queryClient]);
 
   return (
     <div className="space-y-6">

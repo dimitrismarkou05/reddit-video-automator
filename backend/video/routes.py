@@ -1,8 +1,10 @@
 """Video generation API routes with robust error handling and cleanup."""
 
+import asyncio
 import logging
 import shutil
 from datetime import datetime, timezone
+from typing import Optional
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File
 from sqlalchemy.orm import Session
@@ -18,12 +20,47 @@ from video.schemas import (
     GeneratedVideoResponse,
 )
 from video.models import GeneratedVideo, VideoStatus
-from stories.models import Story
+from stories.models import Story, StoryStatus
 from video.engine.job_manager import job_manager
-from video.engine.utils import cleanup_temp, select_background_video
+from video.engine.utils import cleanup_temp, cleanup_video_assets, select_background_video
+import video.engine.progress_push as progress_push
+from video.engine.progress_broadcaster import build_deleted_progress_payload
+from notifications.sse import notification_queue
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Set from main lifespan so sync routes can schedule coroutines on the app loop.
+_app_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def set_app_event_loop(loop: asyncio.AbstractEventLoop) -> None:
+    global _app_loop
+    _app_loop = loop
+
+
+def _schedule_broadcast(event_type: str, data: dict) -> None:
+    """Fire-and-forget SSE notification from a sync route."""
+    async def _send() -> None:
+        try:
+            await notification_queue.broadcast(event_type, data)
+        except Exception as exc:
+            logger.warning(f"[VideoRoutes] Broadcast {event_type} failed: {exc}")
+
+    loop = _app_loop
+    if loop is None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.warning(
+                f"[VideoRoutes] No app event loop; skipping broadcast {event_type}"
+            )
+            return
+
+    if loop.is_running():
+        asyncio.run_coroutine_threadsafe(_send(), loop)
+    else:
+        loop.run_until_complete(_send())
 
 
 def _get_story_chain_root(story: Story, db: Session) -> Story:
@@ -381,23 +418,45 @@ def cancel_video(video_id: int, db: Session = Depends(get_db)):
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    if video.status in (VideoStatus.DONE.value, VideoStatus.CANCELLED.value):
+    if video.status == VideoStatus.DONE.value:
         return VideoControlResponse(
             success=False,
             status=video.status,
             message=f"Video already in {video.status} state.",
         )
 
-    video.status = VideoStatus.CANCELLED.value
-    video.cancelled_at = datetime.now(timezone.utc)
-    video.queue_position = None
-    db.commit()
+    story = db.query(Story).filter(Story.id == video.story_id).first()
+    story_id = video.story_id
+    story_title = story.title if story else ""
+
+    # Signal cooperative cancel before hard-delete (pipeline checks DB status).
+    if video.status not in (VideoStatus.CANCELLED.value,):
+        video.status = VideoStatus.CANCELLED.value
+        video.cancelled_at = datetime.now(timezone.utc)
+        video.queue_position = None
+        db.commit()
 
     job_manager.cancel(video_id)
 
+    cleanup_video_assets(video, story_title)
+
+    if story:
+        story.status = StoryStatus.READY_FOR_VIDEO.value
+
+    db.delete(video)
+    db.commit()
+
+    progress_push.push_progress(
+        video_id, build_deleted_progress_payload(video_id)
+    )
+    _schedule_broadcast("video_deleted", {
+        "video_id": video_id,
+        "story_id": story_id,
+    })
+
     return VideoControlResponse(
         success=True,
-        status=video.status,
+        status="deleted",
         message="Video generation cancelled.",
     )
 
@@ -474,9 +533,12 @@ def delete_video(video_id: int, db: Session = Depends(get_db)):
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    # Cancel any active job first
+    story = db.query(Story).filter(Story.id == video.story_id).first()
+    story_title = story.title if story else ""
+
     job_manager.cancel(video_id)
     job_manager.cleanup_job(video_id)
+    cleanup_video_assets(video, story_title)
 
     db.delete(video)
     db.commit()

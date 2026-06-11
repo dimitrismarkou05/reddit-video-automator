@@ -145,7 +145,7 @@ export class VideoProgressConnection {
           const data = JSON.parse((event as MessageEvent).data);
 
           // FIX 9: Always emit terminal states immediately
-          const isTerminal = ["done", "failed", "cancelled"].includes(
+          const isTerminal = ["done", "failed", "cancelled", "deleted"].includes(
             data.status,
           );
 

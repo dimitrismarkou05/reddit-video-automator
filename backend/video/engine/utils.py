@@ -5,9 +5,12 @@ import subprocess
 import random
 import json
 from pathlib import Path
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Tuple, Dict, List, TYPE_CHECKING
 
 from core.config import FFMPEG_PATH, FFPROBE_PATH, TEMP_DIR, OUTPUT_DIR, VIDEO_FORMATS
+
+if TYPE_CHECKING:
+    from video.models import GeneratedVideo
 
 
 def sanitize_filename(name: str) -> str:
@@ -49,6 +52,44 @@ def cleanup_temp(video_id: int, only_on_done: bool = False) -> None:
     folder = TEMP_DIR / f"video_{video_id}"
     if folder.exists():
         shutil.rmtree(folder, ignore_errors=True)
+
+
+def _remove_path(path: Path) -> None:
+    """Remove a file or directory tree."""
+    if not path.exists():
+        return
+    if path.is_dir():
+        shutil.rmtree(path, ignore_errors=True)
+    else:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def cleanup_video_assets(
+    video_record: "GeneratedVideo",
+    story_title: str = "",
+) -> None:
+    """Remove all on-disk assets for a video job (temp + output)."""
+    video_id = video_record.id
+    cleanup_temp(video_id)
+
+    output_dirs: set[Path] = set()
+
+    for path_str in (video_record.video_path, video_record.thumbnail_path, video_record.audio_path, video_record.subtitle_path):
+        if path_str:
+            p = Path(path_str)
+            if p.parent.name == "_compose_work":
+                output_dirs.add(p.parent.parent)
+            else:
+                output_dirs.add(p.parent)
+
+    slug = sanitize_filename(story_title) if story_title else str(video_record.story_id)
+    output_dirs.add(OUTPUT_DIR / f"{video_record.story_id}_{slug}")
+
+    for folder in output_dirs:
+        _remove_path(folder)
 
 
 def find_ffmpeg() -> Optional[str]:
