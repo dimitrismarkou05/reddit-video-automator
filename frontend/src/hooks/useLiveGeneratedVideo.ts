@@ -1,8 +1,13 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { isVideoGenerating, ACTIVE_GENERATION_STATUSES } from "@/config/videoStatus";
+import {
+  isVideoGenerating,
+  ACTIVE_GENERATION_STATUSES,
+  TERMINAL_VIDEO_STATUSES,
+} from "@/config/videoStatus";
 import { useVideoProgress } from "@/hooks/useVideoProgress";
 import { videoApi } from "@/services/api";
+import { useVideoJobsStore } from "@/store/videoJobs";
 import type { GeneratedVideo } from "@/types";
 
 /** Merge story cached video with live SSE + polling while generating. */
@@ -20,6 +25,11 @@ export function useLiveGeneratedVideo(
     videoId: isActive ? videoId : null,
   });
 
+  const { job, modalOwnsProgress } = useVideoJobsStore((s) => ({
+    job: videoId != null ? s.jobs[videoId] : undefined,
+    modalOwnsProgress: videoId != null && s.activeModalVideoId === videoId,
+  }));
+
   const { data: polledVideo } = useQuery({
     queryKey: ["video", videoId],
     queryFn: async () => {
@@ -35,21 +45,41 @@ export function useLiveGeneratedVideo(
     if (progress?.status === "deleted") return null;
 
     const base = polledVideo ?? video;
-    if (!progress) return base;
+    let merged: GeneratedVideo = base;
 
-    const progressStatus =
-      progress.status === "deleted" ? "cancelled" : progress.status;
+    if (progress) {
+      const progressStatus =
+        progress.status === "deleted" ? "cancelled" : progress.status;
 
-    return {
-      ...base,
-      status: progressStatus,
-      progress_percent: progress.progress_percent,
-      current_step: progress.current_step,
-      step_progress: progress.step_progress,
-      queue_position: progress.queue_position ?? base.queue_position,
-      is_paused: progress.is_paused,
-      error_message: progress.error_message ?? base.error_message,
-      thumbnail_path: progress.thumbnail_path ?? base.thumbnail_path,
-    };
-  }, [video, polledVideo, progress]);
+      merged = {
+        ...base,
+        status: progressStatus,
+        progress_percent: progress.progress_percent,
+        current_step: progress.current_step,
+        step_progress: progress.step_progress,
+        queue_position: progress.queue_position ?? base.queue_position,
+        is_paused: progress.is_paused,
+        error_message: progress.error_message ?? base.error_message,
+        thumbnail_path: progress.thumbnail_path ?? base.thumbnail_path,
+      };
+    }
+
+    if (
+      modalOwnsProgress &&
+      job &&
+      !TERMINAL_VIDEO_STATUSES.includes(job.status)
+    ) {
+      merged = {
+        ...merged,
+        status: job.isPaused ? "paused" : job.status,
+        progress_percent: job.progress,
+        current_step: job.currentStep,
+        queue_position: job.queuePosition ?? merged.queue_position,
+        is_paused: job.isPaused,
+        error_message: job.errorMessage ?? merged.error_message,
+      };
+    }
+
+    return merged;
+  }, [video, polledVideo, progress, job, modalOwnsProgress]);
 }

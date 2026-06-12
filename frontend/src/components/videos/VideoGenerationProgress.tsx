@@ -10,12 +10,15 @@ interface VideoGenerationProgressProps {
   video: GeneratedVideo;
   /** inline: badge + step bar | step: step bar only | card: stacked | compact: pill badge */
   variant?: "inline" | "step" | "card" | "compact";
+  /** Append live (N%) next to step label — story detail step bar only */
+  showStepPercent?: boolean;
   className?: string;
 }
 
 export function VideoGenerationProgress({
   video,
   variant = "inline",
+  showStepPercent = false,
   className = "",
 }: VideoGenerationProgressProps) {
   const isGenerating =
@@ -39,6 +42,7 @@ export function VideoGenerationProgress({
         <div className={`w-full max-w-md ${className}`}>
           <span className="text-xs text-gray-500 dark:text-gray-400">
             {stepLabel}
+            {showStepPercent ? ` (${video.progress_percent}%)` : ""}
             {video.queue_position ? ` (Queue #${video.queue_position})` : ""}
           </span>
           <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1 overflow-hidden">

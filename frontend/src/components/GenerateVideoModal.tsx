@@ -634,7 +634,6 @@ export function GenerateVideoModal({
   const showPicker = !showProgress && !showDone;
 
   const handleClose = useCallback(() => {
-    videoProgressSSE.disconnect();
     setActiveModal(null, null);
     onClose();
   }, [onClose, setActiveModal]);

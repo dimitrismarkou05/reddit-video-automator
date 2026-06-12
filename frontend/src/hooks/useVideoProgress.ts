@@ -71,6 +71,9 @@ export function useVideoProgress({
         isNewStatus ||
         isTerminal ||
         data.progress_percent > (prev.progress_percent || 0) ||
+        data.current_step !== prev.current_step ||
+        data.step_progress !== prev.step_progress ||
+        data.queue_position !== prev.queue_position ||
         data.status_message !== prev.status_message;
 
       if (!shouldUpdate) {
@@ -114,35 +117,25 @@ export function useVideoProgress({
       isConnectedRef.current = false;
     }
 
-    // No videoId - disconnect and reset
+    // No videoId - unregister listener and reset
     if (!videoId) {
-      if (isConnectedRef.current) {
-        videoProgressSSE.disconnect();
-        isConnectedRef.current = false;
+      if (lastVideoIdRef.current !== null) {
+        videoProgressSSE.offProgress(handleProgress);
       }
       setProgress(null);
       lastVideoIdRef.current = null;
+      isConnectedRef.current = false;
       terminalNotifiedRef.current = false;
       prevStatusRef.current = null;
       return;
     }
 
-    // Same videoId already connected - skip unless force reconnect
-    if (lastVideoIdRef.current === videoId && isConnectedRef.current) {
-      return;
+    // Reset terminal notification when subscribing to a video
+    if (lastVideoIdRef.current !== videoId) {
+      terminalNotifiedRef.current = false;
+      prevStatusRef.current = null;
     }
 
-    // Disconnect from previous video if any
-    if (isConnectedRef.current) {
-      videoProgressSSE.disconnect();
-      isConnectedRef.current = false;
-    }
-
-    // Reset terminal notification for new video
-    terminalNotifiedRef.current = false;
-    prevStatusRef.current = null;
-
-    // Connect to new video
     lastVideoIdRef.current = videoId;
     isConnectedRef.current = true;
 
@@ -159,8 +152,8 @@ export function useVideoProgress({
     videoProgressSSE.connect(videoId);
 
     return () => {
+      videoProgressSSE.offProgress(handleProgress);
       if (lastVideoIdRef.current === videoId) {
-        videoProgressSSE.offProgress(handleProgress);
         isConnectedRef.current = false;
         lastVideoIdRef.current = null;
       }

@@ -8,6 +8,7 @@ import {
 } from "@/config/videoStatus";
 import { useStoryEffectiveVideo } from "@/hooks/useStoryEffectiveVideo";
 import { useStoryGenerationState } from "@/hooks/useStoryGenerationState";
+import { useVideoJobsStore } from "@/store/videoJobs";
 import type { GeneratedVideo, Story } from "@/types";
 
 const BADGE_ALIGN = "shrink-0 self-center";
@@ -24,13 +25,32 @@ interface StoryVideoProgressProps {
 
 function StoryStatusFallback({
   story,
+  storyId,
   isActivelyGenerating,
   className,
 }: {
   story?: Pick<Story, "status">;
+  storyId: number;
   isActivelyGenerating: boolean;
   className?: string;
 }) {
+  const activeJob = useVideoJobsStore((s) => s.getJobForStory(storyId));
+
+  if (isActivelyGenerating && activeJob) {
+    return (
+      <VideoStatusBadge
+        video={{
+          status: activeJob.status,
+          current_step: activeJob.currentStep,
+          progress_percent: activeJob.progress,
+          queue_position: activeJob.queuePosition,
+        }}
+        showPercent
+        className={className}
+      />
+    );
+  }
+
   if (isActivelyGenerating) {
     return (
       <StatusBadge
@@ -94,6 +114,7 @@ export function StoryVideoProgress({
     return (
       <StoryStatusFallback
         story={story}
+        storyId={storyId}
         isActivelyGenerating={isGenerating}
         className={badgeClass}
       />
@@ -107,6 +128,7 @@ export function StoryVideoProgress({
       video={effectiveVideo}
       className={className}
       variant={variant === "step" ? "step" : "inline"}
+      showStepPercent={variant === "step"}
     />
   );
 }
