@@ -164,7 +164,8 @@ export class VideoProgressConnection {
             this._lastEmittedData.status === data.status &&
             this._lastEmittedData.progress_percent === data.progress_percent &&
             this._lastEmittedData.current_step === data.current_step &&
-            this._lastEmittedData.queue_position === data.queue_position;
+            this._lastEmittedData.queue_position === data.queue_position &&
+            this._lastEmittedData.is_paused === data.is_paused;
 
           // FIX 9: Reset duplicate counter when entering a new non-terminal status
           if (

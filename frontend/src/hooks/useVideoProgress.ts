@@ -74,7 +74,8 @@ export function useVideoProgress({
         data.current_step !== prev.current_step ||
         data.step_progress !== prev.step_progress ||
         data.queue_position !== prev.queue_position ||
-        data.status_message !== prev.status_message;
+        data.status_message !== prev.status_message ||
+        data.is_paused !== prev.is_paused;
 
       if (!shouldUpdate) {
         return prev;

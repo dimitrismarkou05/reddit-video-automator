@@ -32,7 +32,7 @@ import { getVideoThumbnailUrl, videoApi } from "@/services/api";
 import type { GeneratedVideo } from "@/types";
 import toast from "react-hot-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { cleanupDeletedVideo } from "@/utils/videoQueries";
+import { cleanupDeletedVideo, invalidateVideos, isVideoPaused, optimisticallyPauseVideo, optimisticallyResumeVideo } from "@/utils/videoQueries";
 
 function getVideoTitle(video: GeneratedVideo): string {
   return video.story_title || video.story?.title || "Untitled Video";
@@ -49,6 +49,8 @@ export function VideoCard({ video }: VideoCardProps) {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isPausing, setIsPausing] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
   const [imgError, setImgError] = useState(false);
   const queryClient = useQueryClient();
 
@@ -63,10 +65,11 @@ export function VideoCard({ video }: VideoCardProps) {
   const liveVideo = useLiveGeneratedVideo(video, isLive);
   const displayVideo = liveVideo ?? video;
 
+  const isPaused = isVideoPaused(displayVideo);
   const isGenerating =
-    isVideoGenerating(displayVideo) ||
-    ACTIVE_GENERATION_STATUSES.includes(displayVideo.status);
-  const isPaused = displayVideo.status === "paused";
+    !isPaused &&
+    (isVideoGenerating(displayVideo) ||
+      ACTIVE_GENERATION_STATUSES.includes(displayVideo.status));
   const isTerminal = TERMINAL_VIDEO_STATUSES.includes(displayVideo.status);
 
   const thumbnailSrc =
@@ -79,22 +82,42 @@ export function VideoCard({ video }: VideoCardProps) {
   }, [video.id, video.thumbnail_path, video.status]);
 
   const handlePause = async () => {
+    if (isPausing) return;
+    const rollback = optimisticallyPauseVideo(
+      queryClient,
+      displayVideo,
+      video.story_id,
+    );
+    setIsPausing(true);
     try {
       await videoApi.pause(video.id);
       toast.success("Paused");
-      queryClient.invalidateQueries({ queryKey: ["videos"] });
+      invalidateVideos(queryClient);
     } catch (e: any) {
+      rollback();
       toast.error(e.response?.data?.detail || "Failed to pause");
+    } finally {
+      setIsPausing(false);
     }
   };
 
   const handleResume = async () => {
+    if (isResuming) return;
+    const rollback = optimisticallyResumeVideo(
+      queryClient,
+      displayVideo,
+      video.story_id,
+    );
+    setIsResuming(true);
     try {
       await videoApi.resume(video.id);
       toast.success("Resuming...");
-      queryClient.invalidateQueries({ queryKey: ["videos"] });
+      invalidateVideos(queryClient);
     } catch (e: any) {
+      rollback();
       toast.error(e.response?.data?.detail || "Failed to resume");
+    } finally {
+      setIsResuming(false);
     }
   };
 
@@ -157,6 +180,11 @@ export function VideoCard({ video }: VideoCardProps) {
             <Loader2 className="w-10 h-10 text-red-500 animate-spin mb-2" />
             <span className="text-xs text-red-500 font-medium">Cancelling...</span>
           </div>
+        ) : isPaused ? (
+          <div className="w-full h-full flex flex-col items-center justify-center bg-yellow-900/10">
+            <Pause className="w-10 h-10 text-yellow-500 mb-2" />
+            <span className="text-xs text-yellow-500 font-medium">Paused</span>
+          </div>
         ) : isGenerating ? (
           <div className="w-full h-full flex flex-col items-center justify-center">
             <Loader2 className="w-10 h-10 text-gray-500 animate-spin mb-2" />
@@ -175,10 +203,12 @@ export function VideoCard({ video }: VideoCardProps) {
             </span>
           </div>
         )}
-        {isGenerating && (
+        {(isGenerating || isPaused) && (
           <div className="absolute inset-x-0 bottom-0 h-1.5 bg-gray-200 dark:bg-gray-700 overflow-hidden">
             <div
-              className="h-full bg-primary transition-all duration-500"
+              className={`h-full transition-all duration-500 ${
+                isPaused ? "bg-yellow-500" : "bg-primary"
+              }`}
               style={{ width: `${displayVideo.progress_percent}%` }}
             />
           </div>
@@ -247,10 +277,15 @@ export function VideoCard({ video }: VideoCardProps) {
             <>
               <button
                 onClick={handlePause}
-                className="cursor-pointer flex-1 btn-secondary text-xs py-2 flex items-center justify-center gap-1"
+                disabled={isPausing || isCancelling}
+                className="cursor-pointer flex-1 btn-secondary text-xs py-2 flex items-center justify-center gap-1 disabled:opacity-50"
               >
-                <Pause className="w-3 h-3" />
-                Pause
+                {isPausing ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Pause className="w-3 h-3" />
+                )}
+                {isPausing ? "Pausing..." : "Pause"}
               </button>
               <button
                 onClick={() => setShowCancelConfirm(true)}
@@ -276,11 +311,15 @@ export function VideoCard({ video }: VideoCardProps) {
             <>
               <button
                 onClick={handleResume}
-                disabled={isCancelling}
+                disabled={isResuming || isCancelling}
                 className="cursor-pointer flex-1 btn-primary text-xs py-2 flex items-center justify-center gap-1 disabled:opacity-50"
               >
-                <Play className="w-3 h-3" />
-                Resume
+                {isResuming ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Play className="w-3 h-3" />
+                )}
+                {isResuming ? "Resuming..." : "Resume"}
               </button>
               <button
                 onClick={() => setShowCancelConfirm(true)}

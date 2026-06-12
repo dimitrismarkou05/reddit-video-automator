@@ -50,10 +50,11 @@ export function useLiveGeneratedVideo(
     if (progress) {
       const progressStatus =
         progress.status === "deleted" ? "cancelled" : progress.status;
+      const paused = progress.is_paused || progressStatus === "paused";
 
       merged = {
         ...base,
-        status: progressStatus,
+        status: paused ? "paused" : progressStatus,
         progress_percent: progress.progress_percent,
         current_step: progress.current_step,
         step_progress: progress.step_progress,

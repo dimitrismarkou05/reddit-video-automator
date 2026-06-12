@@ -207,14 +207,25 @@ class VideoPipeline:
         self, video_record: GeneratedVideo, step: str, temp_data: dict
     ) -> None:
         try:
+            payload = {**temp_data, "step": step}
             video_record.current_step = step
-            video_record.temp_files_json = temp_data
+            video_record.temp_files_json = payload
             self.db.commit()
         except Exception as exc:
             logger.error(f"[Pipeline {video_record.id}] Checkpoint save error: {exc}")
 
     def _load_checkpoint(self, video_record: GeneratedVideo) -> dict:
-        return video_record.temp_files_json or {}
+        from video.engine.checkpoint import build_checkpoint_payload
+
+        checkpoint = build_checkpoint_payload(video_record)
+        video_record.temp_files_json = checkpoint
+        try:
+            self.db.commit()
+        except Exception as exc:
+            logger.warning(
+                f"[Pipeline {video_record.id}] Could not persist sanitized checkpoint: {exc}"
+            )
+        return checkpoint
 
     # ------------------------------------------------------------------
     # Helpers
@@ -639,6 +650,18 @@ class VideoPipeline:
             ):
                 self.check_cancelled(video_record)
 
+                output_video = output_folder / "video.mp4"
+                if output_video.exists():
+                    try:
+                        output_video.unlink()
+                        logger.info(
+                            f"[Pipeline {video_id}] Removed partial video before compositing"
+                        )
+                    except OSError as exc:
+                        logger.warning(
+                            f"[Pipeline {video_id}] Could not remove partial video: {exc}"
+                        )
+
                 from core.ffmpeg_settings import get_slow_preset_warning
                 warn = get_slow_preset_warning(
                     encode_params.get("preset", "veryfast"),
@@ -788,6 +811,13 @@ class VideoPipeline:
             )
 
             # ── Done ───────────────────────────────────────────────────
+            video_path = Path(video_record.video_path or "")
+            if not video_path.is_file() or video_path.stat().st_size < 1024:
+                raise VideoPipelineError(
+                    "Video file is missing or incomplete after generation. "
+                    "Please retry or resume generation."
+                )
+
             video_record.status = VideoStatus.DONE.value
             video_record.progress_percent = 100
             video_record.current_step = "done"

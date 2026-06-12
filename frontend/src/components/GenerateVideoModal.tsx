@@ -22,7 +22,7 @@ import type { Story, SubtitleStyle as SubtitleStyleType } from "@/types";
 import { useVideoProgress } from "@/hooks/useVideoProgress";
 import { useVideoJobsStore } from "@/store/videoJobs";
 import { ACTIVE_GENERATION_STATUSES, getStepLabel } from "@/config/videoStatus";
-import { cleanupDeletedVideo, storyQueryKey } from "@/utils/videoQueries";
+import { cleanupDeletedVideo, invalidateVideos, optimisticallyPauseVideo, optimisticallyResumeVideo, storyQueryKey } from "@/utils/videoQueries";
 import { CancelConfirmModal } from "@/components/modals/CancelConfirmModal";
 import toast from "react-hot-toast";
 
@@ -89,6 +89,8 @@ export function GenerateVideoModal({
   const [isCancelling, setIsCancelling] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelCompleted, setCancelCompleted] = useState(false);
+  const [isPausing, setIsPausing] = useState(false);
+  const [isResuming, setIsResuming] = useState(false);
 
   const cancelCompleteRef = useRef(false);
   const notifiedTerminalRef = useRef(false);
@@ -235,7 +237,10 @@ export function GenerateVideoModal({
       : hasTrackedVideo &&
         (hasStartedGeneration || existingVideoIsActive || !!activeJob));
 
-  const isPaused = progress?.status === "paused";
+  const isPaused =
+    progress?.status === "paused" ||
+    !!progress?.is_paused ||
+    (existingVideoIsActive && !!existingVideo?.is_paused);
   const progressNotFound = progress ? isProgressNotFound(progress) : false;
   const isFailed =
     (progress?.status === "failed" && !progressNotFound) || lastError !== null;
@@ -618,22 +623,71 @@ export function GenerateVideoModal({
   };
 
   const handlePause = async () => {
-    if (!videoId) return;
+    if (!videoId || isPausing) return;
+    const pct =
+      progress?.progress_percent ??
+      (existingVideoIsActive ? existingVideo!.progress_percent : 0);
+    const snapshot =
+      existingVideo ??
+      ({
+        id: videoId,
+        story_id: story.id,
+        status: progress?.status ?? "processing",
+        progress_percent: pct,
+        is_paused: false,
+      } as import("@/types").GeneratedVideo);
+    const rollback = optimisticallyPauseVideo(queryClient, snapshot, story.id);
+    updateJob(videoId, {
+      status: "paused",
+      isPaused: true,
+      progress: pct,
+      queuePosition: null,
+    });
+    setIsPausing(true);
     try {
       await videoApi.pause(videoId);
       toast.success("Generation paused");
+      invalidateVideos(queryClient);
+      queryClient.invalidateQueries({ queryKey: storyQueryKey(story.id) });
     } catch (e: any) {
+      rollback();
       toast.error(e.response?.data?.detail || "Failed to pause");
+    } finally {
+      setIsPausing(false);
     }
   };
 
   const handleResume = async () => {
-    if (!videoId) return;
+    if (!videoId || isResuming) return;
+    const pct =
+      progress?.progress_percent ??
+      (existingVideoIsActive ? existingVideo!.progress_percent : 0);
+    const snapshot =
+      existingVideo ??
+      ({
+        id: videoId,
+        story_id: story.id,
+        status: "paused",
+        progress_percent: pct,
+        is_paused: true,
+      } as import("@/types").GeneratedVideo);
+    const rollback = optimisticallyResumeVideo(queryClient, snapshot, story.id);
+    updateJob(videoId, {
+      status: "queued",
+      isPaused: false,
+      progress: pct,
+    });
+    setIsResuming(true);
     try {
       await videoApi.resume(videoId);
       toast.success("Generation resuming...");
+      invalidateVideos(queryClient);
+      queryClient.invalidateQueries({ queryKey: storyQueryKey(story.id) });
     } catch (e: any) {
+      rollback();
       toast.error(e.response?.data?.detail || "Failed to resume");
+    } finally {
+      setIsResuming(false);
     }
   };
 
@@ -686,7 +740,8 @@ export function GenerateVideoModal({
 
   // Determine what view to show
   const showProgress =
-    !cancelCompleted && ((isGenerating && !isDone) || isCancelling);
+    !cancelCompleted &&
+    ((isGenerating && !isDone) || isCancelling || isPaused);
   const showDone = isDone && !isCancelling && !cancelCompleted;
   const showPicker = !showProgress && !showDone;
 
@@ -794,9 +849,11 @@ export function GenerateVideoModal({
                 )}
 
                 <p className="text-xs text-gray-400 mt-3">
-                  {isGenerating && !isDone
-                    ? "Generation continues in background if you close this modal"
-                    : ""}
+                  {isPaused
+                    ? "Generation is paused. Click Resume to continue."
+                    : isGenerating && !isDone
+                      ? "Generation continues in background if you close this modal"
+                      : ""}
                 </p>
               </div>
 
@@ -804,10 +861,15 @@ export function GenerateVideoModal({
                 {isPaused ? (
                   <button
                     onClick={handleResume}
-                    className="cursor-pointer btn-primary flex items-center gap-2"
+                    disabled={isResuming}
+                    className="cursor-pointer btn-primary flex items-center gap-2 disabled:opacity-50"
                   >
-                    <Play className="w-4 h-4" />
-                    Resume
+                    {isResuming ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Play className="w-4 h-4" />
+                    )}
+                    {isResuming ? "Resuming..." : "Resume"}
                   </button>
                 ) : isFailed ? (
                   <button
@@ -820,11 +882,15 @@ export function GenerateVideoModal({
                 ) : (
                   <button
                     onClick={handlePause}
-                    disabled={!isGenerating || isDone || isCancelling}
+                    disabled={!isGenerating || isDone || isCancelling || isPausing}
                     className="cursor-pointer btn-secondary flex items-center gap-2 disabled:opacity-50"
                   >
-                    <Pause className="w-4 h-4" />
-                    Pause
+                    {isPausing ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Pause className="w-4 h-4" />
+                    )}
+                    {isPausing ? "Pausing..." : "Pause"}
                   </button>
                 )}
                 <button

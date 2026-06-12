@@ -56,74 +56,34 @@ def _seed_default_voice() -> None:
         logger.warning(f"[Lifespan] Could not seed default voice: {exc}")
 
 
-def _recover_stuck_processing_rows() -> None:
-    """Reset rows stuck in 'processing' with no live job to 'queued'."""
+def _recover_orphan_active_videos() -> None:
+    """Pause orphan active videos on cold start — no auto-resume after restart."""
     try:
         from core.database import SessionLocal
-        from video.models import GeneratedVideo, VideoStatus
+        from video.models import GeneratedVideo
+        from video.engine.job_manager import ORPHAN_ACTIVE_STATUSES, persist_video_pause
 
         db = SessionLocal()
         try:
-            stuck = db.query(GeneratedVideo).filter(
-                GeneratedVideo.status == VideoStatus.PROCESSING.value
-            ).all()
-            for video in stuck:
-                if video.id not in job_manager.active_jobs:
-                    if video.retry_count and video.retry_count >= 3:
-                        video.status = VideoStatus.FAILED.value
-                        video.error_message = (
-                            "Generation did not complete before server restart "
-                            "and max retries exceeded."
-                        )
-                        logger.warning(
-                            f"[Lifespan] Video {video.id} exceeded max retries; "
-                            "marked failed"
-                        )
-                    else:
-                        video.status = VideoStatus.QUEUED.value
-                        video.is_paused = False
-                        video.queued_at = datetime.now(timezone.utc)
-                        video.retry_count = (video.retry_count or 0) + 1
-                        logger.info(
-                            f"[Lifespan] Recovered stuck video {video.id} → queued "
-                            f"(retry {video.retry_count})"
-                        )
-            db.commit()
-        finally:
-            db.close()
-    except Exception as exc:
-        logger.warning(f"[Lifespan] Could not recover stuck rows: {exc}")
-
-
-def _resume_paused_videos() -> None:
-    """Reset paused videos to queued so they can be re-started."""
-    try:
-        from core.database import SessionLocal
-        from video.models import GeneratedVideo, VideoStatus
-
-        db = SessionLocal()
-        try:
-            paused = (
+            orphans = (
                 db.query(GeneratedVideo)
-                .filter(
-                    GeneratedVideo.is_paused == True,
-                    GeneratedVideo.status == VideoStatus.PAUSED.value,
-                )
+                .filter(GeneratedVideo.status.in_(ORPHAN_ACTIVE_STATUSES))
                 .all()
             )
-            for video in paused:
-                video.status = VideoStatus.QUEUED.value
-                video.is_paused = False
-                video.resumed_at = datetime.now(timezone.utc)
-            db.commit()
-            if paused:
+            paused_count = 0
+            for video in orphans:
+                if video.id in job_manager.active_jobs:
+                    continue
+                if persist_video_pause(video.id, reason="startup"):
+                    paused_count += 1
+            if paused_count:
                 logger.info(
-                    f"[Lifespan] Reset {len(paused)} paused video(s) to queued"
+                    f"[Lifespan] Paused {paused_count} orphan active video(s) on startup"
                 )
         finally:
             db.close()
     except Exception as exc:
-        logger.warning(f"[Lifespan] Could not resume paused videos: {exc}")
+        logger.warning(f"[Lifespan] Could not recover orphan active videos: {exc}")
 
 
 async def _temp_sweeper_loop() -> None:
@@ -170,6 +130,8 @@ def _sweep_temp_dirs(ttl_hours: int) -> None:
             should_delete = False
             if video and video.status in TERMINAL:
                 should_delete = True
+            elif video and video.status == VideoStatus.PAUSED.value:
+                should_delete = False
             elif d.stat().st_mtime < cutoff.timestamp():
                 should_delete = True
             if should_delete and vid_id not in job_manager.active_jobs:
@@ -216,16 +178,8 @@ async def lifespan(app: FastAPI):
     job_manager._ensure_queue_processor()
     logger.info("[Lifespan] Queue processor ensured")
 
-    # Startup recovery.
-    _recover_stuck_processing_rows()
-    _resume_paused_videos()
-
-    # Rebuild the in-memory queue from persisted 'queued' rows.
-    restored = job_manager.rebuild_queue_from_db()
-    if restored:
-        logger.info(f"[Lifespan] Rebuilt queue with {restored} persisted job(s)")
-        async with job_manager._queue_condition:
-            job_manager._queue_condition.notify_all()
+    # Startup recovery: pause orphan active jobs (no auto-resume).
+    _recover_orphan_active_videos()
 
     # Pre-load models in background tasks so the API is immediately responsive.
     async def _bg_preload_whisper():
@@ -276,6 +230,7 @@ async def lifespan(app: FastAPI):
     try:
         from core.database import SessionLocal
         from video.models import GeneratedVideo, VideoStatus
+        from video.engine.job_manager import persist_video_pause
 
         db = SessionLocal()
         try:
@@ -288,9 +243,7 @@ async def lifespan(app: FastAPI):
                     VideoStatus.FAILED.value,
                     VideoStatus.CANCELLED.value,
                 ):
-                    video.status = VideoStatus.PAUSED.value
-                    video.is_paused = True
-            db.commit()
+                    persist_video_pause(vid_id, reason="shutdown")
         finally:
             db.close()
     except Exception as exc:

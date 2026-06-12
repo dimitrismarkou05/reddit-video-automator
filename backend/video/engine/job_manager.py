@@ -2,9 +2,8 @@
 
 Improvements over original:
 - finally block in _start_job always cleans up active_jobs after pipeline completes.
-- Startup recovery: processing rows with no live job are reset to queued.
+- Startup recovery: orphan active rows are paused (no auto-resume on restart).
 - Watchdog task detects stalled jobs (no progress for N minutes) and fails them.
-- DB-backed queue rebuild on startup (queued rows sorted by queued_at).
 - last_progress_at timestamp on JobState for watchdog.
 """
 
@@ -32,6 +31,71 @@ _STALL_LIMITS: dict[str, int] = {
     "default":               8,
 }
 _WATCHDOG_INTERVAL = 120  # seconds between watchdog passes
+
+# Non-terminal statuses that should become paused on cold start (no auto-resume).
+ORPHAN_ACTIVE_STATUSES = frozenset({
+    "queued",
+    "processing",
+    "tts_done",
+    "transcribe_done",
+    "subtitles_done",
+    "compositing_done",
+})
+
+
+def _merge_checkpoint_from_video(video) -> None:
+    """Preserve artifact paths and a safe completed checkpoint step on pause."""
+    from video.engine.checkpoint import build_checkpoint_payload
+
+    video.temp_files_json = build_checkpoint_payload(video)
+
+
+def persist_video_pause(video_id: int, reason: str = "user") -> bool:
+    """Write paused state to DB, update story, and push SSE. Used by pause() and startup recovery."""
+    from core.database import SessionLocal
+    from video.models import GeneratedVideo, VideoStatus
+    from stories.models import Story, StoryStatus
+    import video.engine.progress_push as progress_push
+    from video.engine.pipeline import _build_progress_payload
+
+    db = SessionLocal()
+    try:
+        video = db.query(GeneratedVideo).filter(
+            GeneratedVideo.id == video_id
+        ).first()
+        if not video or video.status in (
+            VideoStatus.DONE.value,
+            VideoStatus.FAILED.value,
+            VideoStatus.CANCELLED.value,
+        ):
+            return False
+
+        if video.status != VideoStatus.PAUSED.value:
+            video.status = VideoStatus.PAUSED.value
+            video.is_paused = True
+            video.paused_at = datetime.now(timezone.utc)
+            video.queue_position = None
+            _merge_checkpoint_from_video(video)
+
+            story = db.query(Story).filter(Story.id == video.story_id).first()
+            if story:
+                story.status = StoryStatus.VIDEO_PAUSED.value
+
+            db.commit()
+            db.refresh(video)
+        progress_push.push_progress(
+            video_id,
+            _build_progress_payload(video, video.current_step or "paused"),
+        )
+        logger.info(
+            f"[JobManager] Persisted pause for video {video_id} (reason={reason})"
+        )
+        return True
+    except Exception as exc:
+        logger.error(f"[JobManager] persist_video_pause error for {video_id}: {exc}")
+        return False
+    finally:
+        db.close()
 
 
 @dataclass
@@ -289,11 +353,16 @@ class VideoJobManager:
                         return
                     if video_record.status in (
                         VideoStatus.DONE.value, VideoStatus.FAILED.value,
-                        VideoStatus.CANCELLED.value, VideoStatus.PAUSED.value,
+                        VideoStatus.CANCELLED.value,
                     ):
                         logger.info(
                             f"[JobManager] Video {video_id} already terminal: "
                             f"{video_record.status}"
+                        )
+                        return
+                    if video_record.status == VideoStatus.PAUSED.value:
+                        logger.warning(
+                            f"[JobManager] Video {video_id} still paused in DB; skipping start"
                         )
                         return
 
@@ -424,7 +493,7 @@ class VideoJobManager:
             existing = self.active_jobs[video_id]
             if existing.status in ("processing", "queued"):
                 return
-            if existing.status in ("done", "failed", "cancelled"):
+            if existing.status in ("done", "failed", "cancelled", "paused"):
                 self._cleanup_job_state(video_id)
 
         if video_id in self._queue:
@@ -545,35 +614,29 @@ class VideoJobManager:
 
     def pause(self, video_id: int) -> bool:
         job = self.active_jobs.get(video_id)
-        if job and job.status == "processing":
+        if job:
             job.status = "paused"
+            if job.pipeline:
+                try:
+                    job.pipeline.pause()
+                except Exception as exc:
+                    logger.warning(
+                        f"[JobManager] Pipeline pause error for {video_id}: {exc}"
+                    )
+            if video_id in self._queue:
+                self._queue.remove(video_id)
             if job.task and not job.task.done():
                 job.task.cancel()
 
-        from core.database import SessionLocal
-        from video.models import GeneratedVideo, VideoStatus
-        db = SessionLocal()
-        try:
-            video = db.query(GeneratedVideo).filter(
-                GeneratedVideo.id == video_id
-            ).first()
-            if video and video.status not in (
-                VideoStatus.DONE.value, VideoStatus.FAILED.value,
-                VideoStatus.CANCELLED.value,
-            ):
-                video.status = VideoStatus.PAUSED.value
-                video.is_paused = True
-                video.paused_at = datetime.now(timezone.utc)
-                db.commit()
-        except Exception as exc:
-            logger.error(f"[JobManager] Pause DB error: {exc}")
-        finally:
-            db.close()
-        return True
+        return persist_video_pause(video_id, reason="user")
 
     def resume(self, video_id: int) -> bool:
         from core.database import SessionLocal
         from video.models import GeneratedVideo, VideoStatus
+        from stories.models import Story, StoryStatus
+        import video.engine.progress_push as progress_push
+        from video.engine.pipeline import _build_progress_payload
+
         db = SessionLocal()
         try:
             video = db.query(GeneratedVideo).filter(
@@ -581,11 +644,28 @@ class VideoJobManager:
             ).first()
             if not video:
                 return False
+            if video.status != VideoStatus.PAUSED.value:
+                return False
 
             video.status = VideoStatus.QUEUED.value
             video.is_paused = False
             video.resumed_at = datetime.now(timezone.utc)
+            if not video.queued_at:
+                video.queued_at = datetime.now(timezone.utc)
+
+            from video.engine.checkpoint import sanitize_video_checkpoint
+            sanitize_video_checkpoint(video)
+
+            story = db.query(Story).filter(Story.id == video.story_id).first()
+            if story:
+                story.status = StoryStatus.VIDEO_QUEUED.value
+
             db.commit()
+            db.refresh(video)
+            progress_push.push_progress(
+                video_id,
+                _build_progress_payload(video, video.current_step or "queued"),
+            )
 
             old_job = self.active_jobs.pop(video_id, None)
             if old_job is None:
@@ -707,6 +787,15 @@ class VideoJobManager:
                 task.cancel()
 
         for vid, job in list(self.active_jobs.items()):
+            if job.pipeline:
+                try:
+                    job.pipeline.pause()
+                except Exception as exc:
+                    logger.warning(
+                        f"[JobManager] Pipeline pause on shutdown for {vid}: {exc}"
+                    )
+            if vid in self._queue:
+                self._queue.remove(vid)
             if job.task and not job.task.done():
                 job.task.cancel()
             job.status = "paused"

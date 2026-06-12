@@ -420,16 +420,24 @@ def pause_video(video_id: int, db: Session = Depends(get_db)):
             message=f"Cannot pause video in {video.status} state.",
         )
 
-    video.status = VideoStatus.PAUSED.value
-    video.is_paused = True
-    video.paused_at = datetime.now(timezone.utc)
-    db.commit()
+    if video.status == VideoStatus.PAUSED.value:
+        return VideoControlResponse(
+            success=True,
+            status=video.status,
+            message="Video generation already paused.",
+        )
 
-    job_manager.pause(video_id)
+    if not job_manager.pause(video_id):
+        return VideoControlResponse(
+            success=False,
+            status=video.status,
+            message="Failed to pause video generation.",
+        )
 
+    db.refresh(video)
     return VideoControlResponse(
         success=True,
-        status=video.status,
+        status=VideoStatus.PAUSED.value,
         message="Video generation paused.",
     )
 
@@ -447,16 +455,17 @@ def resume_video(video_id: int, db: Session = Depends(get_db)):
             message=f"Cannot resume video in {video.status} state.",
         )
 
-    video.status = VideoStatus.QUEUED.value
-    video.is_paused = False
-    video.resumed_at = datetime.now(timezone.utc)
-    db.commit()
+    if not job_manager.resume(video_id):
+        return VideoControlResponse(
+            success=False,
+            status=video.status,
+            message="Failed to resume video generation.",
+        )
 
-    job_manager.resume(video_id)
-
+    db.refresh(video)
     return VideoControlResponse(
         success=True,
-        status=video.status,
+        status=VideoStatus.QUEUED.value,
         message="Video generation resumed.",
     )
 
