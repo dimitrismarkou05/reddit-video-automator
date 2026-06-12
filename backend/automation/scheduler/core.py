@@ -21,15 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 class TemplateScheduler:
-    """Manages scheduled execution of automation templates."""
-
     def __init__(self, db: Session):
         self.db = db
         self._running = False
         self._task: Optional[asyncio.Task] = None
 
     async def start(self):
-        """Start the scheduler loop."""
         if self._running:
             return
         self._running = True
@@ -37,7 +34,6 @@ class TemplateScheduler:
         logger.info("Template scheduler started")
 
     async def stop(self):
-        """Stop the scheduler loop."""
         self._running = False
         if self._task:
             self._task.cancel()
@@ -48,7 +44,6 @@ class TemplateScheduler:
         logger.info("Template scheduler stopped")
 
     async def _scheduler_loop(self):
-        """Main scheduler loop - checks templates every 60 seconds."""
         while self._running:
             try:
                 await self._process_templates()
@@ -57,7 +52,6 @@ class TemplateScheduler:
             await asyncio.sleep(60)
 
     async def _process_templates(self):
-        """Process all active templates due for execution."""
         now = datetime.now(timezone.utc)
 
         templates = self.db.query(AutomationTemplate).filter(
@@ -87,7 +81,6 @@ class TemplateScheduler:
                 self.db.commit()
 
     async def _execute_template(self, template: AutomationTemplate):
-        """Execute a single automation template."""
         run = TemplateRun(template_id=template.id, status="running")
         self.db.add(run)
         self.db.commit()
@@ -144,7 +137,6 @@ class TemplateScheduler:
         self.db.commit()
 
     async def _fetch_stories(self, template: AutomationTemplate) -> int:
-        """Fetch stories from monitored subreddits."""
         fetcher = StoryFetcher(self.db)
         total_fetched = 0
 
@@ -156,7 +148,6 @@ class TemplateScheduler:
         return total_fetched
 
     async def _generate_videos(self, template: AutomationTemplate, run: TemplateRun) -> int:
-        """Generate videos for stories ready for video generation."""
         stories = self.db.query(Story).filter(
             Story.subreddit.in_(template.subreddit_names),
             Story.status == StoryStatus.UPDATE_LINKED.value,
@@ -174,8 +165,6 @@ class TemplateScheduler:
                 video = pipeline.generate(
                     story_id=story.id,
                     include_updates=template.include_updates,
-                    tts_provider=template.tts_provider,
-                    tts_voice=template.tts_voice,
                     background_source=template.background_source,
                     video_format=template.video_format,
                     subtitle_style=style,
@@ -191,7 +180,6 @@ class TemplateScheduler:
         return count
 
     async def _upload_videos(self, template: AutomationTemplate, run: TemplateRun) -> int:
-        """Upload generated videos to YouTube."""
         videos = self.db.query(GeneratedVideo).filter(
             GeneratedVideo.status == "done",
             GeneratedVideo.youtube_upload_status == "not_uploaded",
@@ -240,19 +228,16 @@ class TemplateScheduler:
         return count
 
 
-# Global scheduler instance
 _scheduler: Optional[TemplateScheduler] = None
 
 
 async def start_scheduler(db: Session):
-    """Start the global scheduler."""
     global _scheduler
     _scheduler = TemplateScheduler(db)
     await _scheduler.start()
 
 
 async def stop_scheduler():
-    """Stop the global scheduler."""
     global _scheduler
     if _scheduler:
         await _scheduler.stop()

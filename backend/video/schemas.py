@@ -1,3 +1,5 @@
+"""Video generation schemas with proper nullable handling."""
+
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
@@ -15,8 +17,7 @@ class SubtitleStyle(BaseModel):
 class VideoGenerationRequest(BaseModel):
     story_id: int
     include_updates: bool = True
-    tts_provider: str = "openai"
-    tts_voice: str = "alloy"
+    voice_id: str = "default"
     background_source: str
     video_format: str = "shorts"
     subtitle_style: SubtitleStyle = Field(default_factory=SubtitleStyle)
@@ -27,6 +28,7 @@ class VideoGenerationResponse(BaseModel):
     video_id: int
     status: str
     message: str
+    queue_position: Optional[int] = None
 
 
 class GeneratedVideoResponse(BaseModel):
@@ -34,27 +36,44 @@ class GeneratedVideoResponse(BaseModel):
 
     id: int
     story_id: int
-    video_path: str
-    thumbnail_path: str
+    story_title: Optional[str] = None
+    story_subreddit: Optional[str] = None
+    video_path: Optional[str] = None
+    thumbnail_path: Optional[str] = None
+    audio_path: Optional[str] = None
+    subtitle_path: Optional[str] = None
     format: str
-    duration_seconds: Optional[float]
+    duration_seconds: Optional[float] = None
+    file_size_bytes: Optional[int] = None
     status: str
     progress_percent: int
-    error_message: Optional[str]
-    tts_voice: Optional[str]
+    current_step: str = ""
+    step_progress: int = 0
+    retry_count: int = 0
+    error_message: Optional[str] = None
+    error_type: Optional[str] = None
+    error_step: Optional[str] = None
+    queue_position: Optional[int] = None
+    is_paused: bool = False
+    paused_at: Optional[datetime] = None
+    tts_audio_path: Optional[str] = None
+    subtitle_ass_path: Optional[str] = None
+    selected_background_video: Optional[str] = None
+    background_source: Optional[str] = None
+    subtitle_style: Optional[dict] = None
     youtube_upload_status: str
-    youtube_video_id: Optional[str]
-    youtube_analytics: Optional[dict]
+    youtube_video_id: Optional[str] = None
+    youtube_analytics: Optional[dict] = None
     created_at: datetime
-    completed_at: Optional[datetime]
+    completed_at: Optional[datetime] = None
 
-    @field_serializer('created_at', 'completed_at')
+    @field_serializer("created_at", "completed_at", "paused_at")
     def serialize_datetime(self, value: Optional[datetime]) -> str:
         if value is None:
             return ""
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc).isoformat().replace('+00:00', 'Z')
+        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class VideoProgressResponse(BaseModel):
@@ -62,4 +81,16 @@ class VideoProgressResponse(BaseModel):
     status: str
     progress_percent: int
     current_step: str
-    error_message: Optional[str]
+    step_progress: int
+    status_message: Optional[str] = None
+    error_message: Optional[str] = None
+    error_type: Optional[str] = None
+    error_step: Optional[str] = None
+    queue_position: Optional[int] = None
+    is_paused: bool = False
+
+
+class VideoControlResponse(BaseModel):
+    success: bool
+    status: str
+    message: str

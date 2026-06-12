@@ -1,5 +1,5 @@
 // frontend/src/components/common/ConfirmDialog.tsx
-import { AlertTriangle, Trash2, X } from "lucide-react"; // Add X
+import { AlertTriangle, Loader2, Trash2, X } from "lucide-react";
 import { ModalShell } from "./ModalShell";
 
 interface ConfirmDialogProps {
@@ -7,10 +7,13 @@ interface ConfirmDialogProps {
   message: string;
   warning?: string;
   confirmLabel?: string;
+  dismissLabel?: string;
   confirmIcon?: React.ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
   isDanger?: boolean;
+  isConfirming?: boolean;
+  overlayClassName?: string;
 }
 
 export function ConfirmDialog({
@@ -18,17 +21,21 @@ export function ConfirmDialog({
   message,
   warning,
   confirmLabel = "Delete",
+  dismissLabel = "Cancel",
   confirmIcon,
   onConfirm,
   onCancel,
   isDanger = true,
+  isConfirming = false,
+  overlayClassName,
 }: ConfirmDialogProps) {
   return (
-    <ModalShell onClose={onCancel} maxWidth="max-w-md">
+    <ModalShell onClose={onCancel} maxWidth="max-w-md" overlayClassName={overlayClassName}>
       <div className="p-6 relative">
         <button
           onClick={onCancel}
-          className="cursor-pointer absolute top-4 right-4 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 z-10"
+          disabled={isConfirming}
+          className="cursor-pointer absolute top-4 right-4 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 z-10 disabled:opacity-50"
         >
           <X className="w-5 h-5" />
         </button>
@@ -58,18 +65,27 @@ export function ConfirmDialog({
           </p>
         )}
         <div className="flex items-center justify-end gap-3">
-          <button onClick={onCancel} className="cursor-pointer btn-secondary">
-            Cancel
+          <button
+            onClick={onCancel}
+            disabled={isConfirming}
+            className="cursor-pointer btn-secondary disabled:opacity-50"
+          >
+            {dismissLabel}
           </button>
           <button
             onClick={onConfirm}
-            className={`cursor-pointer px-4 py-2 rounded-lg font-medium flex items-center gap-2 ${
+            disabled={isConfirming}
+            className={`cursor-pointer px-4 py-2 rounded-lg font-medium flex items-center gap-2 disabled:opacity-50 ${
               isDanger
                 ? "bg-red-500 text-white hover:bg-red-600"
                 : "btn-primary"
             }`}
           >
-            {confirmIcon || <Trash2 className="w-4 h-4" />}
+            {isConfirming ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              confirmIcon || <Trash2 className="w-4 h-4" />
+            )}
             {confirmLabel}
           </button>
         </div>

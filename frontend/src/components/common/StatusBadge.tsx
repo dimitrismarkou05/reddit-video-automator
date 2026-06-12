@@ -24,7 +24,7 @@ export function StatusBadge({
 }: StatusBadgeProps) {
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${variantStyles[variant]} ${className}`}
+      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium leading-none ${variantStyles[variant]} ${className}`}
     >
       {Icon && <Icon className="w-3 h-3" />}
       {label}

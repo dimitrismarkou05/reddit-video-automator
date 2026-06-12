@@ -13,6 +13,7 @@ from settings.routes import router as settings_router
 from automation.routes import router as automation_router
 from ffmpeg.routes import router as ffmpeg_router
 from ffmpeg.sse import router as ffmpeg_sse_router
+from tts_local.routes import router as tts_local_router
 
 api_router = APIRouter()
 
@@ -27,7 +28,7 @@ api_router.include_router(stories_router, prefix="/stories", tags=["Stories"])
 api_router.include_router(video_router, prefix="/videos", tags=["Videos"])
 
 # SSE streams
-api_router.include_router(video_sse_router, prefix="/sse", tags=["SSE"])
+api_router.include_router(video_sse_router, prefix="/sse/videos", tags=["SSE"])
 api_router.include_router(notifications_sse_router, prefix="/sse", tags=["SSE"])
 api_router.include_router(ffmpeg_sse_router, prefix="/sse/ffmpeg", tags=["SSE"])
 
@@ -45,3 +46,6 @@ api_router.include_router(automation_router, prefix="/automation", tags=["Automa
 
 # FFmpeg
 api_router.include_router(ffmpeg_router, prefix="/ffmpeg", tags=["FFmpeg"])
+
+# Local TTS
+api_router.include_router(tts_local_router, prefix="/tts_local", tags=["TTS"])

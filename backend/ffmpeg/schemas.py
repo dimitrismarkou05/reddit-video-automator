@@ -14,6 +14,7 @@ class FfmpegStatusResponse(BaseModel):
     ffmpeg_version: Optional[str] = None
     ffprobe_version: Optional[str] = None
     can_generate_videos: bool
+    ffmpeg_in_path: bool = False
 
 
 class SetPathRequest(BaseModel):

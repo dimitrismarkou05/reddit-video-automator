@@ -1,4 +1,4 @@
-"""Notification creation with best-effort SSE broadcast."""
+"""Notification creation with DB persistence first, SSE broadcast best-effort."""
 
 import asyncio
 from typing import Optional
@@ -22,11 +22,12 @@ class NotificationService:
         message: str,
         details: Optional[dict] = None,
     ) -> Notification:
-        """Persist a notification and attempt SSE broadcast (best-effort)."""
+        """Persist a notification to DB first, then attempt SSE broadcast."""
         n = Notification(type=notif_type, level=level, message=message, details=details)
         self.db.add(n)
         self.db.commit()
 
+        # Best-effort SSE broadcast
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():

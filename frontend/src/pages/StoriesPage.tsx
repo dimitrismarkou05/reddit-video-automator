@@ -14,6 +14,7 @@ import { PrivateSubConfirmModal } from "@/components/modals/PrivateSubConfirmMod
 import { EmptyState } from "@/components/common/EmptyState";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { useDeleteTarget } from "@/hooks/useDeleteTarget";
+import { useVideoDeletedNotifications } from "@/hooks/useVideoDeletedNotifications";
 import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
 import type { Story } from "@/types";
 import type { SortOption } from "@/config/sortOptions";
@@ -22,6 +23,8 @@ import toast from "react-hot-toast";
 const STORIES_PER_PAGE = 10;
 
 export function StoriesPage() {
+  useVideoDeletedNotifications();
+
   const [newSubreddit, setNewSubreddit] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const { setNotifications } = useNotificationStore();
@@ -251,7 +254,7 @@ export function StoriesPage() {
 
   return (
     <div className="flex flex-col h-full gap-6">
-      {/* ═══ Pinned Top: Controls, Subreddits, Filters ═══ */}
+      {/*     Pinned Top: Controls, Subreddits, Filters     */}
       <div className="shrink-0 space-y-6">
         {/* Controls Row */}
         <div className="flex flex-wrap items-center gap-3">
@@ -323,7 +326,7 @@ export function StoriesPage() {
         />
       </div>
 
-      {/* ═══ Scrollable Middle: Stories List ═══ */}
+      {/*     Scrollable Middle: Stories List     */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 pr-1">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
@@ -362,7 +365,7 @@ export function StoriesPage() {
         )}
       </div>
 
-      {/* ═══ Pinned Bottom: Pagination ═══ */}
+      {/*     Pinned Bottom: Pagination     */}
       <div className="shrink-0">
         <StoryPagination
           currentPage={currentPage}
@@ -374,7 +377,7 @@ export function StoriesPage() {
         />
       </div>
 
-      {/* ═══ Modals ═══ */}
+      {/*     Modals     */}
       {showFetchModal && subreddits && (
         <FetchModal
           subreddits={subreddits}

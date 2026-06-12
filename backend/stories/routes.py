@@ -76,7 +76,10 @@ def list_stories(
     # Apply pagination
     stories = (
         base_query
-        .options(joinedload(Story.updates))
+        .options(
+            joinedload(Story.updates).joinedload(Story.generated_video),
+            joinedload(Story.generated_video),
+        )
         .offset((page - 1) * limit)
         .limit(limit)
         .all()
@@ -95,7 +98,15 @@ def list_stories(
 
 @router.get("/{story_id}", response_model=StoryDetailResponse)
 def get_story(story_id: int, db: Session = Depends(get_db)):
-    story = db.query(Story).filter(Story.id == story_id).first()
+    story = (
+        db.query(Story)
+        .options(
+            joinedload(Story.generated_video),
+            joinedload(Story.updates).joinedload(Story.generated_video),
+        )
+        .filter(Story.id == story_id)
+        .first()
+    )
     if not story:
         raise HTTPException(status_code=404, detail="Story not found")
     return story

@@ -108,7 +108,7 @@ export function TemplateCard({
           {template.video_format === "shorts" ? "9:16" : "16:9"}
         </span>
         <span className="px-2 py-1 bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-600 dark:text-gray-400 text-xs rounded-md">
-          {template.tts_provider}
+          {template.auto_upload ? "Auto-upload" : "Manual upload"}
         </span>
       </div>
 
@@ -143,8 +143,10 @@ export function TemplateCard({
         <div className="mt-4 pt-4 border-t border-border-light dark:border-border-dark space-y-2 text-sm">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <span className="text-gray-500">TTS Voice:</span>{" "}
-              <span className="font-medium">{template.tts_voice}</span>
+              <span className="text-gray-500">Voice ID:</span>{" "}
+              <span className="font-medium">
+                {template.voice_id || "default"}
+              </span>
             </div>
             <div>
               <span className="text-gray-500">Auto-upload:</span>{" "}

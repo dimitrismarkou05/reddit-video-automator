@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronRight, GitBranch, Clock } from "lucide-react";
 import { StoryMeta } from "./StoryMeta";
@@ -6,7 +6,13 @@ import { StoryActions } from "./StoryActions";
 import { StoryBody } from "./StoryBody";
 import { UpdateCard } from "./UpdateCard";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { StoryVideoProgress } from "@/components/videos/StoryVideoProgress";
 import { GenerateVideoModal } from "@/components/GenerateVideoModal";
+import { UploadModal } from "@/components/UploadModal";
+import { useStoryEffectiveVideo } from "@/hooks/useStoryEffectiveVideo";
+import { useStoryGenerationState } from "@/hooks/useStoryGenerationState";
+import { isVideoPaused } from "@/utils/videoQueries";
+import toast from "react-hot-toast";
 import type { Story } from "@/types";
 
 interface StoryCardProps {
@@ -20,12 +26,23 @@ export function StoryCard({ story, onDelete, canGenerate = true, isDetectingFfmp
   const navigate = useNavigate();
   const [showUpdates, setShowUpdates] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+
   const hasUpdates = story.updates && story.updates.length > 0;
-  const hasVideo = !!story.generated_video;
+  const hasCompletedVideo = !!story.generated_video && story.generated_video.status === "done";
   const updateCount = story.updates?.length || 0;
 
+  const {
+    isGenerating: isThisStoryGenerating,
+    isPaused: isPausedFromHook,
+    activeVideoId: generatingVideoId,
+  } = useStoryGenerationState(story.id, story.generated_video);
+  const effectiveVideo = useStoryEffectiveVideo(story.id, story.generated_video);
+  const isPaused = effectiveVideo
+    ? isVideoPaused(effectiveVideo)
+    : isPausedFromHook;
+
   const handleCardClick = (e: React.MouseEvent) => {
-    // Don't navigate if clicking on action buttons or the updates toggle
     const target = e.target as HTMLElement;
     if (
       target.closest("button") ||
@@ -36,6 +53,16 @@ export function StoryCard({ story, onDelete, canGenerate = true, isDetectingFfmp
     }
     navigate(`/stories/${story.id}`);
   };
+
+  const handleGenerate = useCallback(() => {
+    if (isDetectingFfmpeg) return;
+    if (!canGenerate) {
+      toast.error("FFmpeg not installed. Please install FFmpeg in Settings to generate videos.");
+      return;
+    }
+
+    setShowGenerateModal(true);
+  }, [canGenerate, isDetectingFfmpeg]);
 
   return (
     <div className="space-y-0">
@@ -50,13 +77,12 @@ export function StoryCard({ story, onDelete, canGenerate = true, isDetectingFfmp
               {story.is_update && (
                 <StatusBadge label="Update" variant="warning" />
               )}
-              {hasVideo && (
-                <StatusBadge
-                  label="Video Ready"
-                  icon={Clock}
-                  variant="success"
-                />
-              )}
+              <StoryVideoProgress
+                storyId={story.id}
+                video={story.generated_video}
+                story={story}
+                variant="compact"
+              />
               {hasUpdates && (
                 <>
                   <StatusBadge
@@ -93,12 +119,16 @@ export function StoryCard({ story, onDelete, canGenerate = true, isDetectingFfmp
           </div>
           <div onClick={(e) => e.stopPropagation()} data-no-nav>
             <StoryActions
-              hasVideo={hasVideo}
+              hasVideo={hasCompletedVideo}
+              generatedVideo={story.generated_video}
               permalink={story.permalink}
-              onGenerate={() => setShowGenerateModal(true)}
+              onGenerate={handleGenerate}
+              onUpload={() => setShowUploadModal(true)}
               onDelete={() => onDelete(story)}
               canGenerate={canGenerate}
               isDetectingFfmpeg={isDetectingFfmpeg}
+              isGenerating={isThisStoryGenerating}
+              isPaused={isPaused}
             />
           </div>
         </div>
@@ -117,6 +147,7 @@ export function StoryCard({ story, onDelete, canGenerate = true, isDetectingFfmp
                 parentStoryId={story.id}
                 canGenerate={canGenerate}
                 isDetectingFfmpeg={isDetectingFfmpeg}
+                parentStory={story}
               />
             ))}
           </div>
@@ -127,6 +158,14 @@ export function StoryCard({ story, onDelete, canGenerate = true, isDetectingFfmp
         <GenerateVideoModal
           story={story}
           onClose={() => setShowGenerateModal(false)}
+          existingVideoId={generatingVideoId}
+        />
+      )}
+
+      {showUploadModal && story.generated_video && (
+        <UploadModal
+          video={story.generated_video}
+          onClose={() => setShowUploadModal(false)}
         />
       )}
     </div>

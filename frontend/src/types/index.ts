@@ -21,14 +21,31 @@ export interface Story {
 export interface GeneratedVideo {
   id: number;
   story_id: number;
-  video_path: string;
-  thumbnail_path: string;
+  story_title?: string | null;
+  story_subreddit?: string | null;
+  video_path: string | null;
+  thumbnail_path: string | null;
+  audio_path: string | null;
+  subtitle_path: string | null;
   format: string;
   duration_seconds: number | null;
+  file_size_bytes: number | null;
   status: string;
   progress_percent: number;
+  current_step: string;
+  step_progress: number;
+  retry_count: number;
   error_message: string | null;
-  tts_voice: string | null;
+  error_type: string | null;
+  error_step: string | null;
+  queue_position: number | null;
+  is_paused: boolean;
+  paused_at: string | null;
+  tts_audio_path: string | null;
+  subtitle_ass_path: string | null;
+  selected_background_video: string | null;
+  background_source: string | null;
+  subtitle_style: Record<string, any> | null;
   youtube_upload_status: string;
   youtube_video_id: string | null;
   youtube_analytics: Record<string, any> | null;
@@ -49,7 +66,7 @@ export interface Subreddit {
 export interface Notification {
   id: number;
   type: string;
-  level: 'info' | 'success' | 'warning' | 'error';
+  level: "info" | "success" | "warning" | "error";
   message: string;
   details: Record<string, any> | null;
   is_read: boolean;
@@ -89,13 +106,12 @@ export interface AutomationTemplate {
   status: string;
   subreddit_names: string[];
   fetch_settings: Record<string, any>;
-  tts_provider: string;
-  tts_voice: string;
   background_source: string;
   video_format: string;
   subtitle_style: Record<string, any>;
   include_updates: boolean;
   generate_hashtags: boolean;
+  voice_id: string;
   youtube_title_template: string;
   youtube_description_template: string;
   youtube_tags: string[];
@@ -111,7 +127,7 @@ export interface AutomationTemplate {
 }
 
 export interface SubtitleStyle {
-  position: 'center' | 'bottom' | 'top';
+  position: "center" | "bottom" | "top";
   font_size: number;
   font_color: string;
   outline_color: string;
@@ -119,7 +135,20 @@ export interface SubtitleStyle {
   max_width_percent: number;
 }
 
-// ─── FFmpeg Types ───
+export interface VideoProgressEvent {
+  video_id: number;
+  status: string;
+  progress_percent: number;
+  current_step: string;
+  step_progress: number;
+  error_message: string | null;
+  error_type: string | null;
+  error_step: string | null;
+  queue_position: number | null;
+  is_paused: boolean;
+  thumbnail_path?: string;
+  video_path?: string;
+}
 
 export interface FfmpegStatus {
   ffmpeg_installed: boolean;
@@ -129,9 +158,39 @@ export interface FfmpegStatus {
   ffmpeg_version: string | null;
   ffprobe_version: string | null;
   can_generate_videos: boolean;
+  ffmpeg_in_path: boolean;
 }
 
 export interface FfmpegInstallProgress {
+  event_type: string;
+  progress_percent: number;
+  step: string;
+  mirror: string | null;
+  retry_count: number;
+  error: string | null;
+}
+
+export interface VoiceInfo {
+  id: string;
+  name: string;
+  model_name: string;
+  language: string;
+  speaker_count: number;
+  description: string;
+  installed: boolean;
+  path: string | null;
+}
+
+export interface TtsStatus {
+  installed: boolean;
+  tts_package_installed: boolean;
+  voices: VoiceInfo[];
+  models_dir: string;
+  auto_download: boolean;
+  message: string;
+}
+
+export interface TtsInstallProgress {
   event_type: string;
   progress_percent: number;
   step: string;

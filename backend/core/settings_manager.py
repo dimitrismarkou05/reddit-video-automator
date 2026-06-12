@@ -3,6 +3,9 @@ from sqlalchemy.orm import Session
 
 from settings.models import Setting
 from core.crypto import encrypt, decrypt
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class SettingsManager:
@@ -15,7 +18,13 @@ class SettingsManager:
             return default
 
         if decrypt_value and setting.is_encrypted:
-            return decrypt(setting.value)
+            try:
+                return decrypt(setting.value)
+            except Exception as exc:
+                logger.error(f"[SettingsManager] Decryption failed for key='{key}': {type(exc).__name__}: {exc}")
+                # If decryption fails, return None so caller knows it's broken
+                return None
+        
         return setting.value
 
     def set(self, key: str, value: str, encrypt_value: bool = False) -> Setting:

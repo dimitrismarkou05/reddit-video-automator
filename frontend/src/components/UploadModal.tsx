@@ -41,7 +41,7 @@ const CATEGORIES = [
 
 export function UploadModal({ video, onClose }: UploadModalProps) {
   const [form, setForm] = useState({
-    title: video.story?.title || "",
+    title: video.story_title || video.story?.title || "",
     description: "",
     tags: "",
     privacy: "private",

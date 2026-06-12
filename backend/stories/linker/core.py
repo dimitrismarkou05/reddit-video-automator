@@ -22,7 +22,7 @@ class UpdateLinker:
     def __init__(self, db: Session):
         self.db = db
 
-    # ── Separate Post Detection ────────────────────────────────────────
+    #    Separate Post Detection                                         
 
     def _is_likely_update(self, story: Story) -> bool:
         """Check if a story's title suggests it's a separate update post."""
@@ -85,7 +85,7 @@ class UpdateLinker:
 
         return best_match
 
-    # ── Inline Update Detection ────────────────────────────────────────
+    #    Inline Update Detection                                         
 
     def _strip_updated_prefix(self, body: str) -> Tuple[str, bool, int]:
         """Strip 'UPDATED' prefix from the beginning of the body if present."""
@@ -206,7 +206,7 @@ class UpdateLinker:
         self.db.add(update_story)
         return update_story
 
-    # ── Public API ─────────────────────────────────────────────────────
+    #    Public API                                                      
 
     def link_updates_for_subreddit(self, subreddit_name: str) -> int:
         """

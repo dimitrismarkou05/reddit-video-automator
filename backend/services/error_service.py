@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from youtube.auth import YouTubeAuthError
 from youtube.uploader import YouTubeUploadError
 from youtube.manager import YouTubeManagerError
-from video.engine.pipeline import VideoPipelineError
+from video.engine.pipeline import VideoPipelineError, PipelineCancelledError, PipelinePausedError
 from subreddits.client.client import RateLimitError
 
 
@@ -13,7 +13,7 @@ class ErrorService:
     """Converts domain exceptions to HTTPExceptions with appropriate status codes."""
 
     _STATUS_MAP = {
-        (YouTubeAuthError, YouTubeUploadError, YouTubeManagerError, VideoPipelineError, ValueError): 400,
+        (YouTubeAuthError, YouTubeUploadError, YouTubeManagerError, ValueError): 400,
         RateLimitError: 429,
     }
 

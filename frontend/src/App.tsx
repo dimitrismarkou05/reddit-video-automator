@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Routes, Route, Navigate, Outlet, useParams } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { useThemeStore, useAuthStore } from "@/store";
@@ -14,7 +14,6 @@ import { PublicSettingsPage } from "@/pages/PublicSettingsPage";
 import { TitleBar } from "@/components/TitleBar";
 import { FfmpegMissingModal } from "@/components/ffmpeg/FfmpegMissingModal";
 import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
-import { useState } from "react";
 
 function ProtectedRoute() {
   const { authStatus, isLoading } = useAuthStore();
@@ -94,23 +93,20 @@ function App() {
     checkAuth();
   }, [setAuthStatus, setLoading]);
 
-  // Show FFmpeg missing modal after authentication
   useEffect(() => {
     const isAuthenticated = authStatus?.is_authenticated;
+    if (!isAuthenticated || ffmpegLoading) {
+      if (!isAuthenticated) {
+        setShowFfmpegMissing(false);
+        setFfmpegSkipped(false);
+      }
+      return;
+    }
 
-    // Only check FFmpeg if user is authenticated and not loading
-    if (
-      !ffmpegLoading &&
-      isAuthenticated &&
-      ffmpegStatus &&
-      !ffmpegStatus.can_generate_videos &&
-      !ffmpegSkipped
-    ) {
+    const ffmpegOk = ffmpegStatus?.can_generate_videos ?? false;
+
+    if (!ffmpegOk && !ffmpegSkipped) {
       setShowFfmpegMissing(true);
-    } else if (!isAuthenticated) {
-      // Reset FFmpeg modal state when logged out
-      setShowFfmpegMissing(false);
-      setFfmpegSkipped(false);
     }
   }, [
     ffmpegLoading,

@@ -17,7 +17,7 @@ const BACKEND_PORT = 8000;
 const BACKEND_HOST = "127.0.0.1";
 const STAGGER_DELAY_MS = 200;
 
-// ─── Progress State ───
+//     Progress State
 let progressHistory = [];
 let splashReady = false;
 let nextFlushIndex = 0;
@@ -74,7 +74,7 @@ function resolveSplashPath() {
   return candidates[0];
 }
 
-// ─── Splash Screen ───
+//     Splash Screen
 function createSplashWindow() {
   const splashPath = resolveSplashPath();
   progressHistory = [];
@@ -125,7 +125,7 @@ function createSplashWindow() {
   });
 }
 
-// ─── Main Window ───
+//     Main Window
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -155,7 +155,7 @@ function createMainWindow() {
   });
 }
 
-// ─── Backend Health Check ───
+//     Backend Health Check
 function checkBackendHealth(maxRetries = 60, intervalMs = 500) {
   return new Promise((resolve, reject) => {
     let attempts = 0;
@@ -192,7 +192,7 @@ function checkBackendHealth(maxRetries = 60, intervalMs = 500) {
   });
 }
 
-// ─── Parse uvicorn output to drive progress ───
+//     Parse uvicorn output to drive progress
 function handleBackendOutput(text) {
   const lines = text.toString().split(/\r?\n/);
   for (const line of lines) {
@@ -209,7 +209,7 @@ function handleBackendOutput(text) {
   }
 }
 
-// ─── Backend Process ───
+//     Backend Process
 function startBackend() {
   const backendDir = path.join(__dirname, "..", "..", "backend");
 
@@ -245,7 +245,7 @@ function startBackend() {
   });
 }
 
-// ─── Boot Sequence ───
+//     Boot Sequence
 async function bootSequence() {
   createSplashWindow();
 
@@ -301,7 +301,7 @@ async function bootSequence() {
   }
 }
 
-// ─── App Lifecycle ───
+//     App Lifecycle
 app.whenReady().then(() => {
   bootSequence();
 
@@ -317,7 +317,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// ─── IPC Handlers ───
+//     IPC Handlers
 ipcMain.handle("open-external", async (_, url) => {
   await shell.openExternal(url);
 });

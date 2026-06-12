@@ -1,0 +1,212 @@
+import { create } from "zustand";
+
+export interface VideoJob {
+  videoId: number;
+  storyId: number;
+  status: string;
+  progress: number;
+  currentStep: string;
+  queuePosition: number | null;
+  errorMessage: string | null;
+  isPaused: boolean;
+  openedAt: number;
+}
+
+interface VideoJobsState {
+  jobs: Record<number, VideoJob>;
+  activeModalVideoId: number | null;
+  activeModalStoryId: number | null;
+
+  setActiveModal: (videoId: number | null, storyId?: number | null) => void;
+  registerJob: (videoId: number, storyId: number, status?: string) => void;
+  updateJob: (videoId: number, updates: Partial<VideoJob>) => void;
+  removeJob: (videoId: number) => void;
+  removeJobsForStory: (storyId: number) => void;
+  getJobForStory: (storyId: number) => VideoJob | null;
+  isStoryActive: (storyId: number) => boolean;
+  getActiveJobForStory: (storyId: number) => VideoJob | null;
+  openModalForStory: (
+    storyId: number,
+    jobsState?: Record<number, VideoJob>,
+  ) => number | null;
+  cleanupTerminalJobs: () => void;
+  getModalVideoId: (
+    storyId: number,
+    storyGeneratedVideo?: { id: number; status: string } | null,
+  ) => number | null;
+}
+
+// CRITICAL FIX: 'paused' is NOT terminal - it's an active state
+const TERMINAL_STATUSES = ["done", "failed", "cancelled", "deleted"];
+
+export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
+  jobs: {},
+  activeModalVideoId: null,
+  activeModalStoryId: null,
+
+  setActiveModal: (videoId, storyId) => {
+    set({ activeModalVideoId: videoId, activeModalStoryId: storyId ?? null });
+  },
+
+  registerJob: (videoId, storyId, status = "queued") =>
+    set((state) => {
+      const existing = state.jobs[videoId];
+      const base: VideoJob = existing
+        ? { ...existing }
+        : {
+            videoId,
+            storyId,
+            status,
+            progress: 0,
+            currentStep: "queued",
+            queuePosition: null,
+            errorMessage: null,
+            isPaused: false,
+            openedAt: Date.now(),
+          };
+      const newJob: VideoJob = {
+        ...base,
+        videoId,
+        storyId,
+        status,
+      };
+      return {
+        jobs: {
+          ...state.jobs,
+          [videoId]: newJob,
+        },
+      };
+    }),
+
+  updateJob: (videoId, updates) =>
+    set((state) => {
+      const job = state.jobs[videoId];
+      if (!job) return state;
+      const next = { ...updates };
+      if (updates.progress !== undefined) {
+        const isRetryReset =
+          updates.status === "queued" && updates.progress === 0;
+        if (!isRetryReset) {
+          next.progress = Math.max(job.progress, updates.progress);
+        }
+      }
+      if (job.isPaused) {
+        const isResume =
+          updates.isPaused === false && updates.status === "queued";
+        if (!isResume) {
+          next.isPaused = true;
+          if (
+            updates.status &&
+            updates.status !== "paused" &&
+            updates.status !== "queued"
+          ) {
+            next.status = "paused";
+          }
+        }
+      }
+      return {
+        jobs: {
+          ...state.jobs,
+          [videoId]: { ...job, ...next },
+        },
+      };
+    }),
+
+  removeJob: (videoId) =>
+    set((state) => {
+      const next = { ...state.jobs };
+      delete next[videoId];
+      return {
+        jobs: next,
+        activeModalVideoId:
+          state.activeModalVideoId === videoId
+            ? null
+            : state.activeModalVideoId,
+        activeModalStoryId:
+          state.activeModalVideoId === videoId
+            ? null
+            : state.activeModalStoryId,
+      };
+    }),
+
+  removeJobsForStory: (storyId) =>
+    set((state) => {
+      const next: Record<number, VideoJob> = {};
+      let clearedModal = false;
+      for (const [id, job] of Object.entries(state.jobs)) {
+        if (job.storyId === storyId) {
+          if (state.activeModalVideoId === Number(id)) {
+            clearedModal = true;
+          }
+          continue;
+        }
+        next[Number(id)] = job;
+      }
+      return {
+        jobs: next,
+        activeModalVideoId: clearedModal ? null : state.activeModalVideoId,
+        activeModalStoryId: clearedModal ? null : state.activeModalStoryId,
+      };
+    }),
+
+  getJobForStory: (storyId) => {
+    const jobs = Object.values(get().jobs);
+    return (
+      jobs.find(
+        (j) => j.storyId === storyId && !TERMINAL_STATUSES.includes(j.status),
+      ) || null
+    );
+  },
+
+  isStoryActive: (storyId) => {
+    return get().getJobForStory(storyId) !== null;
+  },
+
+  getActiveJobForStory: (storyId) => {
+    return get().getJobForStory(storyId);
+  },
+
+  openModalForStory: (storyId, jobsState) => {
+    const jobs = jobsState || get().jobs;
+    const job = Object.values(jobs).find(
+      (j) => j.storyId === storyId && !TERMINAL_STATUSES.includes(j.status),
+    );
+    if (job) {
+      set({ activeModalVideoId: job.videoId, activeModalStoryId: storyId });
+      return job.videoId;
+    }
+    return null;
+  },
+
+  cleanupTerminalJobs: () => {
+    set((state) => {
+      const next: Record<number, VideoJob> = {};
+      for (const [id, job] of Object.entries(state.jobs)) {
+        const vid = Number(id);
+        if (!TERMINAL_STATUSES.includes(job.status)) {
+          next[vid] = job;
+        }
+      }
+      return { jobs: next };
+    });
+  },
+
+  /** Read-only: active video id for modal reopen / generation UI (no side effects). */
+  getModalVideoId: (storyId, storyGeneratedVideo) => {
+    const state = get();
+
+    const trackedJob = state.getJobForStory(storyId);
+    if (trackedJob) {
+      return trackedJob.videoId;
+    }
+
+    if (
+      storyGeneratedVideo &&
+      !TERMINAL_STATUSES.includes(storyGeneratedVideo.status)
+    ) {
+      return storyGeneratedVideo.id;
+    }
+
+    return null;
+  },
+}));

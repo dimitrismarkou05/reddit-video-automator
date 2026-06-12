@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Generic, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
+from video.schemas import GeneratedVideoResponse
+
 T = TypeVar("T")
 
 
@@ -26,6 +28,7 @@ class StoryResponse(StoryBase):
     id: int
     fetched_at: datetime
     parent_story_id: Optional[int] = None
+    generated_video: Optional[GeneratedVideoResponse] = None
     updates: List["StoryResponse"] = []
 
     @field_serializer('created_utc', 'fetched_at')
