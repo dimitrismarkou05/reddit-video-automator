@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { videoApi, videoProgressSSE } from "@/services/api";
+import { mergeVideoProgress } from "@/utils/videoQueries";
 
 export interface VideoProgressData {
   video_id: number;
@@ -54,59 +55,46 @@ export function useVideoProgress({
 
   const handleProgress = useCallback((data: VideoProgressData) => {
     setProgress((prev) => {
+      const merged = mergeVideoProgress(prev, data);
+      if (!merged) {
+        return prev;
+      }
+
       // FIX 11: Detect transition from terminal to non-terminal (retry case)
       const wasTerminal = prev && TERMINAL_STATUSES.includes(prev.status);
-      const isNowNonTerminal = !TERMINAL_STATUSES.includes(data.status);
+      const isNowNonTerminal = !TERMINAL_STATUSES.includes(merged.status);
       if (wasTerminal && isNowNonTerminal) {
         forceReconnectRef.current = true;
         terminalNotifiedRef.current = false;
       }
 
-      // Always update for terminal states or status changes
-      const isTerminal = TERMINAL_STATUSES.includes(data.status);
-      const isNewStatus = prev?.status !== data.status;
-
-      const shouldUpdate =
-        !prev ||
-        isNewStatus ||
-        isTerminal ||
-        data.progress_percent > (prev.progress_percent || 0) ||
-        data.current_step !== prev.current_step ||
-        data.step_progress !== prev.step_progress ||
-        data.queue_position !== prev.queue_position ||
-        data.status_message !== prev.status_message ||
-        data.is_paused !== prev.is_paused;
-
-      if (!shouldUpdate) {
-        return prev;
-      }
+      const isTerminal = TERMINAL_STATUSES.includes(merged.status);
 
       // Notify queue status
       if (
-        data.status === "queued" &&
-        data.queue_position &&
+        merged.status === "queued" &&
+        merged.queue_position &&
         onQueueRef.current
       ) {
-        onQueueRef.current(data);
+        onQueueRef.current(merged);
       }
 
       // Handle terminal states - only notify once per videoId
       if (isTerminal) {
         if (!terminalNotifiedRef.current) {
           terminalNotifiedRef.current = true;
-          if (data.status === "done") {
-            onCompleteRef.current?.(data);
+          if (merged.status === "done") {
+            onCompleteRef.current?.(merged);
           } else {
-            onErrorRef.current?.(data);
+            onErrorRef.current?.(merged);
           }
         }
       } else {
-        // Reset terminal notification when we see a non-terminal state
         terminalNotifiedRef.current = false;
       }
 
-      prevStatusRef.current = data.status;
-      return data;
+      prevStatusRef.current = merged.status;
+      return merged;
     });
   }, []);
 

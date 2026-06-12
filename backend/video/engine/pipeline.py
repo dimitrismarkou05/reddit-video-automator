@@ -130,6 +130,22 @@ class VideoPipeline:
             if new_pct < prev:
                 new_pct = prev
 
+            from video.engine.checkpoint import is_regressive_progress_update
+            if (
+                not force
+                and is_regressive_progress_update(
+                    video_record.current_step or "queued",
+                    step,
+                    new_pct,
+                    prev,
+                )
+            ):
+                logger.debug(
+                    f"[Pipeline {video_record.id}] Skipping regressive progress "
+                    f"{video_record.current_step} -> {step} at {new_pct}%"
+                )
+                return
+
             if throttle_sec > 0 and not force:
                 key = f"{video_record.id}:{step}"
                 now = time.monotonic()
@@ -489,8 +505,6 @@ class VideoPipeline:
                     f"[Pipeline {video_id}] TTS skipped (checkpoint)"
                 )
 
-            self._update_progress(video_record, "tts_done", 0, progress_callback)
-
             # ── Transcription ──────────────────────────────────────────
             # Start background selection concurrently with transcription:
             # both are independent I/O operations and the background probe
@@ -558,10 +572,6 @@ class VideoPipeline:
                     f"[Pipeline {video_id}] Transcription skipped (checkpoint)"
                 )
 
-            self._update_progress(
-                video_record, "transcribe_done", 0, progress_callback
-            )
-
             # ── Subtitles ──────────────────────────────────────────────
             subtitle_path = temp_folder / "subtitles.ass"
             if checkpoint.get("step", "transcribe_done") in (
@@ -603,9 +613,6 @@ class VideoPipeline:
             else:
                 subtitle_path = Path(
                     checkpoint.get("subtitle_path", str(subtitle_path))
-                )
-                self._update_progress(
-                    video_record, "subtitles_done", 0, progress_callback
                 )
 
             # ── Background selection ───────────────────────────────────
@@ -785,10 +792,6 @@ class VideoPipeline:
             else:
                 logger.info(f"[Pipeline {video_id}] Compositing skipped (checkpoint)")
                 _thumbnail_task = None  # type: ignore[assignment]
-
-            self._update_progress(
-                video_record, "compositing_done", 0, progress_callback
-            )
 
             # ── Thumbnail ──────────────────────────────────────────────
             self.check_cancelled(video_record)

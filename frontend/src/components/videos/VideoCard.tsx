@@ -32,7 +32,7 @@ import { getVideoThumbnailUrl, videoApi } from "@/services/api";
 import type { GeneratedVideo } from "@/types";
 import toast from "react-hot-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { cleanupDeletedVideo, invalidateVideos, isVideoPaused, optimisticallyPauseVideo, optimisticallyResumeVideo } from "@/utils/videoQueries";
+import { cleanupDeletedVideo, isVideoPaused, optimisticallyPauseVideo, optimisticallyResumeVideo } from "@/utils/videoQueries";
 
 function getVideoTitle(video: GeneratedVideo): string {
   return video.story_title || video.story?.title || "Untitled Video";
@@ -92,7 +92,6 @@ export function VideoCard({ video }: VideoCardProps) {
     try {
       await videoApi.pause(video.id);
       toast.success("Paused");
-      invalidateVideos(queryClient);
     } catch (e: any) {
       rollback();
       toast.error(e.response?.data?.detail || "Failed to pause");
@@ -112,7 +111,6 @@ export function VideoCard({ video }: VideoCardProps) {
     try {
       await videoApi.resume(video.id);
       toast.success("Resuming...");
-      invalidateVideos(queryClient);
     } catch (e: any) {
       rollback();
       toast.error(e.response?.data?.detail || "Failed to resume");

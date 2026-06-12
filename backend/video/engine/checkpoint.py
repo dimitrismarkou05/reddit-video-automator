@@ -41,6 +41,82 @@ IN_PROGRESS_TO_CHECKPOINT: dict[str, str] = {
     "failed": "queued",
 }
 
+# Full pipeline step order for monotonic progress UI (includes in-progress steps).
+PROGRESS_STEP_ORDER = [
+    "queued",
+    "preparing",
+    "downloading_model",
+    "tts_synthesizing",
+    "tts_done",
+    "transcribing",
+    "transcribe_done",
+    "generating_subtitles",
+    "subtitles_done",
+    "selecting_background",
+    "compositing",
+    "ffmpeg_processing",
+    "compositing_done",
+    "generating_thumbnail",
+    "done",
+    "failed",
+    "cancelled",
+    "paused",
+    "processing",
+]
+
+
+def progress_step_index(step: str) -> int:
+    try:
+        return PROGRESS_STEP_ORDER.index(step)
+    except ValueError:
+        return 0
+
+
+def is_regressive_progress_update(
+    current_step: str,
+    new_step: str,
+    new_pct: int,
+    prev_pct: int,
+) -> bool:
+    """True when a progress emit would walk the UI backward without gaining %."""
+    if new_step in ("done", "failed", "cancelled", "paused", "deleted"):
+        return False
+    current = current_step or "queued"
+    if progress_step_index(new_step) < progress_step_index(current):
+        if new_pct <= prev_pct:
+            return True
+    return False
+
+
+def step_label(step: str) -> str:
+    """Human-readable label for a pipeline step (used in pause messages)."""
+    labels = {
+        "preparing": "Preparing script",
+        "downloading_model": "Loading voice model",
+        "tts_synthesizing": "Generating voice",
+        "tts_done": "Voice ready",
+        "transcribing": "Transcribing audio",
+        "transcribe_done": "Transcription complete",
+        "generating_subtitles": "Building subtitles",
+        "subtitles_done": "Subtitles ready",
+        "selecting_background": "Selecting background",
+        "compositing": "Rendering video",
+        "ffmpeg_processing": "Rendering video",
+        "compositing_done": "Video rendered",
+        "generating_thumbnail": "Creating thumbnail",
+        "queued": "Queued",
+        "processing": "Processing",
+        "paused": "Paused",
+    }
+    return labels.get(step, step.replace("_", " ").title())
+
+
+def paused_status_message(video) -> str:
+    """Status message for SSE when generation is paused."""
+    step = getattr(video, "current_step", None) or "processing"
+    return f"Paused — {step_label(step)}"
+
+
 # Order for picking the most conservative (earliest) completed step.
 _STEP_ORDER = [
     "queued",

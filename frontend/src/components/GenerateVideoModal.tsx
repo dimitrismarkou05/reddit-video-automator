@@ -22,7 +22,7 @@ import type { Story, SubtitleStyle as SubtitleStyleType } from "@/types";
 import { useVideoProgress } from "@/hooks/useVideoProgress";
 import { useVideoJobsStore } from "@/store/videoJobs";
 import { ACTIVE_GENERATION_STATUSES, getStepLabel } from "@/config/videoStatus";
-import { cleanupDeletedVideo, invalidateVideos, optimisticallyPauseVideo, optimisticallyResumeVideo, storyQueryKey } from "@/utils/videoQueries";
+import { cleanupDeletedVideo, optimisticallyPauseVideo, optimisticallyResumeVideo, storyQueryKey } from "@/utils/videoQueries";
 import { CancelConfirmModal } from "@/components/modals/CancelConfirmModal";
 import toast from "react-hot-toast";
 
@@ -641,14 +641,13 @@ export function GenerateVideoModal({
       status: "paused",
       isPaused: true,
       progress: pct,
+      currentStep: progress?.current_step ?? existingVideo?.current_step ?? "processing",
       queuePosition: null,
     });
     setIsPausing(true);
     try {
       await videoApi.pause(videoId);
       toast.success("Generation paused");
-      invalidateVideos(queryClient);
-      queryClient.invalidateQueries({ queryKey: storyQueryKey(story.id) });
     } catch (e: any) {
       rollback();
       toast.error(e.response?.data?.detail || "Failed to pause");
@@ -676,13 +675,12 @@ export function GenerateVideoModal({
       status: "queued",
       isPaused: false,
       progress: pct,
+      currentStep: progress?.current_step ?? existingVideo?.current_step ?? "processing",
     });
     setIsResuming(true);
     try {
       await videoApi.resume(videoId);
       toast.success("Generation resuming...");
-      invalidateVideos(queryClient);
-      queryClient.invalidateQueries({ queryKey: storyQueryKey(story.id) });
     } catch (e: any) {
       rollback();
       toast.error(e.response?.data?.detail || "Failed to resume");
@@ -721,11 +719,23 @@ export function GenerateVideoModal({
     return () => clearInterval(timer);
   }, [isAnimating]);
 
-  const rawStepLabel = progress
-    ? getStepLabel({ status: progress.status, current_step: progress.current_step })
-    : existingVideoIsActive
-      ? getStepLabel(existingVideo!)
-      : "";
+  const rawStepLabel = isPaused
+    ? (progress?.status_message ||
+        `Paused — ${getStepLabel({
+          status: "processing",
+          current_step:
+            progress?.current_step ??
+            existingVideo?.current_step ??
+            "processing",
+        })}`)
+    : progress
+      ? getStepLabel({
+          status: progress.status,
+          current_step: progress.current_step,
+        })
+      : existingVideoIsActive
+        ? getStepLabel(existingVideo!)
+        : "";
 
   const currentStepLabel = isAnimating
     ? rawStepLabel.replace(/\.{0,3}$/, "") + ellipsis

@@ -7,6 +7,10 @@ import {
 } from "@/config/videoStatus";
 import { useVideoProgress } from "@/hooks/useVideoProgress";
 import { videoApi } from "@/services/api";
+import {
+  isVideoPaused,
+  mergeGeneratedVideoProgress,
+} from "@/utils/videoQueries";
 import { useVideoJobsStore } from "@/store/videoJobs";
 import type { GeneratedVideo } from "@/types";
 
@@ -52,8 +56,7 @@ export function useLiveGeneratedVideo(
         progress.status === "deleted" ? "cancelled" : progress.status;
       const paused = progress.is_paused || progressStatus === "paused";
 
-      merged = {
-        ...base,
+      const fromProgress = mergeGeneratedVideoProgress(base, {
         status: paused ? "paused" : progressStatus,
         progress_percent: progress.progress_percent,
         current_step: progress.current_step,
@@ -61,8 +64,27 @@ export function useLiveGeneratedVideo(
         queue_position: progress.queue_position ?? base.queue_position,
         is_paused: progress.is_paused,
         error_message: progress.error_message ?? base.error_message,
-        thumbnail_path: progress.thumbnail_path ?? base.thumbnail_path,
+      });
+      merged = {
+        ...fromProgress,
+        thumbnail_path: progress.thumbnail_path ?? fromProgress.thumbnail_path,
       };
+    }
+
+    if (
+      polledVideo &&
+      !isVideoPaused(merged) &&
+      !(progress?.is_paused || progress?.status === "paused")
+    ) {
+      const fromPoll = mergeGeneratedVideoProgress(merged, polledVideo);
+      merged = fromPoll;
+    } else if (polledVideo && isVideoPaused(merged)) {
+      merged = mergeGeneratedVideoProgress(merged, {
+        status: "paused",
+        is_paused: true,
+        progress_percent: merged.progress_percent,
+        current_step: merged.current_step,
+      });
     }
 
     if (
@@ -70,15 +92,15 @@ export function useLiveGeneratedVideo(
       job &&
       !TERMINAL_VIDEO_STATUSES.includes(job.status)
     ) {
-      merged = {
-        ...merged,
+      const fromJob = mergeGeneratedVideoProgress(merged, {
         status: job.isPaused ? "paused" : job.status,
         progress_percent: job.progress,
         current_step: job.currentStep,
         queue_position: job.queuePosition ?? merged.queue_position,
         is_paused: job.isPaused,
         error_message: job.errorMessage ?? merged.error_message,
-      };
+      });
+      merged = fromJob;
     }
 
     return merged;

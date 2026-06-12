@@ -77,10 +77,18 @@ def persist_video_pause(video_id: int, reason: str = "user") -> bool:
             video.queue_position = None
             _merge_checkpoint_from_video(video)
 
+            from video.engine.checkpoint import paused_status_message
+            video.status_message = paused_status_message(video)
+
             story = db.query(Story).filter(Story.id == video.story_id).first()
             if story:
                 story.status = StoryStatus.VIDEO_PAUSED.value
 
+            db.commit()
+            db.refresh(video)
+        else:
+            from video.engine.checkpoint import paused_status_message
+            video.status_message = paused_status_message(video)
             db.commit()
             db.refresh(video)
         progress_push.push_progress(
@@ -366,8 +374,17 @@ class VideoJobManager:
                         )
                         return
 
+                    from video.engine.checkpoint import resolve_checkpoint_step
+
+                    has_prior_progress = (
+                        (video_record.progress_percent or 0) > 0
+                        or resolve_checkpoint_step(video_record)
+                        not in ("queued", "preparing")
+                    )
+
                     video_record.status = VideoStatus.PROCESSING.value
-                    video_record.current_step = "preparing"
+                    if not has_prior_progress:
+                        video_record.current_step = "preparing"
                     video_record.queue_position = None
                     db.commit()
 
