@@ -9,7 +9,6 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-_PREP_BACKGROUND_MIN_DURATION = 60.0
 _LOW_RAM_AVAILABLE_GB = 3.5
 _LOW_PRIORITY_AVAILABLE_GB = 2.0
 
@@ -41,7 +40,7 @@ class ResourceBudget:
     use_low_priority: bool
 
 
-def _get_memory_gb() -> tuple[float, float]:
+def get_memory_gb() -> tuple[float, float]:
     """Return (total_gb, available_gb)."""
     try:
         import psutil
@@ -63,11 +62,13 @@ def compute_resource_budget(
     caps remain in place to avoid OOM.  The user's ffmpeg_threads Settings
     override always wins.
     """
-    total_gb, available_gb = _get_memory_gb()
+    total_gb, available_gb = get_memory_gb()
     cpu = os.cpu_count() or 4
 
     if total_gb <= 8:
-        ffmpeg_threads = 4
+        # Allow all available cores when RAM is comfortable; fall back to 4
+        # when memory is tight to avoid OOM during encode.
+        ffmpeg_threads = cpu if available_gb >= 3.0 else min(4, cpu)
         filter_threads = 2
         segment_duration = 180
     elif total_gb <= 16:
@@ -130,6 +131,3 @@ def segment_count(audio_duration: float, budget: ResourceBudget) -> int:
     return max(1, math.ceil(audio_duration / budget.segment_duration_sec))
 
 
-def should_prepare_background(audio_duration: float) -> bool:
-    """Pre-render looped/scaled background once for longer videos."""
-    return audio_duration > _PREP_BACKGROUND_MIN_DURATION

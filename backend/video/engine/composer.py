@@ -18,7 +18,6 @@ from video.engine.resource_budget import (
     ResourceBudget,
     needs_segmentation,
     segment_count,
-    should_prepare_background,
 )
 from video.engine.subtitles import slice_ass
 from video.engine.utils import (
@@ -43,6 +42,9 @@ class FFmpegComposerError(Exception):
 def _detect_hwaccel_encoder(ffmpeg_path: str) -> Optional[str]:
     """Return the best available hardware H.264 encoder, or None for software.
 
+    Two-phase check: first confirms the encoder is compiled in, then does a
+    0.1-second test encode to verify the driver is actually usable (e.g. NVENC
+    is listed even without CUDA drivers installed, causing a runtime failure).
     Result is cached per ffmpeg_path so we only probe once per process.
     """
     try:
@@ -52,9 +54,26 @@ def _detect_hwaccel_encoder(ffmpeg_path: str) -> Optional[str]:
         )
         enc = result.stdout
         for name in ("h264_nvenc", "h264_qsv", "h264_amf", "h264_videotoolbox"):
-            if name in enc:
-                logger.info(f"[Composer] Hardware encoder available: {name}")
+            if name not in enc:
+                continue
+            # Attempt a minimal test encode — fails instantly if the driver is
+            # missing, succeeds in <1 s when the hardware is genuinely available.
+            test = subprocess.run(
+                [
+                    ffmpeg_path, "-y",
+                    "-f", "lavfi", "-i", "color=c=black:size=64x64:duration=0.1",
+                    "-c:v", name,
+                    "-f", "null", "-",
+                ],
+                capture_output=True, text=True, timeout=15,
+            )
+            if test.returncode == 0:
+                logger.info(f"[Composer] Hardware encoder validated and available: {name}")
                 return name
+            logger.debug(
+                f"[Composer] Hardware encoder {name} listed but not usable "
+                f"(driver/init failure): {test.stderr[-300:]}"
+            )
     except Exception as exc:
         logger.debug(f"[Composer] hwaccel probe failed: {exc}")
     return None
@@ -169,39 +188,6 @@ class FFmpegComposer:
         )
 
         work_dir = Path(output_path).parent / "_compose_work"
-        bg_input = background_video
-        prepared = False
-        # Fraction of the 0-100 compositing bar reserved for the prepare pass.
-        # When prepare runs it occupies 0-15%; segments then fill 15-100%.
-        progress_offset = 0.0
-
-        # Only pre-render the background when we will actually use multiple
-        # segments — it amortises the extra encode across them.  In single-pass
-        # mode the scale+crop+subtitle filter graph handles everything in one
-        # FFmpeg invocation, so a separate prepare step is pure waste.
-        if should_prepare_background(audio_duration) and needs_segmentation(audio_duration, budget):
-            work_dir.mkdir(parents=True, exist_ok=True)
-            prep_path = work_dir / "background_prepared.mp4"
-
-            # Map prepare progress to the first 15% of the compositing bar so
-            # the UI advances immediately instead of freezing at 60%.
-            def _prep_cb(pct: int, step: str, msg: Optional[str] = None) -> None:
-                if progress_callback:
-                    progress_callback(int(pct * 0.15), step, msg or "Preparing background")
-
-            await asyncio.to_thread(
-                self._prepare_background,
-                background_video,
-                str(prep_path),
-                video_format,
-                audio_duration,
-                budget,
-                use_hwaccel=use_hwaccel,
-                progress_callback=_prep_cb,
-            )
-            bg_input = str(prep_path)
-            prepared = True
-            progress_offset = 0.15
 
         try:
             if needs_segmentation(audio_duration, budget):
@@ -212,7 +198,7 @@ class FFmpegComposer:
                     budget.segment_duration_sec,
                 )
                 return await self._compose_segmented(
-                    bg_input,
+                    background_video,
                     audio_path,
                     subtitle_path,
                     output_path,
@@ -222,13 +208,11 @@ class FFmpegComposer:
                     encode_params,
                     use_hwaccel,
                     budget,
-                    prepared_background=prepared,
                     work_dir=work_dir,
-                    progress_offset=progress_offset,
                 )
 
             return await self._compose_single(
-                bg_input,
+                background_video,
                 audio_path,
                 subtitle_path,
                 output_path,
@@ -240,7 +224,6 @@ class FFmpegComposer:
                 budget,
                 segment_index=1,
                 segment_total=1,
-                prepared_background=prepared,
                 final_output=True,
             )
         finally:
@@ -254,69 +237,6 @@ class FFmpegComposer:
                     work_dir.rmdir()
                 except OSError:
                     pass
-
-    # ------------------------------------------------------------------
-    # Background preparation pass (segmented mode only)
-    # ------------------------------------------------------------------
-
-    def _prepare_background(
-        self,
-        background_video: str,
-        output_path: str,
-        video_format: str,
-        duration: float,
-        budget: ResourceBudget,
-        use_hwaccel: bool = False,
-        progress_callback: Optional[ProgressCallback] = None,
-    ) -> None:
-        """One-time loop+scale+crop pass; segments only burn subtitles + final encode.
-
-        Reports real progress via *progress_callback* so the UI bar advances
-        immediately (fixes the 'frozen at 60%' stall).  Uses the hardware
-        encoder for this intermediate pass when *use_hwaccel* is set so the
-        extra encode is as fast as possible.
-        """
-        target_w, target_h = calculate_target_dimensions(video_format)
-        filter_complex = (
-            f"[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
-            f"crop={target_w}:{target_h}[v]"
-        )
-
-        codec = "libx264"
-        quality_args: List[str] = ["-preset", "ultrafast", "-crf", "28"]
-        if use_hwaccel:
-            hw = _detect_hwaccel_encoder(self.ffmpeg_path)
-            if hw:
-                codec = hw
-                # Slightly lower quality (higher CRF) is fine — this is an
-                # intermediate file that will be re-encoded per segment.
-                quality_args = _hw_quality_args(hw, preset="ultrafast", crf="33")
-                logger.info(f"[Composer] Background prepare using hw encoder: {hw}")
-
-        cmd = [
-            self.ffmpeg_path, "-y",
-            "-threads", str(budget.ffmpeg_threads),
-            "-filter_threads", str(budget.filter_threads),
-            "-stream_loop", "-1",
-            "-i", background_video,
-            "-progress", "pipe:1",
-            "-nostats",
-            "-filter_complex", filter_complex,
-            "-map", "[v]",
-            "-an",
-            "-c:v", codec,
-            *quality_args,
-            "-t", str(duration),
-            "-pix_fmt", "yuv420p",
-            output_path,
-        ]
-
-        timeout = max(300, int(duration * 5))
-        self._run_ffmpeg_with_progress(
-            cmd, budget, duration, progress_callback,
-            status_msg="Preparing background", timeout=timeout,
-        )
-        logger.info("[Composer] Background prepared: %s", output_path)
 
     # ------------------------------------------------------------------
     # Reusable FFmpeg runner with live progress
@@ -434,9 +354,7 @@ class FFmpegComposer:
         encode_params: Optional[Dict[str, Any]],
         use_hwaccel: bool,
         budget: ResourceBudget,
-        prepared_background: bool = False,
         work_dir: Optional[Path] = None,
-        progress_offset: float = 0.0,
     ) -> float:
         out = Path(output_path)
         work_dir = work_dir or (out.parent / "_compose_work")
@@ -445,8 +363,9 @@ class FFmpegComposer:
         total_segs = segment_count(audio_duration, budget)
         segment_paths: List[Path] = []
 
-        # Fraction of the bar available for segment rendering (remainder after prepare).
-        seg_range = 1.0 - progress_offset
+        # Probe background duration once so each segment can seek to the
+        # correct offset within the looped source (t_start % bg_dur).
+        bg_dur, _, _ = await asyncio.to_thread(get_video_info, background_video)
 
         try:
             for idx in range(total_segs):
@@ -469,6 +388,10 @@ class FFmpegComposer:
                         t_end,
                     )
 
+                # Seek background to the position it would have reached in the
+                # continuous looped timeline at t_start (modulo bg duration).
+                bg_seek = (t_start % bg_dur) if bg_dur > 0 else 0.0
+
                 # Use a default-arg capture of idx so the closure is correct
                 # even though this loop is sequential (defensive pattern).
                 def seg_progress(
@@ -479,10 +402,7 @@ class FFmpegComposer:
                 ) -> None:
                     if not progress_callback:
                         return
-                    overall = int(
-                        (progress_offset + ((_idx + pct / 100.0) / total_segs) * seg_range)
-                        * 100
-                    )
+                    overall = int(((_idx + pct / 100.0) / total_segs) * 100)
                     message = msg or f"Rendering segment {_idx + 1}/{total_segs}"
                     progress_callback(overall, "compositing", message)
 
@@ -499,8 +419,7 @@ class FFmpegComposer:
                     budget,
                     segment_index=idx + 1,
                     segment_total=total_segs,
-                    prepared_background=prepared_background,
-                    bg_seek_start=t_start if prepared_background else 0.0,
+                    bg_seek_start=bg_seek,
                     audio_seek_start=t_start,   # inline seek replaces _slice_audio
                     final_output=False,          # skip faststart + probe on segments
                 )
@@ -596,16 +515,7 @@ class FFmpegComposer:
         self,
         video_format: str,
         subtitle_path: Optional[str],
-        prepared_background: bool,
     ) -> str:
-        if prepared_background:
-            if subtitle_path and Path(subtitle_path).exists():
-                sub_path = str(subtitle_path).replace("\\", "/")
-                if ":" in sub_path:
-                    sub_path = sub_path.replace(":", "\\:", 1)
-                return f"[0:v]subtitles=filename='{sub_path}'[v]"
-            return "[0:v]copy[v]"
-
         target_w, target_h = calculate_target_dimensions(video_format)
         base_filter = (
             f"[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
@@ -636,27 +546,24 @@ class FFmpegComposer:
         budget: ResourceBudget,
         segment_index: int = 1,
         segment_total: int = 1,
-        prepared_background: bool = False,
         bg_seek_start: float = 0.0,
         audio_seek_start: float = 0.0,
         final_output: bool = True,
     ) -> float:
         """Encode one video (or one segment).
 
-        *audio_seek_start* replaces the old _slice_audio pre-process: instead of
-        writing a trimmed WAV per segment, FFmpeg seeks the master audio inline
-        with ``-ss``, saving a subprocess spawn + temp file write/read per segment.
+        *bg_seek_start* positions the looped background at the correct offset so
+        the visual background appears continuous across segments without a
+        separate prepare pass.  For segment N: bg_seek_start = (N*seg_dur) % bg_dur.
+
+        *audio_seek_start* seeks the master audio inline with ``-ss`` instead of
+        writing a trimmed WAV per segment.
 
         *final_output=False* skips ``-movflags +faststart`` (moov relocation) and
         the post-encode ffprobe on intermediate segment files that are discarded
         after concat — pure saved I/O.
         """
-        if not prepared_background:
-            get_video_info(background_video)
-
-        filter_complex = self._build_filter_complex(
-            video_format, subtitle_path, prepared_background
-        )
+        filter_complex = self._build_filter_complex(video_format, subtitle_path)
 
         params = self._resolve_encode_params(encode_params)
         video_codec = params["video_codec"]
@@ -676,10 +583,12 @@ class FFmpegComposer:
         ]
 
         # --- Video input ---
-        if prepared_background and bg_seek_start > 0:
+        # Seek to the background position for this segment before the loop
+        # starts; subsequent loop iterations restart at 0, giving a continuous
+        # looped timeline without an expensive prepare pass.
+        if bg_seek_start > 0:
             cmd.extend(["-ss", str(bg_seek_start)])
-        if not prepared_background:
-            cmd.extend(["-stream_loop", "-1"])
+        cmd.extend(["-stream_loop", "-1"])
         # Hardware decode hint: 'auto' tries the hw surface and falls back to
         # software on unsupported configurations — always safe to include.
         if hw_encoder:
@@ -706,7 +615,6 @@ class FFmpegComposer:
             cmd.extend(_hw_quality_args(hw_encoder, params["preset"], str(params.get("crf", "23"))))
         else:
             cmd.extend(["-preset", params["preset"]])
-            cmd.extend(["-x264-params", "rc-lookahead=20"])
             if params.get("crf"):
                 cmd.extend(["-crf", str(params["crf"])])
             elif params.get("video_bitrate"):

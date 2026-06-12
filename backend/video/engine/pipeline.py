@@ -655,6 +655,7 @@ class VideoPipeline:
                     compute_resource_budget,
                     needs_segmentation,
                     segment_count,
+                    get_memory_gb,
                 )
                 from core.ffmpeg_settings import FFmpegSettings
 
@@ -666,31 +667,29 @@ class VideoPipeline:
                 use_hwaccel = ff_settings.get_use_hardware_encoder()
                 duration = video_record.duration_seconds or 0.0
 
-                # Compute budget before deciding whether to evict models so
-                # we can base the eviction on actual available RAM.
-                budget = compute_resource_budget(
-                    duration,
-                    ffmpeg_threads_override=threads_override,
-                )
-
-                # Only free ML models when RAM is genuinely scarce or when the
-                # segmented path will be used (models and FFmpeg would compete
-                # for the same memory across multiple segments).  On machines
-                # with headroom the models stay warm for the next queued video.
-                if budget.available_ram_gb < 4.0 or not budget.use_single_pass:
+                # Evict ML models BEFORE computing the budget so the budget
+                # sees the RAM freed by Whisper/TTS, enabling single-pass mode
+                # and normal process priority on memory-constrained machines.
+                # On machines with >= 5 GB free the models stay warm.
+                _, pre_avail = get_memory_gb()
+                if pre_avail < 5.0:
                     tts_registry.evict_all()
                     unload_whisper_models()
                     gc.collect()
                     logger.info(
                         f"[Pipeline {video_id}] Freed ML models before compositing "
-                        f"(available={budget.available_ram_gb:.1f}GB "
-                        f"single_pass={budget.use_single_pass})"
+                        f"(pre_available={pre_avail:.1f}GB)"
                     )
                 else:
                     logger.info(
                         f"[Pipeline {video_id}] Keeping ML models in memory "
-                        f"(available={budget.available_ram_gb:.1f}GB)"
+                        f"(pre_available={pre_avail:.1f}GB)"
                     )
+
+                budget = compute_resource_budget(
+                    duration,
+                    ffmpeg_threads_override=threads_override,
+                )
 
                 if needs_segmentation(duration, budget):
                     total_segs = segment_count(duration, budget)
