@@ -60,6 +60,56 @@ def _detect_hwaccel_encoder(ffmpeg_path: str) -> Optional[str]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Hardware-encoder quality-parameter translation
+# ---------------------------------------------------------------------------
+
+# Map x264 preset names to NVENC p-levels (p1=fastest … p7=slowest).
+_HW_PRESET_MAP_NVENC: Dict[str, str] = {
+    "ultrafast": "p1", "superfast": "p2", "veryfast": "p3", "faster": "p4",
+    "fast": "p4", "medium": "p5", "slow": "p6", "slower": "p7", "veryslow": "p7",
+}
+
+# QSV does not support "ultrafast"/"superfast" — map those to "veryfast".
+_QSV_UNSUPPORTED = frozenset({"ultrafast", "superfast"})
+
+
+def _hw_quality_args(hw: str, preset: str = "veryfast", crf: str = "23") -> List[str]:
+    """Translate x264 preset/CRF into the correct quality args for *hw* encoder.
+
+    Returns a list of FFmpeg argument tokens ready to extend a command list.
+    Falls back to software args for any unrecognised encoder name so that new
+    hardware encoders added to _detect_hwaccel_encoder are handled safely.
+    """
+    if hw == "h264_nvenc":
+        return [
+            "-preset", _HW_PRESET_MAP_NVENC.get(preset, "p4"),
+            "-rc", "vbr",
+            "-cq", str(crf),
+            "-b:v", "0",
+        ]
+    if hw == "h264_qsv":
+        qsv_preset = "veryfast" if preset in _QSV_UNSUPPORTED else preset
+        return ["-preset", qsv_preset, "-global_quality", str(crf)]
+    if hw == "h264_amf":
+        return [
+            "-quality", "speed",
+            "-rc", "cqp",
+            "-qp_i", str(crf),
+            "-qp_p", str(crf),
+        ]
+    if hw == "h264_videotoolbox":
+        # videotoolbox uses -q:v 1-100 (lower = better quality).
+        # Map CRF 0-51 linearly to q:v 1-100.
+        try:
+            q = max(1, min(100, int(int(crf) * 100 // 51)))
+        except (ValueError, ZeroDivisionError):
+            q = 45
+        return ["-q:v", str(q)]
+    # Unknown hw encoder — fall back to x264-compatible args.
+    return ["-preset", preset, "-crf", str(crf)]
+
+
 def _subprocess_popen_kwargs(use_low_priority: bool = True) -> dict:
     """Lower priority only when RAM is tight so encode stays fast when headroom exists."""
     if not use_low_priority:
@@ -87,6 +137,10 @@ class FFmpegComposer:
                 self._process.kill()
             except Exception:
                 pass
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     async def compose(
         self,
@@ -117,15 +171,24 @@ class FFmpegComposer:
         work_dir = Path(output_path).parent / "_compose_work"
         bg_input = background_video
         prepared = False
+        # Fraction of the 0-100 compositing bar reserved for the prepare pass.
+        # When prepare runs it occupies 0-15%; segments then fill 15-100%.
+        progress_offset = 0.0
 
         # Only pre-render the background when we will actually use multiple
         # segments — it amortises the extra encode across them.  In single-pass
         # mode the scale+crop+subtitle filter graph handles everything in one
-        # FFmpeg invocation, so a separate prepare step is pure waste (and
-        # introduces an extra lossy transcode).
+        # FFmpeg invocation, so a separate prepare step is pure waste.
         if should_prepare_background(audio_duration) and needs_segmentation(audio_duration, budget):
             work_dir.mkdir(parents=True, exist_ok=True)
             prep_path = work_dir / "background_prepared.mp4"
+
+            # Map prepare progress to the first 15% of the compositing bar so
+            # the UI advances immediately instead of freezing at 60%.
+            def _prep_cb(pct: int, step: str, msg: Optional[str] = None) -> None:
+                if progress_callback:
+                    progress_callback(int(pct * 0.15), step, msg or "Preparing background")
+
             await asyncio.to_thread(
                 self._prepare_background,
                 background_video,
@@ -133,9 +196,12 @@ class FFmpegComposer:
                 video_format,
                 audio_duration,
                 budget,
+                use_hwaccel=use_hwaccel,
+                progress_callback=_prep_cb,
             )
             bg_input = str(prep_path)
             prepared = True
+            progress_offset = 0.15
 
         try:
             if needs_segmentation(audio_duration, budget):
@@ -158,6 +224,7 @@ class FFmpegComposer:
                     budget,
                     prepared_background=prepared,
                     work_dir=work_dir,
+                    progress_offset=progress_offset,
                 )
 
             return await self._compose_single(
@@ -174,6 +241,7 @@ class FFmpegComposer:
                 segment_index=1,
                 segment_total=1,
                 prepared_background=prepared,
+                final_output=True,
             )
         finally:
             if work_dir.exists():
@@ -187,6 +255,10 @@ class FFmpegComposer:
                 except OSError:
                     pass
 
+    # ------------------------------------------------------------------
+    # Background preparation pass (segmented mode only)
+    # ------------------------------------------------------------------
+
     def _prepare_background(
         self,
         background_video: str,
@@ -194,32 +266,161 @@ class FFmpegComposer:
         video_format: str,
         duration: float,
         budget: ResourceBudget,
+        use_hwaccel: bool = False,
+        progress_callback: Optional[ProgressCallback] = None,
     ) -> None:
-        """One-time loop+scale+crop pass; segments only burn subtitles + final encode."""
+        """One-time loop+scale+crop pass; segments only burn subtitles + final encode.
+
+        Reports real progress via *progress_callback* so the UI bar advances
+        immediately (fixes the 'frozen at 60%' stall).  Uses the hardware
+        encoder for this intermediate pass when *use_hwaccel* is set so the
+        extra encode is as fast as possible.
+        """
         target_w, target_h = calculate_target_dimensions(video_format)
         filter_complex = (
             f"[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
             f"crop={target_w}:{target_h}[v]"
         )
+
+        codec = "libx264"
+        quality_args: List[str] = ["-preset", "ultrafast", "-crf", "28"]
+        if use_hwaccel:
+            hw = _detect_hwaccel_encoder(self.ffmpeg_path)
+            if hw:
+                codec = hw
+                # Slightly lower quality (higher CRF) is fine — this is an
+                # intermediate file that will be re-encoded per segment.
+                quality_args = _hw_quality_args(hw, preset="ultrafast", crf="33")
+                logger.info(f"[Composer] Background prepare using hw encoder: {hw}")
+
         cmd = [
             self.ffmpeg_path, "-y",
             "-threads", str(budget.ffmpeg_threads),
             "-filter_threads", str(budget.filter_threads),
             "-stream_loop", "-1",
             "-i", background_video,
+            "-progress", "pipe:1",
+            "-nostats",
             "-filter_complex", filter_complex,
             "-map", "[v]",
             "-an",
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "28",
+            "-c:v", codec,
+            *quality_args,
             "-t", str(duration),
             "-pix_fmt", "yuv420p",
             output_path,
         ]
+
         timeout = max(300, int(duration * 5))
-        self._run_simple_ffmpeg(cmd, budget, timeout=timeout)
+        self._run_ffmpeg_with_progress(
+            cmd, budget, duration, progress_callback,
+            status_msg="Preparing background", timeout=timeout,
+        )
         logger.info("[Composer] Background prepared: %s", output_path)
+
+    # ------------------------------------------------------------------
+    # Reusable FFmpeg runner with live progress
+    # ------------------------------------------------------------------
+
+    def _run_ffmpeg_with_progress(
+        self,
+        cmd: List[str],
+        budget: ResourceBudget,
+        segment_duration: float,
+        progress_callback: Optional[ProgressCallback],
+        status_msg: str,
+        timeout: int = 600,
+    ) -> None:
+        """Spawn FFmpeg with ``-progress pipe:1`` and stream progress to *callback*.
+
+        Designed to be called from a worker thread (via asyncio.to_thread).
+        """
+        self._cancelled = False
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            **_subprocess_popen_kwargs(budget.use_low_priority),
+        )
+        self._process = proc
+
+        last_progress = 0
+        last_callback_time = 0.0
+        progress_lock = threading.Lock()
+        stderr_lines: List[str] = []
+
+        def report(percent: int, force: bool = False) -> None:
+            nonlocal last_progress, last_callback_time
+            if not progress_callback:
+                return
+            now = time.monotonic()
+            with progress_lock:
+                if not force:
+                    if percent <= last_progress:
+                        return
+                    if (
+                        percent - last_progress < 1
+                        and now - last_callback_time < _PROGRESS_THROTTLE_SEC
+                    ):
+                        return
+                last_progress = max(last_progress, percent)
+                last_callback_time = now
+            progress_callback(percent, "compositing", status_msg)
+
+        def drain_stderr() -> None:
+            while True:
+                chunk = proc.stderr.read(512)  # type: ignore[union-attr]
+                if not chunk:
+                    break
+                stderr_lines.append(chunk)
+                if self._cancelled:
+                    return
+
+        def parse_stdout() -> None:
+            for line in proc.stdout:  # type: ignore[union-attr]
+                line = line.strip()
+                if self._cancelled:
+                    break
+                if line.startswith("out_time_us="):
+                    try:
+                        us = int(line.split("=", 1)[1])
+                        if segment_duration > 0:
+                            pct = min(int((us / 1_000_000 / segment_duration) * 100), 99)
+                            report(pct)
+                    except (ValueError, ZeroDivisionError):
+                        pass
+                elif line == "progress=end":
+                    report(100, force=True)
+
+        stderr_thread = threading.Thread(target=drain_stderr, daemon=True)
+        stderr_thread.start()
+        stdout_thread = threading.Thread(target=parse_stdout, daemon=True)
+        stdout_thread.start()
+
+        try:
+            returncode = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            raise FFmpegComposerError(f"FFmpeg timed out after {timeout}s")
+        finally:
+            stderr_thread.join(timeout=10)
+            stdout_thread.join(timeout=5)
+            self._process = None
+
+        if self._cancelled:
+            raise FFmpegComposerError("FFmpeg composition was cancelled")
+        if returncode != 0:
+            err = "".join(stderr_lines)
+            raise FFmpegComposerError(
+                f"FFmpeg failed: {err[-2000:] if err else returncode}"
+            )
+
+    # ------------------------------------------------------------------
+    # Segmented compose
+    # ------------------------------------------------------------------
 
     async def _compose_segmented(
         self,
@@ -235,6 +436,7 @@ class FFmpegComposer:
         budget: ResourceBudget,
         prepared_background: bool = False,
         work_dir: Optional[Path] = None,
+        progress_offset: float = 0.0,
     ) -> float:
         out = Path(output_path)
         work_dir = work_dir or (out.parent / "_compose_work")
@@ -242,6 +444,9 @@ class FFmpegComposer:
         seg_dur = budget.segment_duration_sec
         total_segs = segment_count(audio_duration, budget)
         segment_paths: List[Path] = []
+
+        # Fraction of the bar available for segment rendering (remainder after prepare).
+        seg_range = 1.0 - progress_offset
 
         try:
             for idx in range(total_segs):
@@ -251,18 +456,8 @@ class FFmpegComposer:
                 if seg_len <= 0:
                     continue
 
-                seg_audio = work_dir / f"audio_{idx:04d}.wav"
                 seg_sub: Optional[Path] = None
                 seg_out = work_dir / f"segment_{idx:04d}.mp4"
-
-                await asyncio.to_thread(
-                    self._slice_audio,
-                    audio_path,
-                    str(seg_audio),
-                    t_start,
-                    seg_len,
-                    budget,
-                )
 
                 if subtitle_path and Path(subtitle_path).exists():
                     seg_sub = work_dir / f"subs_{idx:04d}.ass"
@@ -274,16 +469,26 @@ class FFmpegComposer:
                         t_end,
                     )
 
-                def seg_progress(pct: int, _step: str, msg: Optional[str] = None) -> None:
+                # Use a default-arg capture of idx so the closure is correct
+                # even though this loop is sequential (defensive pattern).
+                def seg_progress(
+                    pct: int,
+                    _step: str,
+                    msg: Optional[str] = None,
+                    _idx: int = idx,
+                ) -> None:
                     if not progress_callback:
                         return
-                    overall = int(((idx + pct / 100.0) / total_segs) * 100)
-                    message = msg or f"Rendering segment {idx + 1}/{total_segs}"
+                    overall = int(
+                        (progress_offset + ((_idx + pct / 100.0) / total_segs) * seg_range)
+                        * 100
+                    )
+                    message = msg or f"Rendering segment {_idx + 1}/{total_segs}"
                     progress_callback(overall, "compositing", message)
 
                 await self._compose_single(
                     background_video,
-                    str(seg_audio),
+                    audio_path,       # master audio; seek applied inside compose_single
                     str(seg_sub) if seg_sub else None,
                     str(seg_out),
                     video_format,
@@ -296,6 +501,8 @@ class FFmpegComposer:
                     segment_total=total_segs,
                     prepared_background=prepared_background,
                     bg_seek_start=t_start if prepared_background else 0.0,
+                    audio_seek_start=t_start,   # inline seek replaces _slice_audio
+                    final_output=False,          # skip faststart + probe on segments
                 )
                 segment_paths.append(seg_out)
 
@@ -315,26 +522,9 @@ class FFmpegComposer:
             for p in segment_paths:
                 p.unlink(missing_ok=True)
 
-    def _slice_audio(
-        self,
-        audio_path: str,
-        output_path: str,
-        start_sec: float,
-        duration_sec: float,
-        budget: ResourceBudget,
-    ) -> None:
-        cmd = [
-            self.ffmpeg_path, "-y",
-            "-threads", str(budget.ffmpeg_threads),
-            "-ss", str(start_sec),
-            "-t", str(duration_sec),
-            "-i", audio_path,
-            "-acodec", "pcm_s16le",
-            "-ar", "22050",
-            "-ac", "1",
-            output_path,
-        ]
-        self._run_simple_ffmpeg(cmd, budget, timeout=120)
+    # ------------------------------------------------------------------
+    # Segment concatenation
+    # ------------------------------------------------------------------
 
     def _concat_segments(
         self,
@@ -356,12 +546,17 @@ class FFmpegComposer:
             "-f", "concat", "-safe", "0",
             "-i", list_path,
             "-c", "copy",
+            "-movflags", "+faststart",   # applied once on the final concat output
             output_path,
         ]
         try:
             self._run_simple_ffmpeg(cmd, budget, timeout=300)
         finally:
             Path(list_path).unlink(missing_ok=True)
+
+    # ------------------------------------------------------------------
+    # Simple fire-and-forget FFmpeg runner (no progress needed)
+    # ------------------------------------------------------------------
 
     def _run_simple_ffmpeg(
         self,
@@ -393,6 +588,10 @@ class FFmpegComposer:
         finally:
             self._process = None
 
+    # ------------------------------------------------------------------
+    # Filter-complex builder
+    # ------------------------------------------------------------------
+
     def _build_filter_complex(
         self,
         video_format: str,
@@ -419,6 +618,10 @@ class FFmpegComposer:
             return f"{base_filter},subtitles=filename='{sub_path}'[v]"
         return f"{base_filter}[v]"
 
+    # ------------------------------------------------------------------
+    # Single-pass compose (used for full video OR one segment)
+    # ------------------------------------------------------------------
+
     async def _compose_single(
         self,
         background_video: str,
@@ -435,7 +638,19 @@ class FFmpegComposer:
         segment_total: int = 1,
         prepared_background: bool = False,
         bg_seek_start: float = 0.0,
+        audio_seek_start: float = 0.0,
+        final_output: bool = True,
     ) -> float:
+        """Encode one video (or one segment).
+
+        *audio_seek_start* replaces the old _slice_audio pre-process: instead of
+        writing a trimmed WAV per segment, FFmpeg seeks the master audio inline
+        with ``-ss``, saving a subprocess spawn + temp file write/read per segment.
+
+        *final_output=False* skips ``-movflags +faststart`` (moov relocation) and
+        the post-encode ffprobe on intermediate segment files that are discarded
+        after concat — pure saved I/O.
+        """
         if not prepared_background:
             get_video_info(background_video)
 
@@ -445,43 +660,61 @@ class FFmpegComposer:
 
         params = self._resolve_encode_params(encode_params)
         video_codec = params["video_codec"]
+        hw_encoder: Optional[str] = None
         if use_hwaccel and video_codec == "libx264":
             hw = _detect_hwaccel_encoder(self.ffmpeg_path)
             if hw:
                 video_codec = hw
+                hw_encoder = hw
                 logger.info(f"[Composer] Using hw encoder: {hw}")
 
+        # ---- Build FFmpeg command ----------------------------------------
         cmd = [
             self.ffmpeg_path, "-y",
             "-threads", str(budget.ffmpeg_threads),
             "-filter_threads", str(budget.filter_threads),
         ]
+
+        # --- Video input ---
         if prepared_background and bg_seek_start > 0:
             cmd.extend(["-ss", str(bg_seek_start)])
         if not prepared_background:
             cmd.extend(["-stream_loop", "-1"])
+        # Hardware decode hint: 'auto' tries the hw surface and falls back to
+        # software on unsupported configurations — always safe to include.
+        if hw_encoder:
+            cmd.extend(["-hwaccel", "auto"])
+        cmd.extend(["-i", background_video])
+
+        # --- Audio input (inline seek replaces a separate _slice_audio pass) ---
+        if audio_seek_start > 0:
+            cmd.extend(["-ss", str(audio_seek_start)])
+        cmd.extend(["-i", audio_path])
+
+        # --- Filter + stream mapping ---
         cmd.extend([
-            "-i", background_video,
-            "-i", audio_path,
             "-progress", "pipe:1",
             "-nostats",
             "-filter_complex", filter_complex,
             "-map", "[v]",
             "-map", "1:a",
             "-c:v", video_codec,
-            "-preset", params["preset"],
         ])
 
-        if video_codec == "libx264":
-            cmd.extend(["-x264-params", "rc-lookahead=20"])
-
-        if params.get("crf"):
-            cmd.extend(["-crf", str(params["crf"])])
-        elif params.get("video_bitrate"):
-            cmd.extend(["-b:v", str(params["video_bitrate"])])
+        # --- Video quality args (hw vs. software) ---
+        if hw_encoder:
+            cmd.extend(_hw_quality_args(hw_encoder, params["preset"], str(params.get("crf", "23"))))
         else:
-            cmd.extend(["-crf", "23"])
+            cmd.extend(["-preset", params["preset"]])
+            cmd.extend(["-x264-params", "rc-lookahead=20"])
+            if params.get("crf"):
+                cmd.extend(["-crf", str(params["crf"])])
+            elif params.get("video_bitrate"):
+                cmd.extend(["-b:v", str(params["video_bitrate"])])
+            else:
+                cmd.extend(["-crf", "23"])
 
+        # --- Audio + output ---
         cmd.extend([
             "-c:a", params["audio_codec"],
             "-b:a", params["audio_bitrate"],
@@ -489,10 +722,16 @@ class FFmpegComposer:
             "-shortest",
             "-t", str(segment_duration),
             "-pix_fmt", params["pixel_format"],
-            "-movflags", "+faststart",
-            output_path,
         ])
 
+        # faststart moves the moov atom to the front for streaming; skip on
+        # intermediate segments since they are discarded after concat anyway.
+        if final_output:
+            cmd.extend(["-movflags", "+faststart"])
+
+        cmd.append(output_path)
+
+        # ---- Timeouts -------------------------------------------------------
         self._cancelled = False
         self._process = None
 
@@ -509,6 +748,7 @@ class FFmpegComposer:
             else "Rendering video"
         )
 
+        # ---- Threaded FFmpeg runner ------------------------------------------
         def run_ffmpeg() -> Tuple[int, str]:
             self._process = subprocess.Popen(
                 cmd,
@@ -600,14 +840,23 @@ class FFmpegComposer:
                     f"FFmpeg exited with code {returncode}. See logs."
                 )
 
-            out_duration, _, _ = get_video_info(output_path)
-            return out_duration
+            # Only probe for real duration on the final output file.
+            # For intermediate segments the exact target duration is already
+            # known, saving one ffprobe subprocess per segment.
+            if final_output:
+                out_duration, _, _ = get_video_info(output_path)
+                return out_duration
+            return segment_duration
         except FFmpegComposerError:
             raise
         except Exception as exc:
             raise FFmpegComposerError(f"FFmpeg composition error: {exc}")
         finally:
             self._process = None
+
+    # ------------------------------------------------------------------
+    # Encode-parameter resolver
+    # ------------------------------------------------------------------
 
     def _resolve_encode_params(self, encode_params: Optional[Dict[str, Any]]) -> Dict[str, str]:
         defaults = {

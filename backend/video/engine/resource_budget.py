@@ -10,9 +10,24 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 _PREP_BACKGROUND_MIN_DURATION = 60.0
-_SINGLE_PASS_MAX_DURATION = 1200.0  # 20 minutes
 _LOW_RAM_AVAILABLE_GB = 3.5
 _LOW_PRIORITY_AVAILABLE_GB = 2.0
+
+
+def _single_pass_max_duration(available_gb: float) -> float:
+    """Return the maximum audio duration (seconds) eligible for single-pass encoding.
+
+    Scales with available RAM so machines with headroom skip the prepare+segment
+    path entirely, saving ~2x encode work for long videos.  The original 1200 s
+    cap is preserved for the 3.5–5 GB band (existing behavior unchanged there).
+    """
+    if available_gb >= 8.0:
+        return 3600.0   # 60 min
+    if available_gb >= 5.0:
+        return 2400.0   # 40 min
+    if available_gb >= _LOW_RAM_AVAILABLE_GB:
+        return 1200.0   # 20 min — previous hard limit
+    return 0.0          # segmented required (low-RAM safety)
 
 
 @dataclass(frozen=True)
@@ -74,10 +89,7 @@ def compute_resource_budget(
         ffmpeg_threads = ffmpeg_threads_override
 
     # After ML models are evicted, prefer single pass when RAM and duration allow.
-    use_single_pass = (
-        available_gb >= _LOW_RAM_AVAILABLE_GB
-        and audio_duration <= _SINGLE_PASS_MAX_DURATION
-    )
+    use_single_pass = audio_duration <= _single_pass_max_duration(available_gb)
 
     use_low_priority = available_gb < _LOW_PRIORITY_AVAILABLE_GB
 

@@ -59,8 +59,16 @@ def _load_whisper_model(model_size: str = "base"):
 
 class SubtitleGenerator:
     def __init__(self, model_size: str = "base"):
-        self.model = _load_whisper_model(model_size)
         self.model_size = model_size
+        # Model is loaded lazily inside transcribe() which always runs in a
+        # worker thread via asyncio.to_thread — the event loop is never blocked.
+        self._model = None
+
+    def _get_model(self):
+        """Return the faster-whisper model, loading it on first call."""
+        if self._model is None:
+            self._model = _load_whisper_model(self.model_size)
+        return self._model
 
     def transcribe(
         self,
@@ -74,7 +82,7 @@ class SubtitleGenerator:
         real progress (0-100) is reported as segments are decoded.
         """
         logger.info(f"[Whisper] Transcribing: {audio_path}")
-        seg_gen, info = self.model.transcribe(
+        seg_gen, info = self._get_model().transcribe(
             audio_path,
             word_timestamps=True,
             language="en",
