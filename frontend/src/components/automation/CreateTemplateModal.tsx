@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { XCircle, Plus } from "lucide-react";
 import { ModalHeader } from "@/components/common/ModalHeader";
 import { ModalFooter } from "@/components/common/ModalFooter";
 import { ModalShell } from "@/components/common/ModalShell";
-import { automationApi } from "@/services/api";
+import { automationApi, ttsLocalApi } from "@/services/api";
 import toast from "react-hot-toast";
 
 interface CreateTemplateModalProps {
@@ -19,8 +20,7 @@ export function CreateTemplateModal({
     name: "",
     description: "",
     subreddit_names: "",
-    tts_provider: "openai",
-    tts_voice: "alloy",
+    voice_id: "en_ljspeech_vits",
     background_source: "",
     video_format: "shorts",
     include_updates: true,
@@ -30,6 +30,15 @@ export function CreateTemplateModal({
     schedule_type: "manual",
   });
   const [isCreating, setIsCreating] = useState(false);
+
+  const { data: voices } = useQuery({
+    queryKey: ["tts-voices"],
+    queryFn: async () => {
+      const { data } = await ttsLocalApi.listVoices();
+      return data as { id: string; name: string }[];
+    },
+    staleTime: 60000,
+  });
 
   const handleSubmit = async () => {
     if (!form.name.trim() || !form.subreddit_names.trim()) {
@@ -105,39 +114,24 @@ export function CreateTemplateModal({
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              TTS Provider
-            </label>
-            <select
-              value={form.tts_provider}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, tts_provider: e.target.value }))
-              }
-              className="input"
-            >
-              <option value="openai">OpenAI</option>
-              <option value="elevenlabs">ElevenLabs</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Voice</label>
-            <select
-              value={form.tts_voice}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, tts_voice: e.target.value }))
-              }
-              className="input"
-            >
-              <option value="alloy">Alloy</option>
-              <option value="echo">Echo</option>
-              <option value="fable">Fable</option>
-              <option value="onyx">Onyx</option>
-              <option value="nova">Nova</option>
-              <option value="shimmer">Shimmer</option>
-            </select>
-          </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">TTS Voice</label>
+          <select
+            value={form.voice_id}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, voice_id: e.target.value }))
+            }
+            className="input"
+            disabled={!voices?.length}
+          >
+            {voices?.map((voice) => (
+              <option key={voice.id} value={voice.id}>
+                {voice.name}
+              </option>
+            )) ?? (
+              <option value={form.voice_id}>Loading voices...</option>
+            )}
+          </select>
         </div>
 
         <div>

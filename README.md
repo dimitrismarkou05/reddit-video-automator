@@ -1,6 +1,6 @@
 # Reddit Video Automator
 
-An end-to-end automation pipeline that fetches Reddit stories, links their updates, generates narrated videos with stylized subtitles, and publishes them to YouTube. The project ships with a modern Electron desktop application for visual management, a complete CLI, and a real-time notification system.
+An end-to-end pipeline that fetches Reddit stories, links multi-part updates, generates narrated videos with stylized subtitles, and publishes them to YouTube. The project ships as a FastAPI backend, a React desktop/web UI, and an Electron wrapper for single-user local operation.
 
 ---
 
@@ -11,11 +11,10 @@ An end-to-end automation pipeline that fetches Reddit stories, links their updat
 - [Technology Stack](#technology-stack)
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
-- [Installation and Setup](#installation-and-setup)
+- [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
-  - [Command Line Interface](#command-line-interface)
-  - [Desktop Application](#desktop-application)
+- [Data and Storage](#data-and-storage)
 - [Directory Structure](#directory-structure)
 - [Development](#development)
 - [License](#license)
@@ -24,236 +23,352 @@ An end-to-end automation pipeline that fetches Reddit stories, links their updat
 
 ## Overview
 
-Reddit Video Automator transforms Reddit text stories into ready-to-upload YouTube videos. It automatically fetches posts from monitored subreddits, detects and links multi-part updates, then goes through a complete media pipeline: text-to-speech narration, word-level subtitle generation, background video compositing, dynamic thumbnail creation, and finally upload to YouTube. The system is built around a robust backend API with a rich CLI and an Electron-based frontend that supports both manual and fully automated workflows through templates and scheduling.
+Reddit Video Automator turns Reddit text posts into ready-to-upload YouTube videos. It monitors subreddits, deduplicates fetched posts, detects and links story updates (separate posts and inline sections), then runs a local media pipeline: text-to-speech narration, word-level subtitle generation, background video compositing, thumbnail creation, and YouTube upload.
+
+The system is designed to run entirely on your machine. Narration and transcription use local models (Coqui TTS and faster-whisper). Reddit content is fetched via public JSON endpoints without OAuth. YouTube is the only external service that requires credentials.
 
 ---
 
 ## Features
 
-- **Reddit Story Fetching** – Pull top, hot, or new posts from any subreddit; deduplication prevents re-fetching.
-- **Update Detection & Linking** – Automatically identifies follow‑up posts (e.g. “UPDATE”, “Part 2”) and links them to the original story, enabling complete narrative chains.
-- **Text‑to‑Speech Narration** – Supports OpenAI TTS and ElevenLabs, with selectable voices.
-- **Whisper‑Based Subtitling** – Generates word‑level ASS subtitles with configurable style, position, and word wrapping.
-- **Video Composition** – FFmpeg‑based rendering that overlays narration and subtitles on a randomly chosen background video; supports vertical (9:16 Shorts) and horizontal (16:9) formats.
-- **Thumbnail Generation** – Dynamic thumbnails with gradient backgrounds, story title, subreddit badge, and score.
-- **YouTube Integration**
-  - OAuth 2.0 authentication with secure token storage.
-  - Resumable video upload with progress tracking.
-  - Custom thumbnail upload.
-  - Full video management: update metadata, change privacy, fetch analytics, delete videos.
-- **Real‑time Notifications** – Server‑Sent Events broadcast pipeline progress and system events to the UI.
-- **Automation Templates** – Define reusable workflows that combine subreddit selection, generation settings, and YouTube upload parameters. Templates can be triggered manually or run on a schedule.
-- **CLI** – A full‑featured command line interface built with Click and Rich for all operations (settings, fetching, linking, video generation, YouTube management).
-- **Desktop Application** – An Electron wrapper with React frontend, providing a polished user interface for the entire pipeline, including live progress and YouTube studio tools.
+### Content pipeline
+
+- **Reddit fetching** — Pull top, hot, or new posts from monitored subreddits via `old.reddit.com` JSON endpoints; deduplication prevents re-fetching.
+- **Update detection and linking** — Identifies follow-up posts (e.g. "UPDATE", "Part 2") and inline update sections; builds parent/child story chains.
+- **Story management** — Paginated listing, search, filtering, sorting, and per-story detail views.
+
+### Media generation
+
+- **Local TTS** — Coqui TTS models with a thread-safe model registry and GPU support when CUDA is available; edge-tts fallback when local synthesis fails (requires internet).
+- **faster-whisper subtitling** — Word-level ASS subtitles with configurable style, position, and segment length.
+- **FFmpeg compositing** — Overlays narration and burned-in subtitles on a background video; supports vertical (9:16 Shorts) and horizontal (16:9) formats.
+- **Adaptive encoding** — Resource budget adjusts FFmpeg threads and segmentation based on available RAM.
+- **Thumbnail generation** — Dynamic thumbnails with gradient backgrounds, title, subreddit badge, and score.
+- **Job control** — Queued generation with pause, resume, cancel, retry, and checkpoint persistence across restarts.
+
+### YouTube integration
+
+- OAuth 2.0 authentication with encrypted token storage.
+- Resumable video upload with progress tracking.
+- Custom thumbnail upload.
+- Metadata updates, privacy changes, analytics, and video deletion.
+
+### Automation
+
+- Reusable templates combining subreddit selection, generation settings, and upload parameters.
+- Manual trigger or interval-based scheduling.
+- Run history with per-run statistics.
+
+### Application
+
+- **Desktop app** — Electron shell with splash screen; spawns the Python backend in production builds.
+- **Web UI** — React SPA with dark mode, real-time progress, and notification bell.
+- **Real-time events** — Server-Sent Events for video progress, notifications, and FFmpeg install status.
+- **In-app FFmpeg installer** — Download and configure FFmpeg without manual PATH setup.
 
 ---
 
 ## Technology Stack
 
-### Backend (Python)
+### Backend (Python 3.10+)
 
-- **FastAPI** – REST API with async support and automatic OpenAPI docs.
-- **SQLAlchemy** – ORM with SQLite storage, encrypting sensitive fields at rest.
-- **PRAW** – Reddit API client.
-- **OpenAI & ElevenLabs** – TTS providers.
-- **OpenAI Whisper** – Speech‑to‑text for subtitle generation.
-- **FFmpeg** – Video compositing, scaling, and subtitle burning.
-- **Google API Client** – YouTube Data API v3 integration.
-- **Click** – CLI framework.
-- **Rich** – Beautiful terminal output.
-- **Pydantic** – Data validation and settings management.
-- **Cryptography (Fernet)** – Symmetric encryption of API tokens and keys.
+| Component | Library / tool |
+|-----------|----------------|
+| API framework | FastAPI, Uvicorn |
+| Database | SQLAlchemy 2.x, SQLite |
+| Reddit client | httpx (public JSON endpoints) |
+| TTS | Coqui TTS, edge-tts (fallback), PyTorch |
+| Transcription | faster-whisper (CTranslate2) |
+| Video | FFmpeg, Pillow |
+| YouTube | Google API Python Client, google-auth-oauthlib |
+| Encryption | cryptography (Fernet) |
+| Validation | Pydantic v2 |
 
 ### Frontend
 
-- **React 18** – Functional components with hooks.
-- **TypeScript** – Static typing across the project.
-- **Vite** – Fast build tool and dev server.
-- **Tailwind CSS v4** – Utility‑first styling with dark mode.
-- **Zustand** – Lightweight state management.
-- **React Query** – Server state synchronization.
-- **React Router** – Client‑side routing.
-- **Electron** – Desktop container with native file dialogs and external link handling.
-- **Lucide Icons** – Modern icon set.
+| Component | Library |
+|-----------|---------|
+| UI | React 18, TypeScript |
+| Build | Vite 5 |
+| Styling | Tailwind CSS v4 |
+| State | Zustand, TanStack React Query |
+| Routing | React Router (HashRouter for Electron) |
+| Desktop | Electron 28, electron-builder |
+| Icons | Lucide React |
 
 ---
 
 ## Architecture
 
-The application is split into three layers:
+The application has three layers: a domain-modular Python backend, a React frontend, and an optional Electron shell.
 
-1. **Backend** (`backend/`) – The core engine. It exposes a RESTful API (FastAPI), runs the scheduler, and contains all business logic: fetching stories, linking updates, video generation, YouTube integration, and automation. A CLI (`cli.py`) provides direct access to the same functionality for scripting and debugging.
+```mermaid
+flowchart TB
+    subgraph client ["Client"]
+        UI["React UI"]
+        EL["Electron shell"]
+    end
 
-2. **Frontend** (`frontend/`) – A React application built with Vite that communicates with the backend via the API. It includes an Electron shell (`electron/main.cjs`) that starts the backend as a child process in production mode, providing a single-user desktop experience.
+    subgraph backend ["Backend (FastAPI)"]
+        API["REST API /api/v1"]
+        SSE["SSE streams"]
+        JM["Video Job Manager"]
+        SCH["Automation Scheduler"]
 
-3. **Shared** – Pydantic schemas and TypeScript types mirror the data structures, ensuring type safety between layers.
+        subgraph domains ["Domain modules"]
+            SUB["subreddits/"]
+            ST["stories/"]
+            VID["video/"]
+            YT["youtube/"]
+            FF["ffmpeg/"]
+            TTS["tts_local/"]
+            AUTO["automation/"]
+            NOTIF["notifications/"]
+            SET["settings/"]
+        end
+    end
 
-Communication between frontend and backend happens over HTTP (REST) and Server‑Sent Events (SSE) for notifications. In development, the Vite dev server proxies API requests to the backend. The Electron wrapper uses a localhost backend and disables sandbox restrictions for file dialogs.
+    subgraph storage ["Local storage (~/.reddit-video-automator/)"]
+        DB["SQLite + encrypted settings"]
+        OUT["output/"]
+        TMP["temp/"]
+        FFBIN["ffmpeg/"]
+        MODELS["TTS model cache"]
+    end
+
+    subgraph external ["External"]
+        REDDIT["old.reddit.com"]
+        GOOGLE["Google OAuth / YouTube API"]
+        EDGE["edge-tts (fallback)"]
+    end
+
+    EL --> UI
+    UI -->|HTTP REST| API
+    UI -->|SSE| SSE
+    API --> domains
+    SSE --> JM
+    JM --> VID
+    SCH --> AUTO
+    domains --> storage
+    SUB --> REDDIT
+    YT --> GOOGLE
+    VID --> EDGE
+```
+
+### Video generation pipeline
+
+```mermaid
+flowchart LR
+    A["Script assembly\n(story + updates)"] --> B["TTS synthesis\n(Coqui / edge-tts)"]
+    B --> C["Transcription\n(faster-whisper)"]
+    C --> D["ASS subtitle build"]
+    D --> E["Background selection"]
+    E --> F["FFmpeg compositing"]
+    F --> G["Thumbnail generation"]
+    G --> H["Output + DB record"]
+```
+
+### Communication
+
+| Channel | Purpose |
+|---------|---------|
+| `GET/POST /api/v1/*` | CRUD, job control, settings |
+| `GET /api/v1/sse/videos/*` | Per-video generation progress |
+| `GET /api/v1/sse/notifications` | System and pipeline notifications |
+| `GET /api/v1/sse/ffmpeg` | FFmpeg install progress |
+
+In development, the Vite dev server on port 3000 proxies `/api` to the backend on port 8000. In the Electron production build, the shell starts Uvicorn as a child process and loads the built SPA from `dist/`.
+
+### Backend module layout
+
+Domain logic lives in top-level packages under `backend/`:
+
+- `core/` — config, database, crypto, settings manager
+- `subreddits/` — Reddit client, fetcher, routes
+- `stories/` — models, update linker, search, routes
+- `video/` — models, pipeline engine, job manager, routes, SSE
+- `youtube/` — OAuth, uploader, manager, routes
+- `ffmpeg/` — detector, installer, routes, SSE
+- `tts_local/` — model metadata, detector, routes
+- `automation/` — templates, scheduler, routes
+- `notifications/` — models, SSE broadcast, routes
+- `settings/` — encrypted key-value settings
+- `services/` — shared service facades (TTS, FFmpeg, notifications, errors)
 
 ---
 
 ## Prerequisites
 
-- **Python 3.10+** with `pip` and a virtual environment recommended.
-- **Node.js 18+** and `npm` (for the frontend).
-- **FFmpeg** installed on the system and available in PATH (required for video processing).
-- **API Credentials**:
-  - Reddit API client ID and secret (free, obtained from Reddit Apps).
-  - OpenAI API key (or ElevenLabs) for TTS.
-  - Google Cloud OAuth 2.0 credentials (for YouTube upload).
-- **Git** for cloning the repository.
+### Required
+
+- **Python 3.10+** with `pip` and a virtual environment
+- **Node.js 18+** and `npm`
+- **Google Cloud OAuth 2.0 credentials** with YouTube Data API v3 enabled (for login and upload)
+
+### Recommended
+
+- **8 GB+ RAM** — TTS and Whisper model loading are memory-intensive; compositing adapts to available RAM.
+- **CUDA-capable GPU** (optional) — Accelerates Coqui TTS and faster-whisper when available; CPU fallback is supported.
+- **Disk space** — Several GB for PyTorch, TTS models, Whisper weights, FFmpeg binaries, and generated videos.
+
+### Not required
+
+- Reddit API credentials (content is fetched from public JSON endpoints)
+- OpenAI or ElevenLabs API keys (TTS runs locally)
+- System-wide FFmpeg installation (can be installed from Settings)
 
 ---
 
-## Installation and Setup
+## Installation
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/reddit-video-automator.git
+git clone <repository-url>
 cd reddit-video-automator
 ```
 
-### 2. Backend Setup
-
-Create and activate a Python virtual environment, then install dependencies:
+### 2. Backend setup
 
 ```bash
 cd backend
 python -m venv .venv
-source .venv/bin/activate   # On Windows: .venv\Scripts\activate
+
+# Windows
+.venv\Scripts\activate
+
+# macOS / Linux
+source .venv/bin/activate
+
 pip install -e .
 ```
 
-The backend will automatically create an SQLite database and encryption key in `~/.reddit-video-automator/` on first run.
+On first run the backend creates `~/.reddit-video-automator/` with an SQLite database, encryption key, and output directories.
 
-### 3. Frontend Setup
+> **Note:** Installing backend dependencies pulls PyTorch and Coqui TTS, which is a large download. Allow sufficient time and disk space.
+
+### 3. Frontend setup
 
 ```bash
 cd ../frontend
 npm install
 ```
 
-### 4. FFmpeg
-
-Install FFmpeg from your system’s package manager or from [ffmpeg.org](https://ffmpeg.org/download.html). Verify with:
-
-```bash
-ffmpeg -version
-```
-
-### 5. Configuration
-
-All sensitive settings are stored in the encrypted database. Use the CLI to set them, or fill them through the UI (Settings page). See [Configuration](#configuration).
-
 ---
 
 ## Configuration
 
-The application requires several API keys and tokens. Set them using the CLI:
+### Initial setup flow
 
-```bash
-# Reddit API
-rva set-setting reddit_client_id "your_client_id" --encrypt
-rva set-setting reddit_client_secret "your_client_secret" --encrypt
+1. Start the backend and frontend (see [Usage](#usage)).
+2. Open `http://localhost:3000/#/setup` and enter your **Google OAuth Client ID** and **Client Secret**.
+3. Sign in at `/#/login` via Google OAuth (opens system browser in Electron).
+4. Install **FFmpeg** from Settings if not already detected (in-app installer or custom path).
+5. Select a **default TTS voice** and optional **Whisper model size** in Settings.
 
-# OpenAI TTS
-rva set-setting openai_api_key "sk-..." --encrypt
+### Settings stored in the database
 
-# (Optional) ElevenLabs
-rva set-setting elevenlabs_api_key "your_key" --encrypt
+| Key | Description |
+|-----|-------------|
+| `youtube_client_id` | Google OAuth client ID (encrypted) |
+| `youtube_client_secret` | Google OAuth client secret (encrypted) |
+| `youtube_oauth_tokens` | OAuth token blob (encrypted, set by auth flow) |
+| `default_tts_voice` | Coqui TTS voice ID (e.g. `en_ljspeech_vits`) |
+| `whisper_model_size` | faster-whisper model size (`tiny`, `base`, `small`, `medium`) |
+| `output_directory` | Custom video output path (optional) |
+| FFmpeg video settings | Quality preset, codec, CRF, threads, hardware encoder |
 
-# YouTube OAuth credentials (set via UI or CLI)
-rva set-setting youtube_client_id "your_google_client_id" --encrypt
-rva set-setting youtube_client_secret "your_google_client_secret" --encrypt
-```
+All sensitive values are encrypted at rest with a Fernet key generated on first launch (`~/.reddit-video-automator/.key`).
 
-You can verify stored settings with `rva get-setting <key> --decrypt`.
-
-YouTube authentication is done interactively:
-
-```bash
-rva youtube auth-url      # get the consent URL
-rva youtube exchange-code <code> <state>
-```
-
-All credentials are encrypted with a symmetric key derived at first start and stored in `~/.reddit-video-automator/.key`.
+Settings can be managed through the Settings page or the REST API (`POST /api/v1/settings`).
 
 ---
 
 ## Usage
 
-### Command Line Interface
+### Development (browser)
 
-The CLI (`rva`) provides a comprehensive interface for every operation.
-
-**Subreddits & Fetching**
+Terminal 1 — backend:
 
 ```bash
-rva add-subreddit AskReddit --sort top --time week --limit 10
-rva fetch 1                    # using the subreddit ID
-rva fetch-all                  # fetch from all active subreddits
-```
-
-**Update Linking**
-
-```bash
-rva link-updates --subreddit AskReddit
-rva show-chain 5               # show original + updates for story ID 5
-```
-
-**Video Generation**
-
-```bash
-rva generate-video 5 --tts-provider openai --tts-voice alloy --background /path/to/videos --format shorts
-rva list-videos
-```
-
-**YouTube Management**
-
-```bash
-rva youtube upload 1 --privacy private --thumbnail
-rva youtube stats <youtube_video_id>
-rva youtube update-metadata <id> --title "New Title" --tags "tag1,tag2"
-```
-
-**Notifications & General**
-
-```bash
-rva notifications --unread-only
-rva mark-read 3
-rva check-ffmpeg
-```
-
-For a full list of commands, type `rva --help`.
-
-### Desktop Application
-
-Start both backend and frontend:
-
-```bash
-# Terminal 1
 cd backend
-uvicorn main:app --port 8000
+# activate venv
+uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+```
 
-# Terminal 2
+Terminal 2 — frontend:
+
+```bash
 cd frontend
 npm run dev
 ```
 
-Then open `http://localhost:3000` in your browser. For an Electron desktop experience, build and launch:
+Open [http://localhost:3000](http://localhost:3000). API docs are at [http://localhost:8000/docs](http://localhost:8000/docs).
+
+### Desktop (Electron)
+
+Development (requires backend already running on port 8000):
 
 ```bash
-npm run electron:dev    # builds the frontend and launches Electron
+cd frontend
+# Windows (PowerShell)
+$env:NODE_ENV="development"; npm run electron:dev
+
+# macOS / Linux
+NODE_ENV=development npm run electron:dev
 ```
 
-The desktop app provides:
+Production build (Electron starts the backend automatically):
 
-- **Stories Page** – Add subreddits, fetch stories, link updates, and trigger individual video generation.
-- **Videos Page** – Monitor generated videos, upload to YouTube, and open YouTube Studio for stats.
-- **Automation Page** – Create, edit, and toggle automation templates; run them manually or let the scheduler handle them.
-- **Settings Page** – Manage API keys, FFmpeg path, and theme.
-- **Real‑time Notifications** – Dropdown bell icon showing pipeline progress and system messages.
+```bash
+cd frontend
+npm run electron:build
+```
+
+### Application pages
+
+| Route | Purpose |
+|-------|---------|
+| `/setup` | Initial Google OAuth credential entry |
+| `/login` | YouTube OAuth sign-in |
+| `/stories` | Subreddit management, fetch, link updates, trigger generation |
+| `/stories/:id` | Story detail and update chain |
+| `/videos` | Generated videos, upload, pause/resume/cancel, YouTube management |
+| `/automation` | Template creation, scheduling, manual runs |
+| `/settings` | API credentials, FFmpeg, TTS voice, Whisper, encoding, theme |
+
+### Typical workflow
+
+1. Add subreddits and configure fetch sort/time/limit.
+2. Fetch stories from the Stories page.
+3. Run **Link Updates** to connect multi-part narratives.
+4. Generate a video for a story (select voice, format, background folder, subtitle style).
+5. Monitor progress on the Videos page (real-time SSE updates).
+6. Upload to YouTube with metadata and optional auto-generated hashtags.
+
+### Automation templates
+
+Templates bundle fetch settings, generation parameters (voice, format, background, subtitles), and YouTube upload options. Set `schedule_type` to `interval` with a `minutes` value in `schedule_config` for recurring runs, or trigger manually.
+
+---
+
+## Data and Storage
+
+All persistent application data lives under `~/.reddit-video-automator/`:
+
+```text
+~/.reddit-video-automator/
+├── app.db              # SQLite database
+├── .key                # Fernet encryption key
+├── output/             # Generated videos and thumbnails
+├── temp/               # Per-job working directories (auto-swept)
+├── ffmpeg/             # In-app FFmpeg installation
+└── tts_models/         # TTS model cache directory
+```
+
+Job temp directories older than 24 hours are swept automatically for terminal jobs. Active or paused jobs are preserved.
+
+On backend restart, in-progress video jobs are **paused** (not auto-resumed) to avoid orphan processing.
 
 ---
 
@@ -261,31 +376,37 @@ The desktop app provides:
 
 ```text
 reddit-video-automator/
-├── backend/                     # Python backend
-│   ├── main.py                  # FastAPI application entry point
-│   ├── cli.py                   # Click‑based CLI
-│   ├── config.py                # Paths, video format definitions
-│   ├── crypto.py                # Encryption / decryption utilities
-│   ├── database.py              # SQLAlchemy engine and session factory
-│   ├── models.py                # ORM models (Stories, Videos, Subreddits, etc.)
-│   ├── schemas.py               # Pydantic models for API
-│   ├── settings_manager.py      # Encrypted settings CRUD
-│   ├── api/                     # REST routes and SSE
-│   ├── automation/              # Template models & routes
-│   ├── reddit/                  # Reddit client, fetcher, update linker
-│   ├── video/                   # Video pipeline, TTS, subtitles, composer, thumbnail, utils
-│   ├── youtube/                 # OAuth, uploader, manager
-│   ├── scheduler/               # Background template scheduler
-│   └── tests/                   # Unit tests
-├── frontend/                    # React + Electron frontend
-│   ├── electron/                # Electron main process and preload
+├── backend/
+│   ├── main.py                 # FastAPI entry point, lifespan hooks
+│   ├── api_router.py           # Route aggregation
+│   ├── core/                   # Config, database, crypto, settings
+│   ├── subreddits/             # Reddit client, fetcher, routes
+│   ├── stories/                # Models, linker, search, routes
+│   ├── video/
+│   │   ├── engine/             # Pipeline, TTS, subtitles, composer, job manager
+│   │   ├── models.py
+│   │   ├── routes.py
+│   │   └── sse.py
+│   ├── youtube/                # OAuth, uploader, manager, routes
+│   ├── ffmpeg/                 # Detector, installer, routes, SSE
+│   ├── tts_local/              # Local TTS model metadata and routes
+│   ├── automation/             # Templates, scheduler, routes
+│   ├── notifications/          # SSE broadcast, routes
+│   ├── settings/               # Encrypted settings routes
+│   ├── services/               # Shared service layer
+│   └── scripts/                # Benchmark utilities
+├── frontend/
+│   ├── electron/               # Main process, preload, splash
+│   ├── public/
 │   ├── src/
-│   │   ├── components/          # Reusable UI components
-│   │   ├── pages/               # App pages (Stories, Videos, Automation, Settings, Login)
-│   │   ├── services/            # Axios HTTP client and SSE manager
-│   │   ├── store/               # Zustand stores (auth, theme, notifications)
-│   │   └── types/               # TypeScript type definitions
+│   │   ├── components/         # UI components by domain
+│   │   ├── pages/              # Route pages
+│   │   ├── hooks/              # FFmpeg, TTS, video progress hooks
+│   │   ├── services/           # API client
+│   │   ├── store/              # Zustand stores
+│   │   └── types/              # TypeScript definitions
 │   └── package.json
+├── LICENSE
 └── README.md
 ```
 
@@ -293,64 +414,31 @@ reddit-video-automator/
 
 ## Development
 
-### Backend
+### API exploration
 
-Run tests with `pytest`:
+Interactive OpenAPI documentation: `http://localhost:8000/docs`
+
+Health check: `GET /health` returns queue size and active job count.
+
+### Backend tooling
 
 ```bash
 cd backend
-pytest
+pip install -e ".[dev]"
+ruff check .
+black .
 ```
-
-The backend uses in‑memory SQLite for tests with no external dependencies.
 
 ### Frontend
 
-Start the development server with hot module replacement:
-
 ```bash
 cd frontend
-npm run dev
-```
-
-Ensure the backend is running on port 8000. The Vite proxy forwards API requests automatically.
-
-### Building for Production
-
-```bash
-cd frontend
-npm run build          # builds static assets
-npm run electron:build # packages the Electron app
+npm run build    # TypeScript check + Vite production build
+npm run preview  # Preview production build
 ```
 
 ---
 
 ## License
 
-This project is licensed under the MIT License.
-
-```text
-MIT License
-
-Copyright (c) 2026 Dimitris Markou
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-The full license text is also available in the `LICENSE` file at the root of the repository.
+MIT License — Copyright (c) 2026 Dimitris Markou. See [LICENSE](LICENSE) for the full text.

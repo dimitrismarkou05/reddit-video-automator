@@ -1,6 +1,6 @@
 [project]
 name = "reddit-video-automator"
-version = "0.4.0"
+version = "0.5.0"
 description = "Automated Reddit story -> YouTube video pipeline"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,8 +13,6 @@ dependencies = [
     "requests>=2.31.0",
     "cryptography>=42.0.0",
     "python-multipart>=0.0.6",
-    "click>=8.1.0",
-    "rich>=13.7.0",
     "faster-whisper>=1.0.0",
     "soundfile>=0.12.0",
     "edge-tts>=7.0.0",
@@ -47,6 +45,3 @@ package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
 where = ["."]
-
-[project.scripts]
-rva = "cli:main"
