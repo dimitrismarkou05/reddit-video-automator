@@ -245,12 +245,20 @@ export function truncateTitle(title: string, maxLen = 60): string {
 
 const DISPLAY_STEP_BLOCKLIST = ["done", "failed", "cancelled", "deleted"];
 
+export type VideoStatusDisplayInput = Pick<
+  GeneratedVideo,
+  "status" | "current_step" | "progress_percent" | "queue_position" | "is_paused"
+>;
+
 export function getVideoDisplayKey(
   video: Pick<GeneratedVideo, "status" | "current_step"> & {
     progress_percent?: number;
+    is_paused?: boolean;
   },
 ): string {
   if (video.status === "deleted") return "cancelled";
+
+  if (video.is_paused || video.status === "paused") return "paused";
 
   if (video.status === "queued") {
     if (
@@ -295,10 +303,68 @@ export function isVideoGenerating(video: Pick<GeneratedVideo, "status" | "curren
 }
 
 export function getStepLabel(
-  video: Pick<GeneratedVideo, "status" | "current_step">
+  video: Pick<GeneratedVideo, "status" | "current_step"> & {
+    progress_percent?: number;
+    is_paused?: boolean;
+  },
 ): string {
   const key = getVideoDisplayKey(video);
   return STATUS_CONFIG[key]?.label ?? key.replace(/_/g, " ");
+}
+
+function isQueuedState(video: VideoStatusDisplayInput): boolean {
+  return video.status === "queued" || video.queue_position != null;
+}
+
+function getQueuedPipelineStepKey(video: VideoStatusDisplayInput): string | null {
+  if (
+    (video.progress_percent ?? 0) > 0 &&
+    video.current_step &&
+    video.current_step !== "queued" &&
+    !DISPLAY_STEP_BLOCKLIST.includes(video.current_step)
+  ) {
+    return video.current_step;
+  }
+  return null;
+}
+
+function stepKeyToLabel(key: string): string {
+  return STATUS_CONFIG[key]?.label ?? key.replace(/_/g, " ");
+}
+
+export interface VideoStatusLabelOptions {
+  showPercent?: boolean;
+}
+
+/** Single source of truth for generation status text across badges, bars, and modals. */
+export function getVideoStatusLabel(
+  video: VideoStatusDisplayInput,
+  options: VideoStatusLabelOptions = {},
+): string {
+  const { showPercent = false } = options;
+  const pct = video.progress_percent ?? 0;
+  const withPercent = (label: string) =>
+    showPercent ? `${label} (${pct}%)` : label;
+
+  if (video.is_paused || video.status === "paused") {
+    return withPercent("Paused");
+  }
+
+  if (video.status === "done") return "Video Generated";
+  if (video.status === "failed") return "Generation Failed";
+  if (video.status === "cancelled") return "Cancelled";
+
+  if (isQueuedState(video)) {
+    const pipelineStep = getQueuedPipelineStepKey(video);
+    if (pipelineStep) {
+      return withPercent(`${stepKeyToLabel(pipelineStep)} - Queued`);
+    }
+    const pos = video.queue_position ? ` #${video.queue_position}` : "";
+    return withPercent(`Queued${pos}`);
+  }
+
+  const key = getVideoDisplayKey(video);
+  return withPercent(stepKeyToLabel(key));
 }
 
 export function getStoryDisplayStatus(story: Story): {
@@ -312,6 +378,7 @@ export function getStoryDisplayStatus(story: Story): {
   if (gv) {
     const key = getVideoDisplayKey(gv);
     const config = STATUS_CONFIG[key] || STATUS_CONFIG.processing;
+
     if (gv.status === "done") {
       return {
         label: "Video Generated",
@@ -339,30 +406,27 @@ export function getStoryDisplayStatus(story: Story): {
         progressPercent: gv.progress_percent,
       };
     }
-    if (gv.status === "paused") {
+
+    const isPaused = gv.is_paused || gv.status === "paused";
+    const isQueued = isQueuedState(gv);
+    const isGenerating =
+      isPaused || isQueued || ACTIVE_GENERATION_STATUSES.includes(gv.status);
+
+    if (isGenerating) {
       return {
-        label: "Paused",
-        variant: "neutral",
-        displayKey: "paused",
-        showPercent: false,
+        label: getVideoStatusLabel(gv, { showPercent: !isPaused && !isQueued }),
+        variant: isPaused ? "neutral" : isQueued ? "info" : "warning",
+        displayKey: key,
+        showPercent: !isPaused && !isQueued,
         progressPercent: gv.progress_percent,
       };
     }
-    if (gv.status === "queued") {
-      const pos = gv.queue_position ? ` #${gv.queue_position}` : "";
-      return {
-        label: `Queued${pos}`,
-        variant: "info",
-        displayKey: "queued",
-        showPercent: false,
-        progressPercent: gv.progress_percent,
-      };
-    }
+
     return {
       label: config.label,
       variant: "warning",
       displayKey: key,
-      showPercent: true,
+      showPercent: false,
       progressPercent: gv.progress_percent,
     };
   }

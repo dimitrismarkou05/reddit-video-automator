@@ -12,6 +12,7 @@ import {
   STATUS_CONFIG,
   YT_STATUS_CONFIG,
   getVideoDisplayKey,
+  getVideoStatusLabel,
   type StoryStatusVariant,
 } from "@/config/videoStatus";
 import type { GeneratedVideo } from "@/types";
@@ -44,7 +45,10 @@ function isSpinningIcon(statusKey: string, videoStatus: string): boolean {
 }
 
 interface VideoStatusBadgeProps {
-  video?: Pick<GeneratedVideo, "status" | "current_step" | "progress_percent" | "queue_position"> | null;
+  video?: Pick<
+    GeneratedVideo,
+    "status" | "current_step" | "progress_percent" | "queue_position" | "is_paused"
+  > | null;
   displayKey?: string;
   label?: string;
   variant?: StoryStatusVariant;
@@ -75,15 +79,8 @@ export function VideoStatusBadge({
   const videoStatus = video?.status ?? key;
   const spinning = isSpinningIcon(key, videoStatus);
 
-  let displayLabel = label ?? config.label;
-  if (showPercent && video) {
-    displayLabel = `${displayLabel} (${video.progress_percent}%)`;
-  }
-  if (key === "queued" && video?.queue_position && !label) {
-    displayLabel = showPercent
-      ? `Queued #${video.queue_position} (${video.progress_percent}%)`
-      : `Queued #${video.queue_position}`;
-  }
+  const displayLabel =
+    label ?? (video ? getVideoStatusLabel(video, { showPercent }) : config.label);
 
   const badgeClasses = variant
     ? variantToClasses[variant]

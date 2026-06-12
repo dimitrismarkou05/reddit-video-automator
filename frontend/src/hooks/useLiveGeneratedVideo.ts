@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   isVideoGenerating,
@@ -8,11 +8,23 @@ import {
 import { useVideoProgress } from "@/hooks/useVideoProgress";
 import { videoApi } from "@/services/api";
 import {
-  isVideoPaused,
-  mergeGeneratedVideoProgress,
-} from "@/utils/videoQueries";
+  applyPeakProgressPercent,
+  getPeakProgressPercent,
+  seedPeakProgressPercent,
+} from "@/store/videoProgressSession";
+import { mergeGeneratedVideoProgress } from "@/utils/videoQueries";
 import { useVideoJobsStore } from "@/store/videoJobs";
 import type { GeneratedVideo } from "@/types";
+
+function withPeak(video: GeneratedVideo): GeneratedVideo {
+  const peak = applyPeakProgressPercent(
+    video.id,
+    Math.max(video.progress_percent, getPeakProgressPercent(video.id)),
+  );
+  return peak === video.progress_percent
+    ? video
+    : { ...video, progress_percent: peak };
+}
 
 /** Merge story cached video with live SSE + polling while generating. */
 export function useLiveGeneratedVideo(
@@ -24,6 +36,12 @@ export function useLiveGeneratedVideo(
     enabled &&
     !!video &&
     (isVideoGenerating(video) || ACTIVE_GENERATION_STATUSES.includes(video.status));
+
+  useEffect(() => {
+    if (videoId != null && video && video.progress_percent > 0) {
+      seedPeakProgressPercent(videoId, video.progress_percent);
+    }
+  }, [videoId, video?.progress_percent]);
 
   const { progress } = useVideoProgress({
     videoId: isActive ? videoId : null,
@@ -40,15 +58,19 @@ export function useLiveGeneratedVideo(
       const { data } = await videoApi.get(videoId!);
       return data as GeneratedVideo;
     },
-    enabled: isActive && videoId !== null,
-    refetchInterval: 2000,
+    enabled: isActive && videoId !== null && !progress,
+    refetchInterval: progress ? false : 2000,
   });
 
   return useMemo(() => {
     if (!video) return null;
     if (progress?.status === "deleted") return null;
 
-    const base = polledVideo ?? video;
+    const seededVideo = withPeak(video);
+    const base =
+      polledVideo && !progress
+        ? mergeGeneratedVideoProgress(seededVideo, polledVideo)
+        : seededVideo;
     let merged: GeneratedVideo = base;
 
     if (progress) {
@@ -56,7 +78,7 @@ export function useLiveGeneratedVideo(
         progress.status === "deleted" ? "cancelled" : progress.status;
       const paused = progress.is_paused || progressStatus === "paused";
 
-      const fromProgress = mergeGeneratedVideoProgress(base, {
+      const fromProgress = mergeGeneratedVideoProgress(merged, {
         status: paused ? "paused" : progressStatus,
         progress_percent: progress.progress_percent,
         current_step: progress.current_step,
@@ -71,38 +93,26 @@ export function useLiveGeneratedVideo(
       };
     }
 
-    if (
-      polledVideo &&
-      !isVideoPaused(merged) &&
-      !(progress?.is_paused || progress?.status === "paused")
-    ) {
-      const fromPoll = mergeGeneratedVideoProgress(merged, polledVideo);
-      merged = fromPoll;
-    } else if (polledVideo && isVideoPaused(merged)) {
-      merged = mergeGeneratedVideoProgress(merged, {
-        status: "paused",
-        is_paused: true,
-        progress_percent: merged.progress_percent,
-        current_step: merged.current_step,
-      });
+    if (job && !TERMINAL_VIDEO_STATUSES.includes(job.status)) {
+      if (job.isPaused) {
+        merged = mergeGeneratedVideoProgress(merged, {
+          status: "paused",
+          is_paused: true,
+          progress_percent: Math.max(job.progress, merged.progress_percent),
+          current_step: job.currentStep ?? merged.current_step,
+        });
+      } else if (modalOwnsProgress) {
+        merged = mergeGeneratedVideoProgress(merged, {
+          status: job.status,
+          progress_percent: Math.max(job.progress, merged.progress_percent),
+          current_step: job.currentStep,
+          queue_position: job.queuePosition ?? merged.queue_position,
+          is_paused: false,
+          error_message: job.errorMessage ?? merged.error_message,
+        });
+      }
     }
 
-    if (
-      modalOwnsProgress &&
-      job &&
-      !TERMINAL_VIDEO_STATUSES.includes(job.status)
-    ) {
-      const fromJob = mergeGeneratedVideoProgress(merged, {
-        status: job.isPaused ? "paused" : job.status,
-        progress_percent: job.progress,
-        current_step: job.currentStep,
-        queue_position: job.queuePosition ?? merged.queue_position,
-        is_paused: job.isPaused,
-        error_message: job.errorMessage ?? merged.error_message,
-      });
-      merged = fromJob;
-    }
-
-    return merged;
+    return withPeak(merged);
   }, [video, polledVideo, progress, job, modalOwnsProgress]);
 }

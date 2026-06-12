@@ -45,6 +45,7 @@ function StoryStatusFallback({
           current_step: activeJob.currentStep,
           progress_percent: activeJob.progress,
           queue_position: activeJob.queuePosition,
+          is_paused: activeJob.isPaused,
         }}
         showPercent
         className={className}

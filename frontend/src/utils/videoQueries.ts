@@ -1,4 +1,11 @@
 import type { QueryClient } from "@tanstack/react-query";
+import {
+  applyPeakProgressPercent,
+  clearVideoProgressSession,
+  commitVideoProgress,
+  getMergedVideoProgress,
+  type VideoProgressData,
+} from "@/store/videoProgressSession";
 import { useVideoJobsStore } from "@/store/videoJobs";
 import type { GeneratedVideo, Story } from "@/types";
 
@@ -77,13 +84,31 @@ export function optimisticallyPauseVideo(
   storyId?: number,
 ): () => void {
   const videoId = video.id;
+  const progressPercent = applyPeakProgressPercent(
+    videoId,
+    video.progress_percent,
+  );
   const patch: VideoPatch = {
     status: "paused",
     is_paused: true,
     queue_position: null,
-    progress_percent: video.progress_percent,
+    progress_percent: progressPercent,
     current_step: video.current_step,
   };
+
+  ingestVideoProgress({
+    video_id: videoId,
+    status: "paused",
+    progress_percent: progressPercent,
+    current_step: video.current_step ?? "processing",
+    step_progress: video.step_progress ?? 0,
+    error_message: video.error_message,
+    error_type: video.error_type,
+    error_step: video.error_step,
+    queue_position: null,
+    is_paused: true,
+    retry_count: video.retry_count ?? 0,
+  });
 
   const prevVideos = queryClient.getQueryData<GeneratedVideo[]>(["videos"]);
   const prevPolling = queryClient.getQueryData<GeneratedVideo[]>([
@@ -101,7 +126,7 @@ export function optimisticallyPauseVideo(
     status: "paused",
     isPaused: true,
     queuePosition: null,
-    progress: video.progress_percent,
+    progress: progressPercent,
     currentStep: video.current_step,
   });
 
@@ -124,12 +149,30 @@ export function optimisticallyResumeVideo(
   storyId?: number,
 ): () => void {
   const videoId = video.id;
+  const progressPercent = applyPeakProgressPercent(
+    videoId,
+    video.progress_percent,
+  );
   const patch: VideoPatch = {
     status: "queued",
     is_paused: false,
-    progress_percent: video.progress_percent,
+    progress_percent: progressPercent,
     current_step: video.current_step,
   };
+
+  ingestVideoProgress({
+    video_id: videoId,
+    status: "queued",
+    progress_percent: progressPercent,
+    current_step: video.current_step ?? "queued",
+    step_progress: video.step_progress ?? 0,
+    error_message: video.error_message,
+    error_type: video.error_type,
+    error_step: video.error_step,
+    queue_position: video.queue_position,
+    is_paused: false,
+    retry_count: video.retry_count ?? 0,
+  });
 
   const prevVideos = queryClient.getQueryData<GeneratedVideo[]>(["videos"]);
   const prevPolling = queryClient.getQueryData<GeneratedVideo[]>([
@@ -146,7 +189,7 @@ export function optimisticallyResumeVideo(
   useVideoJobsStore.getState().updateJob(videoId, {
     status: "queued",
     isPaused: false,
-    progress: video.progress_percent,
+    progress: progressPercent,
     currentStep: video.current_step,
   });
 
@@ -168,6 +211,18 @@ export function isVideoPaused(
 ): boolean {
   return video.status === "paused" || !!video.is_paused;
 }
+
+/** Single merge point for SSE/REST progress — shared across all hook instances. */
+export function ingestVideoProgress(
+  data: VideoProgressData,
+): VideoProgressData | null {
+  const prev = getMergedVideoProgress(data.video_id);
+  const merged = mergeVideoProgress(prev, data);
+  if (!merged) return null;
+  return commitVideoProgress(merged);
+}
+
+export type { VideoProgressData };
 
 /** Pipeline step order — keep in sync with backend PROGRESS_STEP_ORDER. */
 const PROGRESS_STEP_ORDER = [
@@ -211,12 +266,45 @@ export interface MergeableProgress {
   error_message?: string | null;
 }
 
+function allowsProgressReset(
+  prev: MergeableProgress,
+  next: MergeableProgress,
+): boolean {
+  if (TERMINAL_PROGRESS_STATUSES.includes(next.status)) return true;
+  return (
+    next.status === "queued" &&
+    (next.progress_percent ?? 0) === 0 &&
+    (prev.progress_percent ?? 0) > 0
+  );
+}
+
+/** Mirror backend monotonic rule — overall % never decreases except explicit retry. */
+function clampMonotonicProgress<T extends MergeableProgress>(
+  prev: MergeableProgress,
+  next: T,
+): T {
+  if (allowsProgressReset(prev, next)) return next;
+  const prevPct = prev.progress_percent ?? 0;
+  const nextPct = next.progress_percent ?? 0;
+  if (nextPct < prevPct) {
+    return { ...next, progress_percent: prevPct };
+  }
+  return next;
+}
+
 function isRegressiveProgress(
   prev: MergeableProgress,
   next: MergeableProgress,
 ): boolean {
   if (TERMINAL_PROGRESS_STATUSES.includes(next.status)) return false;
   if (next.is_paused || next.status === "paused") return false;
+  if (allowsProgressReset(prev, next)) return false;
+  if (
+    next.current_step === prev.current_step &&
+    next.progress_percent < prev.progress_percent
+  ) {
+    return true;
+  }
   if (
     progressStepIndex(next.current_step) <
       progressStepIndex(prev.current_step) &&
@@ -239,34 +327,56 @@ export function mergeVideoProgress<T extends MergeableProgress>(
   }
 
   if (next.is_paused || next.status === "paused") {
-    return next;
+    return clampMonotonicProgress(prev, {
+      ...next,
+      is_paused: true,
+      status: "paused",
+    });
   }
 
   const prevPaused = prev.is_paused || prev.status === "paused";
   if (prevPaused) {
     if (next.is_paused || next.status === "paused") {
-      return next;
+      return clampMonotonicProgress(prev, {
+        ...next,
+        is_paused: true,
+        status: "paused",
+      });
     }
-    if (isRegressiveProgress(prev, next)) {
-      return null;
+    // Resume: backend sets status queued + is_paused false (not stale pipeline events).
+    if (next.is_paused === false && next.status === "queued") {
+      return clampMonotonicProgress(prev, next);
     }
-    if (next.progress_percent < prev.progress_percent) {
-      return null;
-    }
-    return next;
+    return null;
   }
 
   if (isRegressiveProgress(prev, next)) {
     return null;
   }
 
-  return next;
+  return clampMonotonicProgress(prev, next);
 }
 
 export function mergeGeneratedVideoProgress(
   base: GeneratedVideo,
   incoming: Partial<GeneratedVideo>,
 ): GeneratedVideo {
+  const basePaused = isVideoPaused(base);
+  const isResume =
+    incoming.is_paused === false && incoming.status === "queued";
+
+  if (incoming.is_paused || incoming.status === "paused") {
+    incoming = { ...incoming, status: "paused", is_paused: true };
+  } else if (basePaused && !isResume) {
+    return {
+      ...base,
+      progress_percent: Math.max(
+        base.progress_percent,
+        incoming.progress_percent ?? base.progress_percent,
+      ),
+    };
+  }
+
   const merged = mergeVideoProgress(
     {
       status: base.status,
@@ -291,7 +401,8 @@ export function mergeGeneratedVideoProgress(
     },
   );
   if (!merged) return base;
-  return {
+
+  const result: GeneratedVideo = {
     ...base,
     ...incoming,
     status: merged.status,
@@ -302,6 +413,13 @@ export function mergeGeneratedVideoProgress(
     is_paused: merged.is_paused ?? base.is_paused,
     error_message: merged.error_message ?? base.error_message,
   };
+
+  if (isVideoPaused(result)) {
+    result.status = "paused";
+    result.is_paused = true;
+  }
+
+  return result;
 }
 
 export function removeVideoQuery(queryClient: QueryClient, videoId: number) {
@@ -374,6 +492,7 @@ export function cleanupDeletedVideo(
   }
 
   useVideoJobsStore.getState().removeJobsForStory(storyId);
+  clearVideoProgressSession(videoId);
 
   queryClient.invalidateQueries({ queryKey: storyQueryKey(storyId) });
   queryClient.invalidateQueries({ queryKey: ["stories"] });

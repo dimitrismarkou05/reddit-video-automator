@@ -82,10 +82,32 @@ export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
     set((state) => {
       const job = state.jobs[videoId];
       if (!job) return state;
+      const next = { ...updates };
+      if (updates.progress !== undefined) {
+        const isRetryReset =
+          updates.status === "queued" && updates.progress === 0;
+        if (!isRetryReset) {
+          next.progress = Math.max(job.progress, updates.progress);
+        }
+      }
+      if (job.isPaused) {
+        const isResume =
+          updates.isPaused === false && updates.status === "queued";
+        if (!isResume) {
+          next.isPaused = true;
+          if (
+            updates.status &&
+            updates.status !== "paused" &&
+            updates.status !== "queued"
+          ) {
+            next.status = "paused";
+          }
+        }
+      }
       return {
         jobs: {
           ...state.jobs,
-          [videoId]: { ...job, ...updates },
+          [videoId]: { ...job, ...next },
         },
       };
     }),

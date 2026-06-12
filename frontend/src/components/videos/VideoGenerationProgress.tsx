@@ -1,6 +1,6 @@
 import {
   ACTIVE_GENERATION_STATUSES,
-  getStepLabel,
+  getVideoStatusLabel,
   isVideoGenerating,
 } from "@/config/videoStatus";
 import { isVideoPaused } from "@/utils/videoQueries";
@@ -26,7 +26,7 @@ export function VideoGenerationProgress({
   const isGenerating =
     !isPaused &&
     (isVideoGenerating(video) || ACTIVE_GENERATION_STATUSES.includes(video.status));
-  const stepLabel = getStepLabel(video);
+  const statusLabel = getVideoStatusLabel(video, { showPercent: showStepPercent });
 
   if (variant === "compact") {
     return (
@@ -43,7 +43,7 @@ export function VideoGenerationProgress({
       return (
         <div className={`w-full max-w-md ${className}`}>
           <span className="text-xs text-yellow-600 dark:text-yellow-400">
-            Paused{showStepPercent ? ` (${video.progress_percent}%)` : ""}
+            {statusLabel}
           </span>
           <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1 overflow-hidden">
             <div
@@ -58,9 +58,7 @@ export function VideoGenerationProgress({
       return (
         <div className={`w-full max-w-md ${className}`}>
           <span className="text-xs text-gray-500 dark:text-gray-400">
-            {stepLabel}
-            {showStepPercent ? ` (${video.progress_percent}%)` : ""}
-            {video.queue_position ? ` (Queue #${video.queue_position})` : ""}
+            {statusLabel}
           </span>
           <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1 overflow-hidden">
             <div
@@ -81,7 +79,7 @@ export function VideoGenerationProgress({
         {isPaused && (
           <>
             <span className="text-xs text-yellow-600 dark:text-yellow-400 block">
-              Paused
+              {getVideoStatusLabel(video)}
             </span>
             <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
               <div
@@ -94,8 +92,7 @@ export function VideoGenerationProgress({
         {isGenerating && (
           <>
             <span className="text-xs text-gray-500 dark:text-gray-400 block">
-              {stepLabel}
-              {video.queue_position ? ` (Queue #${video.queue_position})` : ""}
+              {getVideoStatusLabel(video)}
             </span>
             <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
               <div
@@ -115,7 +112,7 @@ export function VideoGenerationProgress({
       {isPaused && (
         <div className="w-full max-w-md">
           <span className="text-xs text-yellow-600 dark:text-yellow-400">
-            Paused
+            {getVideoStatusLabel(video)}
           </span>
           <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1 overflow-hidden">
             <div
@@ -128,8 +125,7 @@ export function VideoGenerationProgress({
       {isGenerating && (
         <div className="w-full max-w-md">
           <span className="text-xs text-gray-500 dark:text-gray-400">
-            {stepLabel}
-            {video.queue_position ? ` (Queue #${video.queue_position})` : ""}
+            {getVideoStatusLabel(video)}
           </span>
           <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1 overflow-hidden">
             <div

@@ -15,13 +15,16 @@ import {
   CheckCircle,
   AlertTriangle,
   RotateCw,
-  ListOrdered,
 } from "lucide-react";
 import { videoApi, ttsLocalApi, settingsApi, videoProgressSSE } from "@/services/api";
 import type { Story, SubtitleStyle as SubtitleStyleType } from "@/types";
 import { useVideoProgress } from "@/hooks/useVideoProgress";
 import { useVideoJobsStore } from "@/store/videoJobs";
-import { ACTIVE_GENERATION_STATUSES, getStepLabel } from "@/config/videoStatus";
+import {
+  ACTIVE_GENERATION_STATUSES,
+  getVideoStatusLabel,
+} from "@/config/videoStatus";
+import { applyPeakProgressPercent } from "@/store/videoProgressSession";
 import { cleanupDeletedVideo, optimisticallyPauseVideo, optimisticallyResumeVideo, storyQueryKey } from "@/utils/videoQueries";
 import { CancelConfirmModal } from "@/components/modals/CancelConfirmModal";
 import toast from "react-hot-toast";
@@ -240,6 +243,7 @@ export function GenerateVideoModal({
   const isPaused =
     progress?.status === "paused" ||
     !!progress?.is_paused ||
+    !!activeJob?.isPaused ||
     (existingVideoIsActive && !!existingVideo?.is_paused);
   const progressNotFound = progress ? isProgressNotFound(progress) : false;
   const isFailed =
@@ -271,13 +275,15 @@ export function GenerateVideoModal({
     }
 
     if (videoId) {
+      const incomingPaused =
+        progress.is_paused || progress.status === "paused";
       updateJob(videoId, {
-        status: progress.status,
-        progress: progress.progress_percent,
+        status: incomingPaused ? "paused" : progress.status,
+        progress: applyPeakProgressPercent(videoId, progress.progress_percent),
         currentStep: progress.current_step,
         queuePosition: progress.queue_position,
         errorMessage: progress.error_message,
-        isPaused: progress.is_paused,
+        isPaused: incomingPaused,
       });
     }
 
@@ -622,11 +628,17 @@ export function GenerateVideoModal({
     }
   };
 
+  const rawProgress = Math.max(
+    progress?.progress_percent ?? 0,
+    existingVideoIsActive ? (existingVideo?.progress_percent ?? 0) : 0,
+    activeJob?.progress ?? 0,
+  );
+  const displayProgress =
+    videoId != null ? applyPeakProgressPercent(videoId, rawProgress) : rawProgress;
+
   const handlePause = async () => {
     if (!videoId || isPausing) return;
-    const pct =
-      progress?.progress_percent ??
-      (existingVideoIsActive ? existingVideo!.progress_percent : 0);
+    const pct = displayProgress;
     const snapshot =
       existingVideo ??
       ({
@@ -658,9 +670,7 @@ export function GenerateVideoModal({
 
   const handleResume = async () => {
     if (!videoId || isResuming) return;
-    const pct =
-      progress?.progress_percent ??
-      (existingVideoIsActive ? existingVideo!.progress_percent : 0);
+    const pct = displayProgress;
     const snapshot =
       existingVideo ??
       ({
@@ -720,33 +730,36 @@ export function GenerateVideoModal({
     return () => clearInterval(timer);
   }, [isAnimating]);
 
-  const rawStepLabel = isPaused
-    ? ""
-    : progress
-      ? getStepLabel({
-          status: progress.status,
-          current_step: progress.current_step,
-        })
-      : existingVideoIsActive
-        ? getStepLabel(existingVideo!)
-        : "";
-
-  const currentStepLabel = isAnimating
-    ? rawStepLabel.replace(/\.{0,3}$/, "") + ellipsis
-    : rawStepLabel;
-
-  const currentProgress =
-    progress?.progress_percent ??
-    (existingVideoIsActive ? existingVideo!.progress_percent : 0);
+  const currentProgress = displayProgress;
 
   const queuePosition =
-    progress?.queue_position ?? existingVideo?.queue_position;
+    progress?.queue_position ?? existingVideo?.queue_position ?? null;
 
-  const isResumedMidPipeline =
-    currentProgress > 0 &&
-    !!activeStep &&
-    activeStep !== "queued" &&
-    !["done", "failed", "cancelled", "paused"].includes(activeStep);
+  const statusVideo = {
+    status: isPaused
+      ? "paused"
+      : (progress?.status ??
+        (existingVideoIsActive ? existingVideo!.status : "processing")),
+    current_step:
+      progress?.current_step ??
+      (existingVideoIsActive ? existingVideo!.current_step : "processing"),
+    progress_percent: currentProgress,
+    queue_position: queuePosition,
+    is_paused:
+      isPaused || !!progress?.is_paused || !!existingVideo?.is_paused,
+  };
+
+  const isQueued =
+    statusVideo.status === "queued" || statusVideo.queue_position != null;
+
+  const baseStatusLabel = isPaused
+    ? ""
+    : getVideoStatusLabel(statusVideo, { showPercent: false });
+
+  const currentStepLabel =
+    isAnimating && !isQueued
+      ? baseStatusLabel.replace(/\.{0,3}$/, "") + ellipsis
+      : baseStatusLabel;
 
   // Determine what view to show
   const showProgress =
@@ -804,36 +817,30 @@ export function GenerateVideoModal({
                     )}
                   </div>
                 )}
-                <h3 className="text-lg font-semibold mb-1">
+                <h3
+                  className={`text-lg font-semibold ${isPaused ? "mb-5" : "mb-1"}`}
+                >
                   {isCancelling
                     ? "Cancelling..."
                     : isPaused
                       ? "Generation Paused"
                       : isFailed
                         ? "Generation Failed"
-                        : queuePosition && !isResumedMidPipeline
-                          ? `Queued #${queuePosition}`
-                          : "Generating Video..."}
+                        : "Generating Video..."}
                 </h3>
                 {!isPaused && currentStepLabel && (
                   <p className="text-sm text-gray-500 mb-4">{currentStepLabel}</p>
                 )}
 
-                <div className="w-full max-w-md mx-auto mb-4">
+                <div
+                  className={`w-full max-w-md mx-auto mb-4${isPaused ? " mt-2" : ""}`}
+                >
                   <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-primary rounded-full transition-all duration-500"
                       style={{ width: `${currentProgress}%` }}
                     />
                   </div>
-                  {queuePosition && queuePosition > 0 && (
-                    <div className="flex justify-end mt-1">
-                      <span className="text-xs text-yellow-600 flex items-center gap-1">
-                        <ListOrdered className="w-3 h-3" />
-                        Queue #{queuePosition}
-                      </span>
-                    </div>
-                  )}
                 </div>
 
                 {/* Progress percentage displayed prominently */}
