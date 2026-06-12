@@ -17,7 +17,6 @@ import {
   ACTIVE_GENERATION_STATUSES,
   TERMINAL_VIDEO_STATUSES,
   truncateTitle,
-  getStepLabel,
   isVideoGenerating,
 } from "@/config/videoStatus";
 import { useLiveGeneratedVideo } from "@/hooks/useLiveGeneratedVideo";
@@ -75,7 +74,6 @@ export function VideoCard({ video }: VideoCardProps) {
     ACTIVE_GENERATION_STATUSES.includes(displayVideo.status);
   const isPaused = displayVideo.status === "paused";
   const isTerminal = TERMINAL_VIDEO_STATUSES.includes(displayVideo.status);
-  const stepLabel = getStepLabel(displayVideo);
 
   const thumbnailSrc =
     video.status === "done"
@@ -189,6 +187,14 @@ export function VideoCard({ video }: VideoCardProps) {
             </span>
           </div>
         )}
+        {isGenerating && (
+          <div className="absolute inset-x-0 bottom-0 h-1.5 bg-gray-200 dark:bg-gray-700 overflow-hidden">
+            <div
+              className="h-full bg-primary transition-all duration-500"
+              style={{ width: `${displayVideo.progress_percent}%` }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Info */}
@@ -205,22 +211,6 @@ export function VideoCard({ video }: VideoCardProps) {
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary mb-2">
             r/{subreddit}
           </span>
-        )}
-
-        {/* Step indicator */}
-        {isGenerating && (
-          <div className="mb-2">
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              {stepLabel}
-              {displayVideo.queue_position ? ` (Queue #${displayVideo.queue_position})` : ""}
-            </span>
-            <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1 overflow-hidden">
-              <div
-                className="h-full bg-primary rounded-full transition-all duration-500"
-                style={{ width: `${displayVideo.progress_percent}%` }}
-              />
-            </div>
-          </div>
         )}
 
         {/* Error display */}
