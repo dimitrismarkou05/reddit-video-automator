@@ -23,6 +23,7 @@ import { useVideoProgress } from "@/hooks/useVideoProgress";
 import { useVideoJobsStore } from "@/store/videoJobs";
 import { ACTIVE_GENERATION_STATUSES, getStepLabel } from "@/config/videoStatus";
 import { cleanupDeletedVideo, storyQueryKey } from "@/utils/videoQueries";
+import { CancelConfirmModal } from "@/components/modals/CancelConfirmModal";
 import toast from "react-hot-toast";
 
 // Active statuses where the ellipsis animation should run.
@@ -86,6 +87,7 @@ export function GenerateVideoModal({
       useVideoJobsStore.getState().isStoryActive(story.id),
   );
   const [isCancelling, setIsCancelling] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelCompleted, setCancelCompleted] = useState(false);
 
   const cancelCompleteRef = useRef(false);
@@ -637,6 +639,7 @@ export function GenerateVideoModal({
 
   const handleCancel = async () => {
     if (!videoId || isCancelling) return;
+    setShowCancelConfirm(false);
     setIsCancelling(true);
     const id = videoId;
     try {
@@ -825,7 +828,7 @@ export function GenerateVideoModal({
                   </button>
                 )}
                 <button
-                  onClick={handleCancel}
+                  onClick={() => setShowCancelConfirm(true)}
                   disabled={isDone || isCancelled || isCancelling}
                   className="cursor-pointer px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 flex items-center gap-2 font-medium disabled:opacity-50"
                 >
@@ -1129,6 +1132,15 @@ export function GenerateVideoModal({
           </div>
         )}
       </div>
+
+      {showCancelConfirm && (
+        <CancelConfirmModal
+          videoTitle={story.title}
+          onConfirm={handleCancel}
+          onCancel={() => setShowCancelConfirm(false)}
+          isConfirming={isCancelling}
+        />
+      )}
     </div>
   );
 }

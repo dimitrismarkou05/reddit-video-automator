@@ -518,7 +518,7 @@ export function SettingsPage() {
                   <p className="text-xs text-blue-800 dark:text-blue-200">
                     Long videos on PCs with limited RAM are rendered in segments
                     automatically. Quality stays the same — rendering may take
-                    longer instead of freezing your system.
+                    longer.
                   </p>
                 </div>
 

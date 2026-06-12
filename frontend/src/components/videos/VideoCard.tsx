@@ -27,6 +27,7 @@ import {
 } from "@/components/videos/VideoStatusBadge";
 import { UploadModal } from "@/components/UploadModal";
 import { StatsModal } from "@/components/StatsModal";
+import { CancelConfirmModal } from "@/components/modals/CancelConfirmModal";
 import { getVideoThumbnailUrl, videoApi } from "@/services/api";
 import type { GeneratedVideo } from "@/types";
 import toast from "react-hot-toast";
@@ -45,6 +46,7 @@ export function VideoCard({ video }: VideoCardProps) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -98,6 +100,7 @@ export function VideoCard({ video }: VideoCardProps) {
 
   const handleCancel = async () => {
     if (isCancelling) return;
+    setShowCancelConfirm(false);
     setIsCancelling(true);
     try {
       await videoApi.cancel(video.id);
@@ -250,7 +253,7 @@ export function VideoCard({ video }: VideoCardProps) {
                 Pause
               </button>
               <button
-                onClick={handleCancel}
+                onClick={() => setShowCancelConfirm(true)}
                 disabled={isCancelling}
                 className="cursor-pointer px-3 py-2 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-xs flex items-center gap-1 disabled:opacity-50"
               >
@@ -280,7 +283,7 @@ export function VideoCard({ video }: VideoCardProps) {
                 Resume
               </button>
               <button
-                onClick={handleCancel}
+                onClick={() => setShowCancelConfirm(true)}
                 disabled={isCancelling}
                 className="cursor-pointer px-3 py-2 bg-red-50 dark:bg-red-900/20 text-red-500 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-xs flex items-center gap-1 disabled:opacity-50"
               >
@@ -354,6 +357,15 @@ export function VideoCard({ video }: VideoCardProps) {
         <StatsModal
           videoId={video.youtube_video_id}
           onClose={() => setShowStatsModal(false)}
+        />
+      )}
+
+      {showCancelConfirm && (
+        <CancelConfirmModal
+          videoTitle={fullTitle}
+          onConfirm={handleCancel}
+          onCancel={() => setShowCancelConfirm(false)}
+          isConfirming={isCancelling}
         />
       )}
 
