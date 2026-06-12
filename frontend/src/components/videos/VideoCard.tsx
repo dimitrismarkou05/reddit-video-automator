@@ -75,7 +75,7 @@ export function VideoCard({ video }: VideoCardProps) {
     ACTIVE_GENERATION_STATUSES.includes(displayVideo.status);
   const isPaused = displayVideo.status === "paused";
   const isTerminal = TERMINAL_VIDEO_STATUSES.includes(displayVideo.status);
-  const stepLabel = getStepLabel(displayVideo.current_step || displayVideo.status);
+  const stepLabel = getStepLabel(displayVideo);
 
   const thumbnailSrc =
     video.status === "done"

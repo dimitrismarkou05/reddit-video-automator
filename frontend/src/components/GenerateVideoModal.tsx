@@ -21,7 +21,7 @@ import { videoApi, ttsLocalApi, settingsApi, videoProgressSSE } from "@/services
 import type { Story, SubtitleStyle as SubtitleStyleType } from "@/types";
 import { useVideoProgress } from "@/hooks/useVideoProgress";
 import { useVideoJobsStore } from "@/store/videoJobs";
-import { ACTIVE_GENERATION_STATUSES } from "@/config/videoStatus";
+import { ACTIVE_GENERATION_STATUSES, getStepLabel } from "@/config/videoStatus";
 import {
   removeVideoFromCache,
   removeVideoQuery,
@@ -29,34 +29,6 @@ import {
   storyQueryKey,
 } from "@/utils/videoQueries";
 import toast from "react-hot-toast";
-
-const STEP_LABELS: Record<string, string> = {
-  queued: "Waiting in queue...",
-  preparing: "Preparing narrative...",
-  downloading_model: "Downloading TTS model...",
-  initializing_pipeline: "Initializing pipeline...",
-  generating_script: "Generating script...",
-  tts: "Generating speech (TTS)...",
-  tts_synthesizing: "Synthesizing audio...",
-  tts_done: "Speech synthesis complete",
-  transcribing: "Transcribing audio...",
-  transcribe_done: "Transcription complete",
-  generating_subtitles: "Generating subtitles...",
-  subtitles_done: "Subtitles generated",
-  selecting_background: "Selecting background video...",
-  compositing: "Compositing video with FFmpeg...",
-  ffmpeg_processing: "FFmpeg processing...",
-  compositing_done: "Video compositing complete",
-  thumbnail: "Generating thumbnail...",
-  generating_thumbnail: "Creating thumbnail...",
-  uploading: "Uploading/exporting...",
-  cleanup: "Finalizing and cleaning up...",
-  done: "Complete!",
-  failed: "Generation failed",
-  cancelled: "Cancelled",
-  paused: "Generation paused",
-  processing: "Processing...",
-};
 
 // Active statuses where the ellipsis animation should run.
 const ANIMATING_STATUSES = new Set([
@@ -639,9 +611,9 @@ export function GenerateVideoModal({
   }, [isAnimating]);
 
   const rawStepLabel = progress
-    ? (progress.status_message || STEP_LABELS[progress.current_step] || progress.current_step)
+    ? getStepLabel({ status: progress.status, current_step: progress.current_step })
     : existingVideoIsActive
-      ? STEP_LABELS[existingVideo!.current_step] || "Processing..."
+      ? getStepLabel(existingVideo!)
       : "";
 
   const currentStepLabel = isAnimating

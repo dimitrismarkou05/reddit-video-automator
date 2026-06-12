@@ -21,7 +21,7 @@ export function VideoGenerationProgress({
   const isGenerating =
     isVideoGenerating(video) || ACTIVE_GENERATION_STATUSES.includes(video.status);
   const isPaused = video.status === "paused";
-  const stepLabel = getStepLabel(video.current_step || video.status);
+  const stepLabel = getStepLabel(video);
 
   if (variant === "compact") {
     return (
@@ -53,7 +53,7 @@ export function VideoGenerationProgress({
     if (isPaused) {
       return (
         <span className={`text-xs text-gray-500 dark:text-gray-400 ${className}`}>
-          Generation paused
+          {stepLabel}
         </span>
       );
     }
@@ -80,7 +80,7 @@ export function VideoGenerationProgress({
         )}
         {!isGenerating && isPaused && (
           <span className="text-xs text-gray-500 dark:text-gray-400 block">
-            Generation paused
+            {stepLabel}
           </span>
         )}
       </div>
@@ -106,7 +106,7 @@ export function VideoGenerationProgress({
       )}
       {!isGenerating && isPaused && (
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          Generation paused
+          {stepLabel}
         </span>
       )}
     </div>

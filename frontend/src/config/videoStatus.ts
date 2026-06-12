@@ -199,34 +199,6 @@ export const YT_STATUS_CONFIG: Record<
   },
 };
 
-export const STEP_LABELS: Record<string, string> = {
-  queued: "Queued",
-  preparing: "Preparing...",
-  downloading_model: "Loading voice model...",
-  initializing_pipeline: "Initializing...",
-  generating_script: "Preparing script...",
-  tts: "Generating speech...",
-  tts_synthesizing: "Generating voice...",
-  tts_done: "Voice ready",
-  transcribing: "Transcribing audio...",
-  transcribe_done: "Transcription complete",
-  generating_subtitles: "Building subtitles...",
-  subtitles_done: "Subtitles ready",
-  selecting_background: "Selecting background...",
-  compositing: "Rendering video...",
-  ffmpeg_processing: "Processing video...",
-  compositing_done: "Finalizing...",
-  thumbnail: "Creating thumbnail...",
-  generating_thumbnail: "Creating thumbnail...",
-  uploading: "Uploading...",
-  cleanup: "Cleaning up...",
-  processing: "Processing...",
-  done: "Ready",
-  failed: "Failed",
-  cancelled: "Cancelled",
-  paused: "Paused",
-};
-
 export type StoryStatusVariant =
   | "primary"
   | "success"
@@ -306,8 +278,11 @@ export function isVideoGenerating(video: Pick<GeneratedVideo, "status" | "curren
   return false;
 }
 
-export function getStepLabel(step: string): string {
-  return STEP_LABELS[step] || step.replace(/_/g, " ");
+export function getStepLabel(
+  video: Pick<GeneratedVideo, "status" | "current_step">
+): string {
+  const key = getVideoDisplayKey(video);
+  return STATUS_CONFIG[key]?.label ?? key.replace(/_/g, " ");
 }
 
 export function getStoryDisplayStatus(story: Story): {
