@@ -1,6 +1,6 @@
 import type { GeneratedVideo, Story } from "@/types";
 
-export const TERMINAL_VIDEO_STATUSES = ["done", "failed", "cancelled"];
+export const TERMINAL_VIDEO_STATUSES = ["done", "failed", "cancelled", "deleted"];
 
 export const ACTIVE_GENERATION_STATUSES = [
   "queued",

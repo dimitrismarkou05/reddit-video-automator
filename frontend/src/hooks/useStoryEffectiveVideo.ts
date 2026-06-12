@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ACTIVE_GENERATION_STATUSES,
@@ -8,6 +8,7 @@ import {
 import { useLiveGeneratedVideo } from "@/hooks/useLiveGeneratedVideo";
 import { useStoryGenerationState } from "@/hooks/useStoryGenerationState";
 import { videoApi } from "@/services/api";
+import { useVideoJobsStore } from "@/store/videoJobs";
 import type { GeneratedVideo } from "@/types";
 
 /**
@@ -24,6 +25,8 @@ export function useStoryEffectiveVideo(
   );
 
   const needsFetch = activeVideoId != null && !video;
+
+  const removeJob = useVideoJobsStore((s) => s.removeJob);
 
   const { data: fetchedVideo, isError } = useQuery({
     queryKey: ["video", activeVideoId],
@@ -42,6 +45,12 @@ export function useStoryEffectiveVideo(
       return false;
     },
   });
+
+  useEffect(() => {
+    if (isError && activeVideoId != null) {
+      removeJob(activeVideoId);
+    }
+  }, [isError, activeVideoId, removeJob]);
 
   const baseVideo = useMemo(() => {
     if (!isGenerating) {

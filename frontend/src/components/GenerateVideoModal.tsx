@@ -22,12 +22,7 @@ import type { Story, SubtitleStyle as SubtitleStyleType } from "@/types";
 import { useVideoProgress } from "@/hooks/useVideoProgress";
 import { useVideoJobsStore } from "@/store/videoJobs";
 import { ACTIVE_GENERATION_STATUSES, getStepLabel } from "@/config/videoStatus";
-import {
-  removeVideoFromCache,
-  removeVideoQuery,
-  clearStoryGeneratedVideo,
-  storyQueryKey,
-} from "@/utils/videoQueries";
+import { cleanupDeletedVideo, storyQueryKey } from "@/utils/videoQueries";
 import toast from "react-hot-toast";
 
 // Active statuses where the ellipsis animation should run.
@@ -53,8 +48,9 @@ export function GenerateVideoModal({
   parentStory = null,
 }: GenerateVideoModalProps) {
   const queryClient = useQueryClient();
-  const { setActiveModal, registerJob, updateJob, removeJob, removeJobsForStory } =
+  const { setActiveModal, registerJob, updateJob, removeJob } =
     useVideoJobsStore();
+  const activeJob = useVideoJobsStore((s) => s.getJobForStory(story.id));
 
   const [settings, setSettings] = useState({
     voice_id: "default",
@@ -84,7 +80,11 @@ export function GenerateVideoModal({
     existingVideoId ?? (existingVideo?.id || null),
   );
   const [lastError, setLastError] = useState<string | null>(null);
-  const [hasStartedGeneration, setHasStartedGeneration] = useState(false);
+  const [hasStartedGeneration, setHasStartedGeneration] = useState(
+    () =>
+      existingVideoId != null ||
+      useVideoJobsStore.getState().isStoryActive(story.id),
+  );
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelCompleted, setCancelCompleted] = useState(false);
 
@@ -148,6 +148,32 @@ export function GenerateVideoModal({
     }
   }, []);
 
+  const isProgressNotFound = useCallback((data: { status?: string; current_step?: string; error_message?: string | null }) => {
+    return (
+      data.status === "failed" &&
+      (data.current_step === "not_found" ||
+        data.error_message?.includes("Video record not found") === true)
+    );
+  }, []);
+
+  const handleNotFoundComplete = useCallback(
+    (id: number) => {
+      videoProgressSSE.disconnect();
+      setVideoId(null);
+      setHasStartedGeneration(false);
+      setLastError(null);
+      setCancelCompleted(false);
+      notifiedTerminalRef.current = true;
+
+      cleanupDeletedVideo(queryClient, {
+        videoId: id,
+        storyId: story.id,
+      });
+      setActiveModal(null, null);
+    },
+    [queryClient, setActiveModal, story.id],
+  );
+
   const handleCancelComplete = useCallback(
     (id: number) => {
       videoProgressSSE.disconnect();
@@ -160,25 +186,26 @@ export function GenerateVideoModal({
 
       if (!cancelCompleteRef.current) {
         cancelCompleteRef.current = true;
-        removeVideoFromCache(queryClient, id);
-        removeVideoQuery(queryClient, id);
-        clearStoryGeneratedVideo(queryClient, story.id, {
+        cleanupDeletedVideo(queryClient, {
+          videoId: id,
+          storyId: story.id,
           storyStatus: "video_cancelled",
         });
-        removeJobsForStory(story.id);
         setActiveModal(null, null);
         toast("Generation cancelled", { icon: "⚠️" });
-        queryClient.invalidateQueries({ queryKey: ["stories"] });
-        queryClient.invalidateQueries({ queryKey: storyQueryKey(story.id) });
       }
     },
-    [queryClient, removeJobsForStory, setActiveModal, story.id],
+    [queryClient, setActiveModal, story.id],
   );
 
   const handleError = useCallback(
     (data: any) => {
       if (data.status === "deleted" || data.status === "cancelled") {
         handleCancelComplete(data.video_id);
+        return;
+      }
+      if (isProgressNotFound(data)) {
+        handleNotFoundComplete(data.video_id);
         return;
       }
       if (!notifiedTerminalRef.current) {
@@ -188,7 +215,7 @@ export function GenerateVideoModal({
         }
       }
     },
-    [handleCancelComplete],
+    [handleCancelComplete, handleNotFoundComplete, isProgressNotFound],
   );
 
   const { progress } = useVideoProgress({
@@ -198,14 +225,18 @@ export function GenerateVideoModal({
   });
 
   // Derive UI state from progress
+  const hasTrackedVideo = videoId != null;
   const isGenerating =
     !cancelCompleted &&
     (progress
       ? ACTIVE_GENERATION_STATUSES.includes(progress.status)
-      : hasStartedGeneration && existingVideoIsActive);
+      : hasTrackedVideo &&
+        (hasStartedGeneration || existingVideoIsActive || !!activeJob));
 
   const isPaused = progress?.status === "paused";
-  const isFailed = progress?.status === "failed" || lastError !== null;
+  const progressNotFound = progress ? isProgressNotFound(progress) : false;
+  const isFailed =
+    (progress?.status === "failed" && !progressNotFound) || lastError !== null;
   const isDone =
     progress?.status === "done" ||
     (hasExistingVideo && existingVideo?.status === "done");
@@ -220,6 +251,11 @@ export function GenerateVideoModal({
       videoId
     ) {
       handleCancelComplete(videoId);
+      return;
+    }
+
+    if (isProgressNotFound(progress) && videoId) {
+      handleNotFoundComplete(videoId);
       return;
     }
 
@@ -247,24 +283,44 @@ export function GenerateVideoModal({
     } else if (!["cancelled", "deleted"].includes(progress.status)) {
       setLastError(null);
     }
-  }, [progress, videoId, updateJob, handleCancelComplete, cancelCompleted]);
+  }, [
+    progress,
+    videoId,
+    updateJob,
+    handleCancelComplete,
+    handleNotFoundComplete,
+    isProgressNotFound,
+    cancelCompleted,
+  ]);
 
-  // On mount, track existing active video (skip after user cancelled)
+  // On mount, track existing active video or resumed job (skip after user cancelled)
   useEffect(() => {
-    if (
-      cancelCompleted ||
-      cancelCompleteRef.current ||
-      !existingVideoIsActive ||
-      !existingVideo?.id ||
-      videoId
-    ) {
+    if (cancelCompleted || cancelCompleteRef.current) {
       return;
     }
-    setVideoId(existingVideo.id);
-    registerJob(existingVideo.id, story.id, existingVideo.status);
+
+    const trackedId =
+      videoId ?? existingVideoId ?? (existingVideoIsActive ? existingVideo?.id : null);
+    if (!trackedId) {
+      return;
+    }
+
+    const job = useVideoJobsStore.getState().getJobForStory(story.id);
+    if (!job || job.videoId !== trackedId) {
+      registerJob(
+        trackedId,
+        story.id,
+        existingVideo?.status ?? job?.status ?? "queued",
+      );
+    }
+
+    if (!videoId) {
+      setVideoId(trackedId);
+    }
   }, [
     existingVideo,
     existingVideoIsActive,
+    existingVideoId,
     videoId,
     story.id,
     registerJob,
@@ -504,18 +560,16 @@ export function GenerateVideoModal({
       if (data.video_id !== undefined) {
         setVideoId(data.video_id);
         registerJob(data.video_id, story.id, data.status || "queued");
+        queryClient.invalidateQueries({ queryKey: ["stories"] });
+        queryClient.invalidateQueries({ queryKey: storyQueryKey(story.id) });
 
         if (data.queue_position) {
           toast.success(
             `Generation queued at position #${data.queue_position}`,
           );
         } else if (data.message?.includes("already exists")) {
-          // This is the "already exists" case - just show info toast, don't open progress
           toast(data.message);
-          // Don't track this as an active generation
-          setHasStartedGeneration(false);
-          // But still set videoId so user can see progress if they want
-          setVideoId(data.video_id);
+          setHasStartedGeneration(true);
         } else if (data.message?.includes("retry")) {
           toast.success(data.message);
         } else {

@@ -31,14 +31,7 @@ import { getVideoThumbnailUrl, videoApi } from "@/services/api";
 import type { GeneratedVideo } from "@/types";
 import toast from "react-hot-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  clearStoryGeneratedVideo,
-  invalidateVideos,
-  removeVideoFromCache,
-  removeVideoQuery,
-  storyQueryKey,
-} from "@/utils/videoQueries";
-import { useVideoJobsStore } from "@/store/videoJobs";
+import { cleanupDeletedVideo } from "@/utils/videoQueries";
 
 function getVideoTitle(video: GeneratedVideo): string {
   return video.story_title || video.story?.title || "Untitled Video";
@@ -56,7 +49,6 @@ export function VideoCard({ video }: VideoCardProps) {
   const [isCancelling, setIsCancelling] = useState(false);
   const [imgError, setImgError] = useState(false);
   const queryClient = useQueryClient();
-  const removeJobsForStory = useVideoJobsStore((s) => s.removeJobsForStory);
 
   const displayTitle = truncateTitle(getVideoTitle(video));
   const fullTitle = getVideoTitle(video);
@@ -109,16 +101,11 @@ export function VideoCard({ video }: VideoCardProps) {
     setIsCancelling(true);
     try {
       await videoApi.cancel(video.id);
-      removeVideoFromCache(queryClient, video.id);
-      removeVideoQuery(queryClient, video.id);
-      clearStoryGeneratedVideo(queryClient, video.story_id, {
+      cleanupDeletedVideo(queryClient, {
+        videoId: video.id,
+        storyId: video.story_id,
         storyStatus: "video_cancelled",
       });
-      removeJobsForStory(video.story_id);
-      queryClient.invalidateQueries({
-        queryKey: storyQueryKey(video.story_id),
-      });
-      queryClient.invalidateQueries({ queryKey: ["stories"] });
       toast("Generation cancelled", { icon: "⚠️" });
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Failed to cancel");
@@ -130,13 +117,11 @@ export function VideoCard({ video }: VideoCardProps) {
     setIsDeleting(true);
     try {
       await videoApi.delete(video.id);
-      removeVideoFromCache(queryClient, video.id);
-      clearStoryGeneratedVideo(queryClient, video.story_id);
-      invalidateVideos(queryClient);
-      queryClient.invalidateQueries({
-        queryKey: storyQueryKey(video.story_id),
+      cleanupDeletedVideo(queryClient, {
+        videoId: video.id,
+        storyId: video.story_id,
+        invalidateVideoList: true,
       });
-      queryClient.invalidateQueries({ queryKey: ["stories"] });
       toast.success("Video deleted");
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Failed to delete");

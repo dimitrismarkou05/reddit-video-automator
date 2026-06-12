@@ -14,6 +14,7 @@ import { PrivateSubConfirmModal } from "@/components/modals/PrivateSubConfirmMod
 import { EmptyState } from "@/components/common/EmptyState";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { useDeleteTarget } from "@/hooks/useDeleteTarget";
+import { useVideoDeletedNotifications } from "@/hooks/useVideoDeletedNotifications";
 import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
 import type { Story } from "@/types";
 import type { SortOption } from "@/config/sortOptions";
@@ -22,6 +23,8 @@ import toast from "react-hot-toast";
 const STORIES_PER_PAGE = 10;
 
 export function StoriesPage() {
+  useVideoDeletedNotifications();
+
   const [newSubreddit, setNewSubreddit] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const { setNotifications } = useNotificationStore();

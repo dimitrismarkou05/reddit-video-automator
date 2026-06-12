@@ -1,10 +1,6 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  clearStoryGeneratedVideo,
-  removeVideoFromCache,
-  storyQueryKey,
-} from "@/utils/videoQueries";
+import { cleanupDeletedVideo } from "@/utils/videoQueries";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
 
@@ -24,19 +20,14 @@ export function useVideoDeletedNotifications(storyId?: number | null) {
         };
         if (!data.video_id) return;
 
-        removeVideoFromCache(queryClient, data.video_id);
-
         const affectedStoryId = data.story_id ?? storyId;
         if (affectedStoryId != null) {
-          clearStoryGeneratedVideo(queryClient, affectedStoryId, {
+          cleanupDeletedVideo(queryClient, {
+            videoId: data.video_id,
+            storyId: affectedStoryId,
             storyStatus: "video_cancelled",
           });
-          queryClient.invalidateQueries({
-            queryKey: storyQueryKey(affectedStoryId),
-          });
         }
-
-        queryClient.invalidateQueries({ queryKey: ["stories"] });
       } catch {
         /* ignore malformed payloads */
       }

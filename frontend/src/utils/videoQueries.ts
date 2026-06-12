@@ -1,4 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
+import { useVideoJobsStore } from "@/store/videoJobs";
 import type { GeneratedVideo, Story } from "@/types";
 
 export function storyQueryKey(storyId: number | string) {
@@ -66,4 +67,32 @@ export function clearStoryGeneratedVideo(
   queryClient.setQueryData<Story>(storyQueryKey(storyId), (old) =>
     old ? patchStory(old) : old,
   );
+}
+
+/** Sync React Query and Zustand after a video is cancelled or deleted. */
+export function cleanupDeletedVideo(
+  queryClient: QueryClient,
+  params: {
+    videoId: number;
+    storyId: number;
+    storyStatus?: string;
+    invalidateVideoList?: boolean;
+  },
+) {
+  const { videoId, storyId, storyStatus, invalidateVideoList } = params;
+
+  removeVideoFromCache(queryClient, videoId);
+  removeVideoQuery(queryClient, videoId);
+  clearStoryGeneratedVideo(queryClient, storyId, {
+    storyStatus,
+  });
+
+  if (invalidateVideoList) {
+    invalidateVideos(queryClient);
+  }
+
+  useVideoJobsStore.getState().removeJobsForStory(storyId);
+
+  queryClient.invalidateQueries({ queryKey: storyQueryKey(storyId) });
+  queryClient.invalidateQueries({ queryKey: ["stories"] });
 }

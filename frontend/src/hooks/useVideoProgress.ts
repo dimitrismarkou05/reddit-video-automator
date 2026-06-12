@@ -146,7 +146,24 @@ export function useVideoProgress({
           handleProgress(data as VideoProgressData);
         }
       })
-      .catch(() => {});
+      .catch((err: { response?: { status?: number } }) => {
+        if (err.response?.status === 404) {
+          handleProgress({
+            video_id: videoId,
+            status: "failed",
+            progress_percent: 0,
+            current_step: "not_found",
+            status_message: "Video not found",
+            step_progress: 0,
+            error_message: "Video record not found",
+            error_type: "NotFound",
+            error_step: "lookup",
+            queue_position: null,
+            is_paused: false,
+            retry_count: 0,
+          });
+        }
+      });
 
     videoProgressSSE.onProgress(handleProgress);
     videoProgressSSE.connect(videoId);
