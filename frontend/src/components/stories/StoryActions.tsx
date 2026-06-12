@@ -1,4 +1,4 @@
-import { Film, ExternalLink, Trash2, Loader2, Loader, Upload } from "lucide-react";
+import { Film, ExternalLink, Trash2, Loader2, Loader, Upload, Play } from "lucide-react";
 import toast from "react-hot-toast";
 import type { GeneratedVideo } from "@/types";
 
@@ -12,6 +12,7 @@ interface StoryActionsProps {
   canGenerate?: boolean;
   isDetectingFfmpeg?: boolean;
   isGenerating?: boolean;
+  isPaused?: boolean;
 }
 
 export function StoryActions({
@@ -23,6 +24,7 @@ export function StoryActions({
   canGenerate = true,
   isDetectingFfmpeg = false,
   isGenerating = false,
+  isPaused = false,
 }: StoryActionsProps) {
   const canUpload =
     generatedVideo?.status === "done" &&
@@ -70,7 +72,9 @@ export function StoryActions({
           onClick={handleGenerateClick}
           disabled={isDetectingFfmpeg || (!canGenerate && !isGenerating)}
           className={`p-2 rounded-lg  ${
-            isGenerating
+            isPaused
+              ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 cursor-pointer"
+              : isGenerating
               ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 cursor-pointer animate-pulse"
               : isDetectingFfmpeg
                 ? "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-wait"
@@ -79,7 +83,9 @@ export function StoryActions({
                   : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
           }`}
           title={
-            isGenerating
+            isPaused
+              ? "Generation paused — click to resume"
+              : isGenerating
               ? "Generation in progress..."
               : isDetectingFfmpeg
                 ? "Searching for FFmpeg..."
@@ -90,6 +96,8 @@ export function StoryActions({
         >
           {isDetectingFfmpeg ? (
             <Loader2 className="w-5 h-5 animate-spin" />
+          ) : isPaused ? (
+            <Play className="w-5 h-5" />
           ) : isGenerating ? (
             <Loader className="w-5 h-5 animate-spin" />
           ) : (

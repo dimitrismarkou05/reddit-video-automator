@@ -706,7 +706,8 @@ export function GenerateVideoModal({
   // Animated ellipsis cycling through "." ".." "..."
   const [ellipsis, setEllipsis] = useState(".");
   const activeStep = progress?.current_step ?? (existingVideoIsActive ? existingVideo?.current_step : null);
-  const isAnimating = activeStep ? ANIMATING_STATUSES.has(activeStep) : false;
+  const isAnimating =
+    !isPaused && !!activeStep && ANIMATING_STATUSES.has(activeStep);
 
   useEffect(() => {
     if (!isAnimating) return;
@@ -720,14 +721,7 @@ export function GenerateVideoModal({
   }, [isAnimating]);
 
   const rawStepLabel = isPaused
-    ? (progress?.status_message ||
-        `Paused — ${getStepLabel({
-          status: "processing",
-          current_step:
-            progress?.current_step ??
-            existingVideo?.current_step ??
-            "processing",
-        })}`)
+    ? ""
     : progress
       ? getStepLabel({
           status: progress.status,
@@ -747,6 +741,12 @@ export function GenerateVideoModal({
 
   const queuePosition =
     progress?.queue_position ?? existingVideo?.queue_position;
+
+  const isResumedMidPipeline =
+    currentProgress > 0 &&
+    !!activeStep &&
+    activeStep !== "queued" &&
+    !["done", "failed", "cancelled", "paused"].includes(activeStep);
 
   // Determine what view to show
   const showProgress =
@@ -787,26 +787,23 @@ export function GenerateVideoModal({
           {showProgress ? (
             <div className="space-y-4">
               <div className="text-center py-6">
-                <div className="relative w-20 h-20 mx-auto mb-4">
-                  <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
-                  {isCancelling ? (
-                    <>
-                      <div className="absolute inset-0 rounded-full border-4 border-red-500/20" />
-                      <div className="absolute inset-0 rounded-full border-4 border-red-500 border-t-transparent animate-spin" />
-                      <X className="absolute inset-0 m-auto w-8 h-8 text-red-500" />
-                    </>
-                  ) : (
-                    <>
-                      <div
-                        className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"
-                        style={{
-                          animationPlayState: isPaused ? "paused" : "running",
-                        }}
-                      />
-                      <Film className="absolute inset-0 m-auto w-8 h-8 text-primary" />
-                    </>
-                  )}
-                </div>
+                {!isPaused && (
+                  <div className="relative w-20 h-20 mx-auto mb-4">
+                    <div className="absolute inset-0 rounded-full border-4 border-primary/20" />
+                    {isCancelling ? (
+                      <>
+                        <div className="absolute inset-0 rounded-full border-4 border-red-500/20" />
+                        <div className="absolute inset-0 rounded-full border-4 border-red-500 border-t-transparent animate-spin" />
+                        <X className="absolute inset-0 m-auto w-8 h-8 text-red-500" />
+                      </>
+                    ) : (
+                      <>
+                        <div className="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin" />
+                        <Film className="absolute inset-0 m-auto w-8 h-8 text-primary" />
+                      </>
+                    )}
+                  </div>
+                )}
                 <h3 className="text-lg font-semibold mb-1">
                   {isCancelling
                     ? "Cancelling..."
@@ -814,11 +811,13 @@ export function GenerateVideoModal({
                       ? "Generation Paused"
                       : isFailed
                         ? "Generation Failed"
-                        : queuePosition
+                        : queuePosition && !isResumedMidPipeline
                           ? `Queued #${queuePosition}`
                           : "Generating Video..."}
                 </h3>
-                <p className="text-sm text-gray-500 mb-4">{currentStepLabel}</p>
+                {!isPaused && currentStepLabel && (
+                  <p className="text-sm text-gray-500 mb-4">{currentStepLabel}</p>
+                )}
 
                 <div className="w-full max-w-md mx-auto mb-4">
                   <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">

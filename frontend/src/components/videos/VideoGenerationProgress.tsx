@@ -43,8 +43,7 @@ export function VideoGenerationProgress({
       return (
         <div className={`w-full max-w-md ${className}`}>
           <span className="text-xs text-yellow-600 dark:text-yellow-400">
-            Paused — {stepLabel}
-            {showStepPercent ? ` (${video.progress_percent}%)` : ""}
+            Paused{showStepPercent ? ` (${video.progress_percent}%)` : ""}
           </span>
           <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1 overflow-hidden">
             <div
@@ -82,7 +81,7 @@ export function VideoGenerationProgress({
         {isPaused && (
           <>
             <span className="text-xs text-yellow-600 dark:text-yellow-400 block">
-              Paused — {stepLabel}
+              Paused
             </span>
             <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
               <div
@@ -116,7 +115,7 @@ export function VideoGenerationProgress({
       {isPaused && (
         <div className="w-full max-w-md">
           <span className="text-xs text-yellow-600 dark:text-yellow-400">
-            Paused — {stepLabel}
+            Paused
           </span>
           <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1 overflow-hidden">
             <div

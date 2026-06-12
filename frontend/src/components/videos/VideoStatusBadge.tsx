@@ -80,7 +80,9 @@ export function VideoStatusBadge({
     displayLabel = `${displayLabel} (${video.progress_percent}%)`;
   }
   if (key === "queued" && video?.queue_position && !label) {
-    displayLabel = `Queued #${video.queue_position}`;
+    displayLabel = showPercent
+      ? `Queued #${video.queue_position} (${video.progress_percent}%)`
+      : `Queued #${video.queue_position}`;
   }
 
   const badgeClasses = variant

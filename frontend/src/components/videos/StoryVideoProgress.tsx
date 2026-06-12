@@ -8,6 +8,7 @@ import {
 } from "@/config/videoStatus";
 import { useStoryEffectiveVideo } from "@/hooks/useStoryEffectiveVideo";
 import { useStoryGenerationState } from "@/hooks/useStoryGenerationState";
+import { isVideoPaused } from "@/utils/videoQueries";
 import { useVideoJobsStore } from "@/store/videoJobs";
 import type { GeneratedVideo, Story } from "@/types";
 
@@ -83,13 +84,15 @@ function StoryVideoBadge({
   video: GeneratedVideo;
   className?: string;
 }) {
+  const isPaused = isVideoPaused(video);
   const isGenerating =
-    isVideoGenerating(video) || ACTIVE_GENERATION_STATUSES.includes(video.status);
+    !isPaused &&
+    (isVideoGenerating(video) || ACTIVE_GENERATION_STATUSES.includes(video.status));
 
   return (
     <VideoStatusBadge
       video={video}
-      showPercent={isGenerating}
+      showPercent={isGenerating || isPaused}
       className={className}
     />
   );

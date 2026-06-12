@@ -250,11 +250,7 @@ export function mergeVideoProgress<T extends MergeableProgress>(
     if (isRegressiveProgress(prev, next)) {
       return null;
     }
-    if (
-      next.status !== "queued" &&
-      next.status !== "processing" &&
-      next.progress_percent < prev.progress_percent
-    ) {
+    if (next.progress_percent < prev.progress_percent) {
       return null;
     }
     return next;

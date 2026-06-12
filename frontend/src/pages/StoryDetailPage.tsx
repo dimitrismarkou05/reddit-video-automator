@@ -8,6 +8,7 @@ import {
   Calendar,
   ExternalLink,
   Film,
+  Play,
   Trash2,
   GitBranch,
   ChevronUp,
@@ -25,7 +26,7 @@ import {
   ACTIVE_GENERATION_STATUSES,
 } from "@/config/videoStatus";
 import { useVideoDeletedNotifications } from "@/hooks/useVideoDeletedNotifications";
-import { storyQueryKey } from "@/utils/videoQueries";
+import { isVideoPaused, storyQueryKey } from "@/utils/videoQueries";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { EmptyState } from "@/components/common/EmptyState";
 import { GenerateVideoModal } from "@/components/GenerateVideoModal";
@@ -33,6 +34,7 @@ import { UploadModal } from "@/components/UploadModal";
 import { DeleteConfirmModal } from "@/components/modals/DeleteConfirmModal";
 import { formatUtcRelative, stripUpdatePrefix } from "@/lib/formatters";
 import { useFfmpegStatus } from "@/hooks/useFfmpegStatus";
+import { useStoryEffectiveVideo } from "@/hooks/useStoryEffectiveVideo";
 import { useStoryGenerationState } from "@/hooks/useStoryGenerationState";
 import type { Story } from "@/types";
 import toast from "react-hot-toast";
@@ -238,12 +240,22 @@ function UpdateActions({
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
-  const { isGenerating: isThisUpdateGenerating, activeVideoId: updateGeneratingId } =
-    useStoryGenerationState(update.id, update.generated_video);
+  const {
+    isGenerating: isThisUpdateGenerating,
+    isPaused: isThisUpdatePausedFromHook,
+    activeVideoId: updateGeneratingId,
+  } = useStoryGenerationState(update.id, update.generated_video);
   const { isGenerating: isParentGenerating, activeVideoId: parentGeneratingId } =
     useStoryGenerationState(parentStory.id, parentStory.generated_video);
   const effectiveGeneratingId = updateGeneratingId ?? parentGeneratingId;
   const isEffectivelyGenerating = isThisUpdateGenerating || isParentGenerating;
+  const effectiveUpdateVideo = useStoryEffectiveVideo(
+    update.id,
+    update.generated_video,
+  );
+  const isThisUpdatePaused = effectiveUpdateVideo
+    ? isVideoPaused(effectiveUpdateVideo)
+    : isThisUpdatePausedFromHook;
 
   const hasCompletedVideo =
     !!update.generated_video && update.generated_video.status === "done";
@@ -312,7 +324,9 @@ function UpdateActions({
             onClick={handleGenerateClick}
             disabled={isDetectingFfmpeg}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium  ${
-              isEffectivelyGenerating
+              isThisUpdatePaused
+                ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 cursor-pointer"
+                : isEffectivelyGenerating
                 ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 cursor-pointer animate-pulse"
                 : isDetectingFfmpeg
                   ? "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-wait"
@@ -321,7 +335,9 @@ function UpdateActions({
                     : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
             }`}
             title={
-              isThisUpdateGenerating
+              isThisUpdatePaused
+                ? "Generation paused — click to resume"
+                : isThisUpdateGenerating
                 ? "Generation in progress..."
                 : isParentGenerating
                   ? "Included in parent generation..."
@@ -334,12 +350,16 @@ function UpdateActions({
           >
             {isDetectingFfmpeg ? (
               <Loader className="w-4 h-4 animate-spin" />
+            ) : isThisUpdatePaused ? (
+              <Play className="w-4 h-4" />
             ) : isEffectivelyGenerating ? (
               <Loader className="w-4 h-4 animate-spin" />
             ) : (
               <Film className="w-4 h-4" />
             )}
-            {isThisUpdateGenerating
+            {isThisUpdatePaused
+              ? "Resume"
+              : isThisUpdateGenerating
               ? "Generating..."
               : isParentGenerating
                 ? "Parent Generating..."
@@ -449,8 +469,18 @@ export function StoryDetailPage() {
 
   useVideoDeletedNotifications(story?.id);
 
-  const { isGenerating: isThisStoryGenerating, activeVideoId: generatingVideoId } =
-    useStoryGenerationState(story?.id ?? 0, story?.generated_video);
+  const {
+    isGenerating: isThisStoryGenerating,
+    isPaused: isPausedFromHook,
+    activeVideoId: generatingVideoId,
+  } = useStoryGenerationState(story?.id ?? 0, story?.generated_video);
+  const effectiveVideo = useStoryEffectiveVideo(
+    story?.id ?? 0,
+    story?.generated_video,
+  );
+  const isPaused = effectiveVideo
+    ? isVideoPaused(effectiveVideo)
+    : isPausedFromHook;
 
   /* scroll to anchor on load */
   useEffect(() => {
@@ -652,7 +682,9 @@ export function StoryDetailPage() {
                     onClick={handleGenerateClick}
                     disabled={isDetectingFfmpeg}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium  ${
-                      isThisStoryGenerating
+                      isPaused
+                        ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 cursor-pointer"
+                        : isThisStoryGenerating
                         ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 cursor-pointer animate-pulse"
                         : isDetectingFfmpeg
                           ? "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-wait"
@@ -661,7 +693,9 @@ export function StoryDetailPage() {
                             : "bg-gray-100 dark:bg-surface-dark dark:border dark:border-border-dark text-gray-400 cursor-not-allowed"
                     }`}
                     title={
-                      isThisStoryGenerating
+                      isPaused
+                        ? "Generation paused — click to resume"
+                        : isThisStoryGenerating
                         ? "Generation in progress... Click to view"
                         : isDetectingFfmpeg
                           ? "Searching for FFmpeg..."
@@ -672,12 +706,18 @@ export function StoryDetailPage() {
                   >
                     {isDetectingFfmpeg ? (
                       <Loader className="w-4 h-4 animate-spin" />
+                    ) : isPaused ? (
+                      <Play className="w-4 h-4" />
                     ) : isThisStoryGenerating ? (
                       <Loader className="w-4 h-4 animate-spin" />
                     ) : (
                       <Film className="w-4 h-4" />
                     )}
-                    {isThisStoryGenerating ? "Generating..." : "Generate Video"}
+                    {isPaused
+                      ? "Resume"
+                      : isThisStoryGenerating
+                        ? "Generating..."
+                        : "Generate Video"}
                   </button>
                 )}
                 <a

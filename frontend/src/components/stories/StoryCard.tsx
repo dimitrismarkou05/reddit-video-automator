@@ -9,7 +9,9 @@ import { StatusBadge } from "@/components/common/StatusBadge";
 import { StoryVideoProgress } from "@/components/videos/StoryVideoProgress";
 import { GenerateVideoModal } from "@/components/GenerateVideoModal";
 import { UploadModal } from "@/components/UploadModal";
+import { useStoryEffectiveVideo } from "@/hooks/useStoryEffectiveVideo";
 import { useStoryGenerationState } from "@/hooks/useStoryGenerationState";
+import { isVideoPaused } from "@/utils/videoQueries";
 import toast from "react-hot-toast";
 import type { Story } from "@/types";
 
@@ -30,8 +32,15 @@ export function StoryCard({ story, onDelete, canGenerate = true, isDetectingFfmp
   const hasCompletedVideo = !!story.generated_video && story.generated_video.status === "done";
   const updateCount = story.updates?.length || 0;
 
-  const { isGenerating: isThisStoryGenerating, activeVideoId: generatingVideoId } =
-    useStoryGenerationState(story.id, story.generated_video);
+  const {
+    isGenerating: isThisStoryGenerating,
+    isPaused: isPausedFromHook,
+    activeVideoId: generatingVideoId,
+  } = useStoryGenerationState(story.id, story.generated_video);
+  const effectiveVideo = useStoryEffectiveVideo(story.id, story.generated_video);
+  const isPaused = effectiveVideo
+    ? isVideoPaused(effectiveVideo)
+    : isPausedFromHook;
 
   const handleCardClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -119,6 +128,7 @@ export function StoryCard({ story, onDelete, canGenerate = true, isDetectingFfmp
               canGenerate={canGenerate}
               isDetectingFfmpeg={isDetectingFfmpeg}
               isGenerating={isThisStoryGenerating}
+              isPaused={isPaused}
             />
           </div>
         </div>

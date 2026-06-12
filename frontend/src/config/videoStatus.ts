@@ -245,10 +245,26 @@ export function truncateTitle(title: string, maxLen = 60): string {
 
 const DISPLAY_STEP_BLOCKLIST = ["done", "failed", "cancelled", "deleted"];
 
-export function getVideoDisplayKey(video: Pick<GeneratedVideo, "status" | "current_step">): string {
+export function getVideoDisplayKey(
+  video: Pick<GeneratedVideo, "status" | "current_step"> & {
+    progress_percent?: number;
+  },
+): string {
   if (video.status === "deleted") return "cancelled";
 
-  const statusTerminal = ["done", "failed", "cancelled", "paused", "queued"];
+  if (video.status === "queued") {
+    if (
+      (video.progress_percent ?? 0) > 0 &&
+      video.current_step &&
+      video.current_step !== "queued" &&
+      !DISPLAY_STEP_BLOCKLIST.includes(video.current_step)
+    ) {
+      return video.current_step;
+    }
+    return "queued";
+  }
+
+  const statusTerminal = ["done", "failed", "cancelled", "paused"];
   if (statusTerminal.includes(video.status)) {
     return video.status;
   }

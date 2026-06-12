@@ -256,7 +256,7 @@ export function VideoCard({ video }: VideoCardProps) {
 
         <div className="flex items-center gap-2 mb-3 w-full">
           <FormatBadge format={video.format} />
-          <VideoStatusBadge video={displayVideo} showPercent={isGenerating} />
+          <VideoStatusBadge video={displayVideo} showPercent={isGenerating || isPaused} />
           <YouTubeStatusBadge
             status={video.youtube_upload_status}
             className="ml-auto"
