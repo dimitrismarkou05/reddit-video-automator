@@ -481,6 +481,24 @@ class VideoPipeline:
             self._update_progress(video_record, "tts_done", 0, progress_callback)
 
             # ── Transcription ──────────────────────────────────────────
+            # Start background selection concurrently with transcription:
+            # both are independent I/O operations and the background probe
+            # (ffprobe per file) can take several seconds on a fresh directory.
+            _bg_needs_select = checkpoint.get("step", "subtitles_done") in (
+                "queued", "preparing", "tts_done", "transcribe_done",
+                "subtitles_done", "failed",
+            )
+            _bg_cached = (
+                checkpoint.get("bg_video")
+                or video_record.selected_background_video
+            )
+            _bg_prefetch_task: Optional[asyncio.Task] = None
+            if _bg_needs_select and not _bg_cached:
+                _bg_prefetch_task = asyncio.create_task(
+                    asyncio.to_thread(select_background_video, background_source),
+                    name=f"bg_select_{video_id}",
+                )
+
             whisper_result = None
             if checkpoint.get("step", "tts_done") in (
                 "queued", "preparing", "tts_done", "failed"
@@ -580,17 +598,20 @@ class VideoPipeline:
                 )
 
             # ── Background selection ───────────────────────────────────
-            if checkpoint.get("step", "subtitles_done") in (
-                "queued", "preparing", "tts_done", "transcribe_done",
-                "subtitles_done", "failed",
-            ):
+            if _bg_needs_select:
                 self.check_cancelled(video_record)
                 self._update_progress(
                     video_record, "selecting_background", 0, progress_callback
                 )
-                bg_video = await asyncio.to_thread(
-                    select_background_video, background_source
-                )
+                if _bg_prefetch_task is not None:
+                    # Background selection was running concurrently with
+                    # transcription — just collect the result.
+                    bg_video = await _bg_prefetch_task
+                    _bg_prefetch_task = None
+                else:
+                    bg_video = await asyncio.to_thread(
+                        select_background_video, background_source
+                    )
                 video_record.selected_background_video = bg_video
                 self.db.commit()
                 self._save_checkpoint(
@@ -599,6 +620,9 @@ class VideoPipeline:
                 )
                 logger.info(f"[Pipeline {video_id}] Background: {bg_video}")
             else:
+                if _bg_prefetch_task is not None:
+                    _bg_prefetch_task.cancel()
+                    _bg_prefetch_task = None
                 bg_video = (
                     checkpoint.get("bg_video")
                     or video_record.selected_background_video
@@ -634,13 +658,6 @@ class VideoPipeline:
                 )
                 from core.ffmpeg_settings import FFmpegSettings
 
-                tts_registry.evict_all()
-                unload_whisper_models()
-                gc.collect()
-                logger.info(
-                    f"[Pipeline {video_id}] Freed ML models before compositing"
-                )
-
                 ff_settings = FFmpegSettings(self.db)
                 try:
                     threads_override = int(ff_settings.get_ffmpeg_threads() or 0)
@@ -648,10 +665,32 @@ class VideoPipeline:
                     threads_override = 0
                 use_hwaccel = ff_settings.get_use_hardware_encoder()
                 duration = video_record.duration_seconds or 0.0
+
+                # Compute budget before deciding whether to evict models so
+                # we can base the eviction on actual available RAM.
                 budget = compute_resource_budget(
                     duration,
                     ffmpeg_threads_override=threads_override,
                 )
+
+                # Only free ML models when RAM is genuinely scarce or when the
+                # segmented path will be used (models and FFmpeg would compete
+                # for the same memory across multiple segments).  On machines
+                # with headroom the models stay warm for the next queued video.
+                if budget.available_ram_gb < 4.0 or not budget.use_single_pass:
+                    tts_registry.evict_all()
+                    unload_whisper_models()
+                    gc.collect()
+                    logger.info(
+                        f"[Pipeline {video_id}] Freed ML models before compositing "
+                        f"(available={budget.available_ram_gb:.1f}GB "
+                        f"single_pass={budget.use_single_pass})"
+                    )
+                else:
+                    logger.info(
+                        f"[Pipeline {video_id}] Keeping ML models in memory "
+                        f"(available={budget.available_ram_gb:.1f}GB)"
+                    )
 
                 if needs_segmentation(duration, budget):
                     total_segs = segment_count(duration, budget)
@@ -678,18 +717,37 @@ class VideoPipeline:
                         status_message=message,
                     )
 
-                final_duration = await self.composer.compose(
-                    bg_video,
-                    str(audio_path),
-                    str(subtitle_path) if Path(subtitle_path).exists() else None,
-                    str(output_folder / "video.mp4"),
-                    video_format=video_format,
-                    audio_duration=duration,
-                    progress_callback=ff_callback,
-                    encode_params=encode_params,
-                    use_hwaccel=use_hwaccel,
-                    resource_budget=budget,
+                # Thumbnail only needs story metadata — start it concurrently
+                # with the (long) compose step to overlap CPU/disk work.
+                self.check_cancelled(video_record)
+                _thumbnail_task: asyncio.Task = asyncio.create_task(
+                    asyncio.to_thread(
+                        self.thumbnail_gen.generate,
+                        story.title,
+                        story.subreddit,
+                        Path(video_record.thumbnail_path),
+                        score=story.score,
+                    ),
+                    name=f"thumbnail_{video_id}",
                 )
+
+                try:
+                    final_duration = await self.composer.compose(
+                        bg_video,
+                        str(audio_path),
+                        str(subtitle_path) if Path(subtitle_path).exists() else None,
+                        str(output_folder / "video.mp4"),
+                        video_format=video_format,
+                        audio_duration=duration,
+                        progress_callback=ff_callback,
+                        encode_params=encode_params,
+                        use_hwaccel=use_hwaccel,
+                        resource_budget=budget,
+                    )
+                except BaseException:
+                    _thumbnail_task.cancel()
+                    raise
+
                 logger.info(
                     f"[Pipeline {video_id}] Compositing done in "
                     f"{time.monotonic()-compose_t:.1f}s"
@@ -704,6 +762,7 @@ class VideoPipeline:
                 )
             else:
                 logger.info(f"[Pipeline {video_id}] Compositing skipped (checkpoint)")
+                _thumbnail_task = None  # type: ignore[assignment]
 
             self._update_progress(
                 video_record, "compositing_done", 0, progress_callback
@@ -714,13 +773,17 @@ class VideoPipeline:
             self._update_progress(
                 video_record, "generating_thumbnail", 0, progress_callback
             )
-            await asyncio.to_thread(
-                self.thumbnail_gen.generate,
-                story.title,
-                story.subreddit,
-                Path(video_record.thumbnail_path),
-                score=story.score,
-            )
+            if _thumbnail_task is not None:
+                # Already running concurrently — just collect the result.
+                await _thumbnail_task
+            else:
+                await asyncio.to_thread(
+                    self.thumbnail_gen.generate,
+                    story.title,
+                    story.subreddit,
+                    Path(video_record.thumbnail_path),
+                    score=story.score,
+                )
             self._update_progress(
                 video_record, "generating_thumbnail", 100, progress_callback
             )

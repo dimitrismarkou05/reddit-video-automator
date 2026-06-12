@@ -40,7 +40,14 @@ def compute_resource_budget(
     audio_duration: float,
     ffmpeg_threads_override: int = 0,
 ) -> ResourceBudget:
-    """Return thread/segment limits based on system resources (compose-only phase)."""
+    """Return thread/segment limits based on system resources (compose-only phase).
+
+    When there is genuine RAM headroom (available ≥ 4 GB on a machine with
+    more than 8 GB total) we pass ffmpeg_threads=0 so FFmpeg auto-selects the
+    optimal count for frame threading.  On low-RAM machines the conservative
+    caps remain in place to avoid OOM.  The user's ffmpeg_threads Settings
+    override always wins.
+    """
     total_gb, available_gb = _get_memory_gb()
     cpu = os.cpu_count() or 4
 
@@ -56,6 +63,12 @@ def compute_resource_budget(
         ffmpeg_threads = min(8, max(2, cpu // 2))
         filter_threads = 4
         segment_duration = 600
+
+    # On machines with healthy RAM and total > 8 GB, let FFmpeg (libx264 /
+    # hardware encoders) auto-select the best thread count via frame threading.
+    # Value 0 is valid for -threads and means "auto".
+    if available_gb >= 4.0 and total_gb > 8 and ffmpeg_threads_override == 0:
+        ffmpeg_threads = 0
 
     if ffmpeg_threads_override > 0:
         ffmpeg_threads = ffmpeg_threads_override

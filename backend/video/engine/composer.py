@@ -1,6 +1,7 @@
 """FFmpeg video composer with segmented rendering, resource limits, and hwaccel."""
 
 import asyncio
+import functools
 import logging
 import os
 import platform
@@ -38,8 +39,12 @@ class FFmpegComposerError(Exception):
     pass
 
 
+@functools.lru_cache(maxsize=4)
 def _detect_hwaccel_encoder(ffmpeg_path: str) -> Optional[str]:
-    """Return the best available hardware H.264 encoder, or None for software."""
+    """Return the best available hardware H.264 encoder, or None for software.
+
+    Result is cached per ffmpeg_path so we only probe once per process.
+    """
     try:
         result = subprocess.run(
             [ffmpeg_path, "-encoders", "-hide_banner"],
@@ -63,7 +68,9 @@ def _subprocess_popen_kwargs(use_low_priority: bool = True) -> dict:
     if platform.system().lower() == "windows":
         kwargs["creationflags"] = subprocess.BELOW_NORMAL_PRIORITY_CLASS  # type: ignore[attr-defined]
     else:
-        kwargs["preexec_fn"] = os.nice(10)  # type: ignore[assignment]
+        # lambda defers os.nice() until the child process is forked so we do
+        # not deprioritise the parent backend process.
+        kwargs["preexec_fn"] = lambda: os.nice(10)  # type: ignore[assignment]
     return kwargs
 
 
@@ -111,7 +118,12 @@ class FFmpegComposer:
         bg_input = background_video
         prepared = False
 
-        if should_prepare_background(audio_duration):
+        # Only pre-render the background when we will actually use multiple
+        # segments — it amortises the extra encode across them.  In single-pass
+        # mode the scale+crop+subtitle filter graph handles everything in one
+        # FFmpeg invocation, so a separate prepare step is pure waste (and
+        # introduces an extra lossy transcode).
+        if should_prepare_background(audio_duration) and needs_segmentation(audio_duration, budget):
             work_dir.mkdir(parents=True, exist_ok=True)
             prep_path = work_dir / "background_prepared.mp4"
             await asyncio.to_thread(
@@ -461,7 +473,7 @@ class FFmpegComposer:
         ])
 
         if video_codec == "libx264":
-            cmd.extend(["-thread_type", "slice", "-x264-params", "rc-lookahead=20"])
+            cmd.extend(["-x264-params", "rc-lookahead=20"])
 
         if params.get("crf"):
             cmd.extend(["-crf", str(params["crf"])])

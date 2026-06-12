@@ -9,6 +9,7 @@ Changes from the original:
 
 import functools
 import logging
+import os
 from pathlib import Path
 from typing import List, Optional, Callable
 
@@ -26,11 +27,33 @@ _SENTENCE_ENDS = frozenset(".!?")
 
 @functools.lru_cache(maxsize=4)
 def _load_whisper_model(model_size: str = "base"):
-    """Load and cache a faster-whisper model. Pre-loaded at startup."""
+    """Load and cache a faster-whisper model.
+
+    Uses all reasonable CPU cores for the CTranslate2 backend.  Attempts GPU
+    (CUDA float16) first; falls back to CPU int8 so CPU-only systems are
+    unaffected.
+    """
     from faster_whisper import WhisperModel  # type: ignore[import-untyped]
     logger.info(f"[Whisper] Loading model: {model_size}")
-    model = WhisperModel(model_size, device="cpu", compute_type="int8")
-    logger.info(f"[Whisper] Model loaded: {model_size}")
+    cpu_threads = min(os.cpu_count() or 4, 8)
+
+    try:
+        import torch  # type: ignore[import-untyped]
+        if torch.cuda.is_available():
+            logger.info("[Whisper] CUDA detected — loading model on GPU (float16)")
+            model = WhisperModel(model_size, device="cuda", compute_type="float16")
+            logger.info(f"[Whisper] Model loaded on GPU: {model_size}")
+            return model
+    except Exception as exc:
+        logger.debug(f"[Whisper] GPU init failed, falling back to CPU: {exc}")
+
+    model = WhisperModel(
+        model_size,
+        device="cpu",
+        compute_type="int8",
+        cpu_threads=cpu_threads,
+    )
+    logger.info(f"[Whisper] Model loaded on CPU ({cpu_threads} threads): {model_size}")
     return model
 
 
@@ -55,6 +78,10 @@ class SubtitleGenerator:
             audio_path,
             word_timestamps=True,
             language="en",
+            # beam_size=1 (greedy) is 2-4x faster with no quality loss on clean
+            # synthetic TTS audio, and word timestamps are identical.
+            beam_size=1,
+            condition_on_previous_text=False,
         )
 
         total_dur = audio_duration or (info.duration if info.duration else 0)

@@ -340,15 +340,17 @@ class LocalTTSProvider:
 
         try:
 
-            for i, chunk in enumerate(chunks):
+            # One executor reused for all chunks avoids per-chunk thread
+            # creation/teardown overhead.
+            with ThreadPoolExecutor(max_workers=1) as pool:
 
-                chunk_path = tmp_dir / f"chunk_{i:04d}.wav"
+                for i, chunk in enumerate(chunks):
 
-                timeout = self._chunk_timeout(chunk)
+                    chunk_path = tmp_dir / f"chunk_{i:04d}.wav"
 
-                try:
+                    timeout = self._chunk_timeout(chunk)
 
-                    with ThreadPoolExecutor(max_workers=1) as pool:
+                    try:
 
                         future = pool.submit(
 
@@ -358,43 +360,43 @@ class LocalTTSProvider:
 
                         future.result(timeout=timeout)
 
-                except FuturesTimeoutError:
+                    except FuturesTimeoutError:
 
-                    tts_registry.evict(self.model_name)
+                        tts_registry.evict(self.model_name)
 
-                    raise TTSProviderError(
+                        raise TTSProviderError(
 
-                        f"Coqui synthesis timed out on chunk {i} after {timeout:.0f}s"
+                            f"Coqui synthesis timed out on chunk {i} after {timeout:.0f}s"
 
-                    )
+                        )
 
-                except Exception as exc:
+                    except Exception as exc:
 
-                    tts_registry.evict(self.model_name)
+                        tts_registry.evict(self.model_name)
 
-                    raise TTSProviderError(
+                        raise TTSProviderError(
 
-                        f"Coqui synthesis failed on chunk {i}: {exc}"
+                            f"Coqui synthesis failed on chunk {i}: {exc}"
 
-                    )
-
-
-
-                if not chunk_path.exists() or chunk_path.stat().st_size == 0:
-
-                    raise TTSProviderError(f"Empty output for chunk {i}")
+                        )
 
 
 
-                parts.append(chunk_path)
+                    if not chunk_path.exists() or chunk_path.stat().st_size == 0:
+
+                        raise TTSProviderError(f"Empty output for chunk {i}")
 
 
 
-                if progress_callback:
+                    parts.append(chunk_path)
 
-                    sub_pct = int(((i + 1) / total) * 100)
 
-                    progress_callback(sub_pct, "tts_synthesizing")
+
+                    if progress_callback:
+
+                        sub_pct = int(((i + 1) / total) * 100)
+
+                        progress_callback(sub_pct, "tts_synthesizing")
 
 
 

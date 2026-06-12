@@ -57,13 +57,39 @@ def get_model(
         logger.info(f"[TTS Registry] Loading model: {model_name}")
         if progress_callback:
             progress_callback(0, "downloading_model")
+
         from TTS.api import TTS  # type: ignore[import-untyped]
-        model = TTS(model_name=model_name, progress_bar=False, gpu=False)
+
+        # Attempt GPU inference when CUDA is available; fall back to CPU so
+        # CPU-only systems (and machines with broken CUDA installations) are
+        # unaffected.
+        use_gpu = False
+        try:
+            import torch  # type: ignore[import-untyped]
+            use_gpu = torch.cuda.is_available()
+            if use_gpu:
+                logger.info("[TTS Registry] CUDA detected — loading TTS on GPU")
+        except Exception:
+            pass
+
+        try:
+            model = TTS(model_name=model_name, progress_bar=False, gpu=use_gpu)
+        except Exception as gpu_exc:
+            if not use_gpu:
+                raise
+            logger.warning(
+                f"[TTS Registry] GPU load failed ({gpu_exc}); retrying on CPU"
+            )
+            model = TTS(model_name=model_name, progress_bar=False, gpu=False)
+
         if progress_callback:
             progress_callback(100, "downloading_model")
         with _registry_lock:
             _registry[model_name] = model
-        logger.info(f"[TTS Registry] Model ready: {model_name}")
+        logger.info(
+            f"[TTS Registry] Model ready: {model_name} "
+            f"(gpu={use_gpu})"
+        )
         return model
     except Exception as exc:
         logger.error(f"[TTS Registry] Failed to load {model_name}: {exc}")
