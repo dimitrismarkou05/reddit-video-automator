@@ -1,19 +1,18 @@
-import { useEffect, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Film, Clock } from "lucide-react";
 import { videoApi } from "@/services/api";
-import { removeVideoFromCache } from "@/utils/videoQueries";
+import { useVideoDeletedNotifications } from "@/hooks/useVideoDeletedNotifications";
 import { VideoCard } from "@/components/videos/VideoCard";
 import { EmptyState } from "@/components/common/EmptyState";
 import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { PageHeader } from "@/components/common/PageHeader";
-import { ACTIVE_GENERATION_STATUSES } from "@/config/videoStatus";
+import { ACTIVE_GENERATION_STATUSES, isVideoGenerating, TERMINAL_VIDEO_STATUSES } from "@/config/videoStatus";
 import type { GeneratedVideo } from "@/types";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
-
 export function VideosPage() {
-  const queryClient = useQueryClient();
+  useVideoDeletedNotifications();
+
   const {
     data: videos,
     isLoading,
@@ -29,7 +28,14 @@ export function VideosPage() {
   // Determine if any videos are actively generating
   const hasActiveGenerations = useMemo(() => {
     if (!videos) return false;
-    return videos.some((v) => ACTIVE_GENERATION_STATUSES.includes(v.status));
+    return videos.some(
+      (v) =>
+        isVideoGenerating(v) ||
+        ACTIVE_GENERATION_STATUSES.includes(v.status) ||
+        (!TERMINAL_VIDEO_STATUSES.includes(v.status) &&
+          v.current_step &&
+          !TERMINAL_VIDEO_STATUSES.includes(v.current_step)),
+    );
   }, [videos]);
 
   // Use dynamic refetch interval - poll every 2s if there are active generations, otherwise 30s
@@ -46,26 +52,6 @@ export function VideosPage() {
   const displayVideos = hasActiveGenerations
     ? (pollingVideos ?? videos)
     : videos;
-
-  useEffect(() => {
-    const url = `${API_BASE.replace("/api/v1", "")}/api/v1/sse/notifications`;
-    const eventSource = new EventSource(url);
-    const onVideoDeleted = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.video_id) {
-          removeVideoFromCache(queryClient, data.video_id);
-        }
-      } catch {
-        /* ignore */
-      }
-    };
-    eventSource.addEventListener("video_deleted", onVideoDeleted);
-    return () => {
-      eventSource.removeEventListener("video_deleted", onVideoDeleted);
-      eventSource.close();
-    };
-  }, [queryClient]);
 
   return (
     <div className="space-y-6">

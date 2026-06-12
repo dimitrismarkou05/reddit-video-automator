@@ -1,7 +1,16 @@
 import axios from "axios";
 import { useNotificationStore } from "@/store";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+export const API_BASE =
+  import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+
+export function getVideoThumbnailUrl(
+  videoId: number,
+  cacheKey?: string | number,
+): string {
+  const qs = cacheKey != null ? `?v=${encodeURIComponent(String(cacheKey))}` : "";
+  return `${API_BASE}/videos/${videoId}/thumbnail${qs}`;
+}
 
 export const api = axios.create({
   baseURL: API_BASE,
@@ -95,12 +104,11 @@ export class VideoProgressConnection {
   private eventSource: EventSource | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private listeners: Set<(data: any) => void> = new Set();
-  private currentEndpoint: string = "";
+  private currentEndpoint = "";
   private currentVideoId: number | null = null;
   private isTerminal = false;
   private isConnecting = false;
   private connectionCount = 0;
-  private lastEventId = "";
   private _lastEmittedData: any = null;
   private _duplicateCount = 0;
 
@@ -110,6 +118,7 @@ export class VideoProgressConnection {
     // Already connected to this video and not terminal - skip
     if (
       this.currentVideoId === videoId &&
+      this.currentEndpoint === endpoint &&
       this.eventSource &&
       !this.isTerminal
     ) {

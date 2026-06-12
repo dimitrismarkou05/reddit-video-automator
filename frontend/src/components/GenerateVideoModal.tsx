@@ -24,7 +24,9 @@ import { useVideoJobsStore } from "@/store/videoJobs";
 import { ACTIVE_GENERATION_STATUSES } from "@/config/videoStatus";
 import {
   removeVideoFromCache,
+  removeVideoQuery,
   clearStoryGeneratedVideo,
+  storyQueryKey,
 } from "@/utils/videoQueries";
 import toast from "react-hot-toast";
 
@@ -79,7 +81,7 @@ export function GenerateVideoModal({
   parentStory = null,
 }: GenerateVideoModalProps) {
   const queryClient = useQueryClient();
-  const { setActiveModal, registerJob, updateJob, removeJob } =
+  const { setActiveModal, registerJob, updateJob, removeJob, removeJobsForStory } =
     useVideoJobsStore();
 
   const [settings, setSettings] = useState({
@@ -181,19 +183,24 @@ export function GenerateVideoModal({
       setIsCancelling(false);
       setVideoId(null);
       setHasStartedGeneration(false);
+      setLastError(null);
       notifiedTerminalRef.current = true;
 
       if (!cancelCompleteRef.current) {
         cancelCompleteRef.current = true;
         removeVideoFromCache(queryClient, id);
-        clearStoryGeneratedVideo(queryClient, story.id);
-        removeJob(id);
+        removeVideoQuery(queryClient, id);
+        clearStoryGeneratedVideo(queryClient, story.id, {
+          storyStatus: "video_cancelled",
+        });
+        removeJobsForStory(story.id);
+        setActiveModal(null, null);
         toast("Generation cancelled", { icon: "⚠️" });
         queryClient.invalidateQueries({ queryKey: ["stories"] });
-        queryClient.invalidateQueries({ queryKey: ["story", story.id] });
+        queryClient.invalidateQueries({ queryKey: storyQueryKey(story.id) });
       }
     },
-    [queryClient, removeJob, story.id],
+    [queryClient, removeJobsForStory, setActiveModal, story.id],
   );
 
   const handleError = useCallback(
@@ -236,6 +243,18 @@ export function GenerateVideoModal({
   useEffect(() => {
     if (!progress) return;
 
+    if (
+      (progress.status === "deleted" || progress.status === "cancelled") &&
+      videoId
+    ) {
+      handleCancelComplete(videoId);
+      return;
+    }
+
+    if (cancelCompleted || cancelCompleteRef.current) {
+      return;
+    }
+
     if (videoId) {
       updateJob(videoId, {
         status: progress.status,
@@ -247,24 +266,16 @@ export function GenerateVideoModal({
       });
     }
 
-    // Reset terminal notification when we see a non-terminal state
     if (!["done", "failed", "cancelled", "deleted"].includes(progress.status)) {
       notifiedTerminalRef.current = false;
-      cancelCompleteRef.current = false;
     }
 
-    if (progress.status === "deleted" && videoId) {
-      handleCancelComplete(videoId);
-    }
-
-    if (["done", "failed", "cancelled", "deleted"].includes(progress.status)) {
-      if (progress.status === "failed") {
-        setLastError(progress.error_message || "Unknown error");
-      }
-    } else {
+    if (progress.status === "failed") {
+      setLastError(progress.error_message || "Unknown error");
+    } else if (!["cancelled", "deleted"].includes(progress.status)) {
       setLastError(null);
     }
-  }, [progress, videoId, updateJob, handleCancelComplete]);
+  }, [progress, videoId, updateJob, handleCancelComplete, cancelCompleted]);
 
   // On mount, track existing active video (skip after user cancelled)
   useEffect(() => {
@@ -650,6 +661,12 @@ export function GenerateVideoModal({
   const showDone = isDone && !isCancelling && !cancelCompleted;
   const showPicker = !showProgress && !showDone;
 
+  const handleClose = useCallback(() => {
+    videoProgressSSE.disconnect();
+    setActiveModal(null, null);
+    onClose();
+  }, [onClose, setActiveModal]);
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-surface-light dark:bg-surface-dark rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-xl">
@@ -666,7 +683,7 @@ export function GenerateVideoModal({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="cursor-pointer p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5"
           >
             <X className="w-5 h-5" />

@@ -21,6 +21,7 @@ interface VideoJobsState {
   registerJob: (videoId: number, storyId: number, status?: string) => void;
   updateJob: (videoId: number, updates: Partial<VideoJob>) => void;
   removeJob: (videoId: number) => void;
+  removeJobsForStory: (storyId: number) => void;
   getJobForStory: (storyId: number) => VideoJob | null;
   isStoryActive: (storyId: number) => boolean;
   getActiveJobForStory: (storyId: number) => VideoJob | null;
@@ -106,6 +107,26 @@ export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
       };
     }),
 
+  removeJobsForStory: (storyId) =>
+    set((state) => {
+      const next: Record<number, VideoJob> = {};
+      let clearedModal = false;
+      for (const [id, job] of Object.entries(state.jobs)) {
+        if (job.storyId === storyId) {
+          if (state.activeModalVideoId === Number(id)) {
+            clearedModal = true;
+          }
+          continue;
+        }
+        next[Number(id)] = job;
+      }
+      return {
+        jobs: next,
+        activeModalVideoId: clearedModal ? null : state.activeModalVideoId,
+        activeModalStoryId: clearedModal ? null : state.activeModalStoryId,
+      };
+    }),
+
   getJobForStory: (storyId) => {
     const jobs = Object.values(get().jobs);
     return (
@@ -148,31 +169,20 @@ export const useVideoJobsStore = create<VideoJobsState>((set, get) => ({
     });
   },
 
+  /** Read-only: active video id for modal reopen / generation UI (no side effects). */
   getModalVideoId: (storyId, storyGeneratedVideo) => {
     const state = get();
 
-    // 1. Check if we have an active tracked job for this story
     const trackedJob = state.getJobForStory(storyId);
     if (trackedJob) {
       return trackedJob.videoId;
     }
 
-    // 2. Check if story has an active generated_video in DB
     if (
       storyGeneratedVideo &&
       !TERMINAL_STATUSES.includes(storyGeneratedVideo.status)
     ) {
-      state.registerJob(
-        storyGeneratedVideo.id,
-        storyId,
-        storyGeneratedVideo.status,
-      );
       return storyGeneratedVideo.id;
-    }
-
-    // 3. Check active modal for this story
-    if (state.activeModalStoryId === storyId && state.activeModalVideoId) {
-      return state.activeModalVideoId;
     }
 
     return null;

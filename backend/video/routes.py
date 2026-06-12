@@ -7,11 +7,12 @@ from datetime import datetime, timezone
 from typing import Optional
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
 from core.database import get_db
-from core.config import TEMP_DIR
+from core.config import TEMP_DIR, OUTPUT_DIR
 from video.schemas import (
     VideoGenerationRequest,
     VideoGenerationResponse,
@@ -63,6 +64,18 @@ def _schedule_broadcast(event_type: str, data: dict) -> None:
         loop.run_until_complete(_send())
 
 
+def _video_to_response(video: GeneratedVideo, story: Story | None = None) -> GeneratedVideoResponse:
+    """Build API response with optional joined story fields."""
+    resp = GeneratedVideoResponse.model_validate(video)
+    if story is not None:
+        resp.story_title = story.title
+        resp.story_subreddit = story.subreddit
+    elif video.story is not None:
+        resp.story_title = video.story.title
+        resp.story_subreddit = video.story.subreddit
+    return resp
+
+
 def _get_story_chain_root(story: Story, db: Session) -> Story:
     """Get the root story of a chain (parent of all updates)."""
     root = story
@@ -76,19 +89,55 @@ def _get_story_chain_root(story: Story, db: Session) -> Story:
 
 @router.get("", response_model=list[GeneratedVideoResponse])
 def list_videos(status: str | None = None, db: Session = Depends(get_db)):
-    query = db.query(GeneratedVideo)
+    query = (
+        db.query(GeneratedVideo, Story)
+        .join(Story, GeneratedVideo.story_id == Story.id)
+    )
     if status:
         query = query.filter(GeneratedVideo.status == status)
-    videos = query.order_by(GeneratedVideo.created_at.desc()).all()
-    return videos
+    rows = query.order_by(GeneratedVideo.created_at.desc()).all()
+    return [_video_to_response(video, story) for video, story in rows]
 
 
 @router.get("/{video_id}", response_model=GeneratedVideoResponse)
 def get_video(video_id: int, db: Session = Depends(get_db)):
+    row = (
+        db.query(GeneratedVideo, Story)
+        .join(Story, GeneratedVideo.story_id == Story.id)
+        .filter(GeneratedVideo.id == video_id)
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Video not found")
+    video, story = row
+    return _video_to_response(video, story)
+
+
+def _resolve_thumbnail_path(video: GeneratedVideo) -> Path | None:
+    """Locate thumbnail file from stored path or output folder fallback."""
+    if video.thumbnail_path:
+        candidate = Path(video.thumbnail_path)
+        if candidate.is_file():
+            return candidate
+
+    if video.story_id:
+        for folder in OUTPUT_DIR.glob(f"{video.story_id}_*"):
+            candidate = folder / "thumbnail.jpg"
+            if candidate.is_file():
+                return candidate
+
+    return None
+
+
+@router.get("/{video_id}/thumbnail")
+def get_video_thumbnail(video_id: int, db: Session = Depends(get_db)):
     video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    return video
+    thumb_path = _resolve_thumbnail_path(video)
+    if not thumb_path:
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    return FileResponse(thumb_path, media_type="image/jpeg")
 
 
 @router.post("/upload-background")
@@ -441,7 +490,7 @@ def cancel_video(video_id: int, db: Session = Depends(get_db)):
     cleanup_video_assets(video, story_title)
 
     if story:
-        story.status = StoryStatus.READY_FOR_VIDEO.value
+        story.status = StoryStatus.VIDEO_CANCELLED.value
 
     db.delete(video)
     db.commit()
@@ -536,10 +585,24 @@ def delete_video(video_id: int, db: Session = Depends(get_db)):
     story = db.query(Story).filter(Story.id == video.story_id).first()
     story_title = story.title if story else ""
 
+    story_id = video.story_id
+
     job_manager.cancel(video_id)
     job_manager.cleanup_job(video_id)
     cleanup_video_assets(video, story_title)
 
+    if story:
+        story.status = StoryStatus.READY_FOR_VIDEO.value
+
     db.delete(video)
     db.commit()
+
+    progress_push.push_progress(
+        video_id, build_deleted_progress_payload(video_id)
+    )
+    _schedule_broadcast("video_deleted", {
+        "video_id": video_id,
+        "story_id": story_id,
+    })
+
     return {"deleted": True, "video_id": video_id}

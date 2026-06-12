@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Film,
   Upload,
@@ -11,57 +11,38 @@ import {
   Loader2,
   Trash2,
   AlertTriangle,
-  CheckCircle,
-  XCircle,
-  MinusCircle,
-  CircleDot,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import {
-  STATUS_CONFIG,
-  YT_STATUS_CONFIG,
   ACTIVE_GENERATION_STATUSES,
+  TERMINAL_VIDEO_STATUSES,
+  truncateTitle,
+  getStepLabel,
+  isVideoGenerating,
 } from "@/config/videoStatus";
-import { videoApi } from "@/services/api";
+import { useLiveGeneratedVideo } from "@/hooks/useLiveGeneratedVideo";
+import {
+  FormatBadge,
+  VideoStatusBadge,
+  YouTubeStatusBadge,
+} from "@/components/videos/VideoStatusBadge";
+import { UploadModal } from "@/components/UploadModal";
+import { StatsModal } from "@/components/StatsModal";
+import { getVideoThumbnailUrl, videoApi } from "@/services/api";
 import type { GeneratedVideo } from "@/types";
 import toast from "react-hot-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { removeVideoFromCache } from "@/utils/videoQueries";
+import {
+  clearStoryGeneratedVideo,
+  invalidateVideos,
+  removeVideoFromCache,
+  removeVideoQuery,
+  storyQueryKey,
+} from "@/utils/videoQueries";
 import { useVideoJobsStore } from "@/store/videoJobs";
 
-const STEP_LABELS: Record<string, string> = {
-  queued: "Queued",
-  preparing: "Preparing...",
-  tts: "Generating speech...",
-  tts_done: "TTS complete",
-  transcribe_done: "Transcription complete",
-  subtitles_done: "Subtitles done",
-  selecting_background: "Selecting background...",
-  compositing: "Compositing...",
-  compositing_done: "Finalizing...",
-  thumbnail: "Thumbnail...",
-  done: "Ready",
-  failed: "Failed",
-  cancelled: "Cancelled",
-  paused: "Paused",
-};
-
-// Map status to an appropriate icon since STATUS_CONFIG doesn't include icons
-function getStatusIcon(status: string) {
-  switch (status) {
-    case "done":
-      return CheckCircle;
-    case "failed":
-      return XCircle;
-    case "cancelled":
-      return MinusCircle;
-    case "paused":
-      return Pause;
-    case "queued":
-      return CircleDot;
-    default:
-      return Loader2;
-  }
+function getVideoTitle(video: GeneratedVideo): string {
+  return video.story_title || video.story?.title || "Untitled Video";
 }
 
 interface VideoCardProps {
@@ -76,17 +57,34 @@ export function VideoCard({ video }: VideoCardProps) {
   const [isCancelling, setIsCancelling] = useState(false);
   const [imgError, setImgError] = useState(false);
   const queryClient = useQueryClient();
-  const removeJob = useVideoJobsStore((s) => s.removeJob);
+  const removeJobsForStory = useVideoJobsStore((s) => s.removeJobsForStory);
 
-  const status = STATUS_CONFIG[video.status] || STATUS_CONFIG.processing;
-  const ytStatus =
-    YT_STATUS_CONFIG[video.youtube_upload_status] ||
-    YT_STATUS_CONFIG.not_uploaded;
-  const StatusIcon = getStatusIcon(video.status);
-  const isGenerating = ACTIVE_GENERATION_STATUSES.includes(video.status);
-  const isPaused = video.status === "paused";
-  const isTerminal = ["done", "failed", "cancelled"].includes(video.status);
-  const stepLabel = STEP_LABELS[video.current_step] || video.current_step;
+  const displayTitle = truncateTitle(getVideoTitle(video));
+  const fullTitle = getVideoTitle(video);
+  const subreddit = video.story_subreddit || video.story?.subreddit;
+
+  const isLive =
+    isVideoGenerating(video) ||
+    ACTIVE_GENERATION_STATUSES.includes(video.status) ||
+    video.status === "paused";
+  const liveVideo = useLiveGeneratedVideo(video, isLive);
+  const displayVideo = liveVideo ?? video;
+
+  const isGenerating =
+    isVideoGenerating(displayVideo) ||
+    ACTIVE_GENERATION_STATUSES.includes(displayVideo.status);
+  const isPaused = displayVideo.status === "paused";
+  const isTerminal = TERMINAL_VIDEO_STATUSES.includes(displayVideo.status);
+  const stepLabel = getStepLabel(displayVideo.current_step || displayVideo.status);
+
+  const thumbnailSrc =
+    video.status === "done"
+      ? getVideoThumbnailUrl(video.id, video.completed_at || video.id)
+      : null;
+
+  useEffect(() => {
+    setImgError(false);
+  }, [video.id, video.thumbnail_path, video.status]);
 
   const handlePause = async () => {
     try {
@@ -114,7 +112,15 @@ export function VideoCard({ video }: VideoCardProps) {
     try {
       await videoApi.cancel(video.id);
       removeVideoFromCache(queryClient, video.id);
-      removeJob(video.id);
+      removeVideoQuery(queryClient, video.id);
+      clearStoryGeneratedVideo(queryClient, video.story_id, {
+        storyStatus: "video_cancelled",
+      });
+      removeJobsForStory(video.story_id);
+      queryClient.invalidateQueries({
+        queryKey: storyQueryKey(video.story_id),
+      });
+      queryClient.invalidateQueries({ queryKey: ["stories"] });
       toast("Generation cancelled", { icon: "⚠️" });
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Failed to cancel");
@@ -126,8 +132,14 @@ export function VideoCard({ video }: VideoCardProps) {
     setIsDeleting(true);
     try {
       await videoApi.delete(video.id);
+      removeVideoFromCache(queryClient, video.id);
+      clearStoryGeneratedVideo(queryClient, video.story_id);
+      invalidateVideos(queryClient);
+      queryClient.invalidateQueries({
+        queryKey: storyQueryKey(video.story_id),
+      });
+      queryClient.invalidateQueries({ queryKey: ["stories"] });
       toast.success("Video deleted");
-      queryClient.invalidateQueries({ queryKey: ["videos"] });
     } catch (e: any) {
       toast.error(e.response?.data?.detail || "Failed to delete");
     } finally {
@@ -136,21 +148,18 @@ export function VideoCard({ video }: VideoCardProps) {
     }
   };
 
-  // Build class strings from STATUS_CONFIG (uses bgColor, not bg)
-  const statusBadgeClasses = `${status.bgColor} ${status.color}`;
-
   return (
     <div className="card overflow-hidden">
       {/* Thumbnail */}
       <div className="relative aspect-video bg-neutral-900">
-        {video.thumbnail_path && video.status === "done" && !imgError ? (
+        {thumbnailSrc && !imgError ? (
           <img
-            src={`file://${video.thumbnail_path}`}
-            alt={video.story?.title || "Video thumbnail"}
+            src={thumbnailSrc}
+            alt={fullTitle}
             className="w-full h-full object-cover"
             onError={() => setImgError(true)}
           />
-        ) : video.status === "failed" ? (
+        ) : displayVideo.status === "failed" ? (
           <div className="w-full h-full flex flex-col items-center justify-center bg-red-900/10">
             <AlertTriangle className="w-10 h-10 text-red-500 mb-2" />
             <span className="text-xs text-red-400 font-medium">
@@ -167,6 +176,11 @@ export function VideoCard({ video }: VideoCardProps) {
             <Loader2 className="w-10 h-10 text-gray-500 animate-spin mb-2" />
             <span className="text-xs text-gray-500">Generating...</span>
           </div>
+        ) : video.status === "done" ? (
+          <div className="w-full h-full flex flex-col items-center justify-center">
+            <Loader2 className="w-10 h-10 text-gray-500 animate-spin mb-2" />
+            <span className="text-xs text-gray-500">Loading thumbnail...</span>
+          </div>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center">
             <Film className="w-10 h-10 text-gray-600 mb-2" />
@@ -175,41 +189,21 @@ export function VideoCard({ video }: VideoCardProps) {
             </span>
           </div>
         )}
-
-        {/* Format badge */}
-        <div className="absolute top-2 left-2 px-2 py-1 bg-black/70 text-white text-xs rounded-md font-medium">
-          {video.format === "shorts" ? "9:16 Shorts" : "16:9 Normal"}
-        </div>
-
-        {/* Status badge */}
-        <div
-          className={`absolute top-2 right-2 px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1 ${statusBadgeClasses}`}
-        >
-          <StatusIcon className="w-3 h-3" />
-          {status.label}
-        </div>
-
-        {/* Progress bar overlay */}
-        {isGenerating && (
-          <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-gray-700">
-            <div
-              className="h-full bg-primary transition-all duration-500"
-              style={{ width: `${video.progress_percent}%` }}
-            />
-          </div>
-        )}
       </div>
 
       {/* Info */}
       <div className="p-4">
-        <h3 className="font-semibold text-sm mb-1 line-clamp-2">
-          {video.story?.title || "Untitled Video"}
+        <h3
+          className="font-semibold text-sm mb-1 truncate"
+          title={fullTitle}
+        >
+          {displayTitle}
         </h3>
 
         {/* Subreddit badge */}
-        {video.story?.subreddit && (
+        {subreddit && (
           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary mb-2">
-            r/{video.story.subreddit}
+            r/{subreddit}
           </span>
         )}
 
@@ -218,23 +212,22 @@ export function VideoCard({ video }: VideoCardProps) {
           <div className="mb-2">
             <span className="text-xs text-gray-500 dark:text-gray-400">
               {stepLabel}
-              {video.queue_position ? ` (Queue #${video.queue_position})` : ""}
+              {displayVideo.queue_position ? ` (Queue #${displayVideo.queue_position})` : ""}
             </span>
-            {/* Simple progress bar since ProgressBar component may not exist */}
             <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1 overflow-hidden">
               <div
                 className="h-full bg-primary rounded-full transition-all duration-500"
-                style={{ width: `${video.progress_percent}%` }}
+                style={{ width: `${displayVideo.progress_percent}%` }}
               />
             </div>
           </div>
         )}
 
         {/* Error display */}
-        {video.status === "failed" && video.error_message && (
+        {displayVideo.status === "failed" && displayVideo.error_message && (
           <div className="mb-2 p-2 bg-red-50 dark:bg-red-900/20 rounded-lg">
             <p className="text-xs text-red-600 dark:text-red-400">
-              {video.error_message}
+              {displayVideo.error_message}
             </p>
           </div>
         )}
@@ -255,20 +248,23 @@ export function VideoCard({ video }: VideoCardProps) {
           )}
         </div>
 
-        <div className="flex items-center justify-between mb-3">
-          <span className={`text-xs font-medium ${ytStatus.color}`}>
-            {ytStatus.label}
-          </span>
-          {video.youtube_video_id && (
-            <span className="text-xs text-gray-400 font-mono">
-              {video.youtube_video_id}
-            </span>
-          )}
+        <div className="flex items-center gap-2 mb-3 w-full">
+          <FormatBadge format={video.format} />
+          <VideoStatusBadge video={displayVideo} showPercent={isGenerating} />
+          <YouTubeStatusBadge
+            status={video.youtube_upload_status}
+            className="ml-auto"
+          />
         </div>
+
+        {video.youtube_video_id && (
+          <p className="text-xs text-gray-400 font-mono mb-3">
+            {video.youtube_video_id}
+          </p>
+        )}
 
         {/* Action buttons */}
         <div className="flex items-center gap-2">
-          {/* Generating: Pause / Cancel */}
           {isGenerating && !isPaused && (
             <>
               <button
@@ -298,7 +294,6 @@ export function VideoCard({ video }: VideoCardProps) {
             </>
           )}
 
-          {/* Paused: Resume / Cancel */}
           {isPaused && (
             <>
               <button
@@ -329,7 +324,6 @@ export function VideoCard({ video }: VideoCardProps) {
             </>
           )}
 
-          {/* Done: Upload / YouTube link */}
           {video.status === "done" &&
             video.youtube_upload_status === "not_uploaded" && (
               <button
@@ -364,7 +358,6 @@ export function VideoCard({ video }: VideoCardProps) {
             </a>
           )}
 
-          {/* Terminal states: Delete */}
           {isTerminal && (
             <button
               onClick={() => setShowDeleteConfirm(true)}
@@ -378,7 +371,17 @@ export function VideoCard({ video }: VideoCardProps) {
         </div>
       </div>
 
-      {/* Delete confirmation dialog */}
+      {showUploadModal && (
+        <UploadModal video={video} onClose={() => setShowUploadModal(false)} />
+      )}
+
+      {showStatsModal && video.youtube_video_id && (
+        <StatsModal
+          videoId={video.youtube_video_id}
+          onClose={() => setShowStatsModal(false)}
+        />
+      )}
+
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-surface-light dark:bg-surface-dark rounded-2xl w-full max-w-md shadow-xl p-6">
@@ -389,7 +392,7 @@ export function VideoCard({ video }: VideoCardProps) {
               <h3 className="text-lg font-semibold">Delete Video?</h3>
             </div>
             <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
-              Delete "{video.story?.title || "Untitled Video"}"?
+              Delete "{fullTitle}"?
             </p>
             <p className="text-sm text-red-600 dark:text-red-400 mb-4 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg">
               This will permanently delete the video file, thumbnail, and all

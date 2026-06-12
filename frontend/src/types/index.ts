@@ -21,6 +21,8 @@ export interface Story {
 export interface GeneratedVideo {
   id: number;
   story_id: number;
+  story_title?: string | null;
+  story_subreddit?: string | null;
   video_path: string | null;
   thumbnail_path: string | null;
   audio_path: string | null;

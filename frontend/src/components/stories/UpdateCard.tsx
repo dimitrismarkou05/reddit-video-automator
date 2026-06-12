@@ -1,13 +1,15 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Clock, Film, Loader } from "lucide-react";
+import { Clock } from "lucide-react";
 import { BranchConnector } from "./BranchConnector";
 import { StoryMeta } from "./StoryMeta";
 import { StoryActions } from "./StoryActions";
 import { StoryBody } from "./StoryBody";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { StoryVideoProgress } from "@/components/videos/StoryVideoProgress";
 import { GenerateVideoModal } from "@/components/GenerateVideoModal";
-import { useVideoJobsStore } from "@/store/videoJobs";
+import { UploadModal } from "@/components/UploadModal";
+import { useStoryGenerationState } from "@/hooks/useStoryGenerationState";
 import { stripUpdatePrefix } from "@/lib/formatters";
 import toast from "react-hot-toast";
 import type { Story } from "@/types";
@@ -35,26 +37,19 @@ export function UpdateCard({
 }: UpdateCardProps) {
   const navigate = useNavigate();
   const [showGenerateModal, setShowGenerateModal] = useState(false);
-
-  const { getModalVideoId, activeModalStoryId, activeModalVideoId } = useVideoJobsStore();
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   const hasVideo = !!update.generated_video && update.generated_video.status === "done";
   const showNumberBadge = totalUpdates > 1;
   const updateNumber = index + 1;
   const cleanTitle = stripUpdatePrefix(update.title);
 
-  // Check if this specific update is generating
-  const updateGeneratingId = getModalVideoId(update.id, update.generated_video);
-  const isThisUpdateGenerating = updateGeneratingId !== null;
-
-  // Check if parent story is generating (meaning this update would be included)
-  const parentGeneratingId = parentStory
-    ? getModalVideoId(parentStory.id, parentStory.generated_video)
-    : null;
-  const isParentGenerating = parentGeneratingId !== null;
+  const { isGenerating: isThisUpdateGenerating, activeVideoId: updateGeneratingId } =
+    useStoryGenerationState(update.id, update.generated_video);
+  const { isGenerating: isParentGenerating, activeVideoId: parentGeneratingId } =
+    useStoryGenerationState(parentStory?.id ?? 0, parentStory?.generated_video);
 
   const handleCardClick = (e: React.MouseEvent) => {
-    // Don't navigate if clicking on action buttons
     const target = e.target as HTMLElement;
     if (target.closest("button") || target.closest("a")) {
       return;
@@ -69,31 +64,20 @@ export function UpdateCard({
       return;
     }
 
-    // If parent is generating with include_updates, show parent's progress
     if (isParentGenerating && parentGeneratingId) {
       setShowGenerateModal(true);
       return;
     }
 
-    // If this update is already generating, show its progress
     if (isThisUpdateGenerating && updateGeneratingId) {
       setShowGenerateModal(true);
       return;
     }
 
-    // If has completed video, navigate to detail
-    if (hasVideo) {
-      navigate(`/stories/${parentStoryId}#update-${update.id}`);
-      return;
-    }
-
-    // Otherwise open generation modal for this update
     setShowGenerateModal(true);
-  }, [isThisUpdateGenerating, isParentGenerating, updateGeneratingId, parentGeneratingId, hasVideo, canGenerate, isDetectingFfmpeg, parentStoryId, update.id, navigate]);
+  }, [isThisUpdateGenerating, isParentGenerating, updateGeneratingId, parentGeneratingId, canGenerate, isDetectingFfmpeg]);
 
-  // Determine effective generating state for display
   const effectiveGenerating = isThisUpdateGenerating || isParentGenerating;
-  const effectiveGeneratingId = updateGeneratingId || parentGeneratingId;
 
   return (
     <div className="flex">
@@ -110,18 +94,14 @@ export function UpdateCard({
                 {showNumberBadge && (
                   <StatusBadge label={`#${updateNumber}`} variant="neutral" />
                 )}
-                {hasVideo && (
-                  <StatusBadge
-                    label="Video Ready"
-                    icon={Film}
-                    variant="success"
-                  />
-                )}
-                {effectiveGenerating && (
-                  <StatusBadge
-                    label={isParentGenerating ? "Included in parent" : "Generating..."}
-                    variant="warning"
-                  />
+                <StoryVideoProgress
+                  storyId={update.id}
+                  video={update.generated_video}
+                  story={update}
+                  variant="compact"
+                />
+                {isParentGenerating && !update.generated_video && (
+                  <StatusBadge label="Included in parent" variant="warning" />
                 )}
               </div>
               <h3 className="font-semibold text-base mb-1">{cleanTitle}</h3>
@@ -131,8 +111,10 @@ export function UpdateCard({
             <div onClick={(e) => e.stopPropagation()}>
               <StoryActions
                 hasVideo={hasVideo}
+                generatedVideo={update.generated_video}
                 permalink={update.permalink}
                 onGenerate={handleGenerate}
+                onUpload={() => setShowUploadModal(true)}
                 onDelete={() => onDelete(update)}
                 canGenerate={canGenerate}
                 isDetectingFfmpeg={isDetectingFfmpeg}
@@ -143,7 +125,13 @@ export function UpdateCard({
         </div>
       </div>
 
-      {/* Modal: if parent is generating, show parent story modal. Otherwise show update modal */}
+      {showUploadModal && update.generated_video && (
+        <UploadModal
+          video={update.generated_video}
+          onClose={() => setShowUploadModal(false)}
+        />
+      )}
+
       {showGenerateModal && (
         isParentGenerating && parentStory ? (
           <GenerateVideoModal

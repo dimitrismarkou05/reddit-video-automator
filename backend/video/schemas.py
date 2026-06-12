@@ -36,6 +36,8 @@ class GeneratedVideoResponse(BaseModel):
 
     id: int
     story_id: int
+    story_title: Optional[str] = None
+    story_subreddit: Optional[str] = None
     video_path: Optional[str] = None
     thumbnail_path: Optional[str] = None
     audio_path: Optional[str] = None
